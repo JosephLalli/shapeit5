@@ -32,6 +32,8 @@
 #include <containers/genotype_set.h>
 #include <containers/conditioning_set/conditioning_set_header.h>
 #include <containers/variant_map.h>
+#include <modules/multiallelic_position_map.h>
+#include <modules/oneallele_enforcer.h>
 
 #define STAGE_BURN	0
 #define STAGE_PRUN	1
@@ -48,11 +50,15 @@ public:
 	genotype_set G;
 	hmm_parameters M;
 	variant_map V;
+	shapeit5::modules::MultiallelicPositionMap multiallelic_map;
+	shapeit5::modules::OneAlleleEnforcer oneallele_enforcer;
 
 	//PBWT
 	bool pbwt_auto;
 	int pbwt_depth;
 	double pbwt_modulo;
+	bool enforce_oneallele;
+	std::string oneallele_stats_path;
 
 	//MULTI-THREADING
 	int i_workers, i_jobs;
@@ -97,5 +103,3 @@ public:
 
 
 #endif
-
-

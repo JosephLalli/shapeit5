@@ -29,6 +29,9 @@
 #include <io/haploid_reader.h>
 #include <modules/genotype_builder.h>
 
+#include <cstdint>
+#include <unordered_map>
+
 using namespace std;
 
 void phaser::read_files_and_initialise() {
@@ -38,6 +41,9 @@ void phaser::read_files_and_initialise() {
 		i_workers = 0; i_jobs = 0;
 		id_workers = vector < pthread_t > (options["thread"].as < int > ());
 		pthread_mutex_init(&mutex_workers, NULL);
+	}
+	if (oneallele_enforcer.enabled()) {
+		oneallele_enforcer.reset_stats();
 	}
 
 	//step1: Set up the genotype reader
@@ -95,6 +101,7 @@ void phaser::read_files_and_initialise() {
 		pbwt_depth = options["pbwt-depth"].as < int > ();
 		pbwt_modulo = options["pbwt-modulo"].as < double > ();
 	}
+	oneallele_enforcer.set_conditioning_size(pbwt_depth);
 
 	H.initialize(V,	pbwt_modulo,
 					options["pbwt-window"].as < double > (),
@@ -112,4 +119,21 @@ void phaser::read_files_and_initialise() {
 	unsigned int max_number_transitions = G.largestNumberOfTransitions();
 	unsigned int max_number_missing = G.largestNumberOfMissings();
 	threadData = vector < compute_job >(options["thread"].as < int > (), compute_job(V, G, H, max_number_transitions, max_number_missing));
+
+	if (oneallele_enforcer.enabled()) {
+		std::vector<int32_t> chrom_ids;
+		std::vector<int32_t> positions;
+		chrom_ids.reserve(V.size());
+		positions.reserve(V.size());
+		std::unordered_map<std::string, int32_t> chr_to_id;
+		int32_t next_id = 0;
+		for (int i = 0; i < V.size(); ++i) {
+			variant* var = V.vec_pos[i];
+			auto res = chr_to_id.emplace(var->chr, next_id);
+			if (res.second) ++next_id;
+			chrom_ids.push_back(res.first->second);
+			positions.push_back(var->bp);
+		}
+		multiallelic_map.build(chrom_ids, positions);
+	}
 }

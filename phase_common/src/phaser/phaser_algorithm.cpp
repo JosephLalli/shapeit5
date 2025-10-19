@@ -133,10 +133,14 @@ void phaser::phase() {
 			H.select();
 			//PHASE DATA
 			phaseWindow();
-			//MERGE IBD2 PAIRS
-			H.Kbanned.collapse();
-			//UPDATE H with new sampled haplotypes
-			H.updateHaplotypes(G);
+		//MERGE IBD2 PAIRS
+		H.Kbanned.collapse();
+		// Enforce multiallelic one-allele constraint before updating haplotypes
+		if (oneallele_enforcer.enabled() && multiallelic_map.size() > 0) {
+			oneallele_enforcer.enforce(multiallelic_map, G, V);
+		}
+		//UPDATE H with new sampled haplotypes
+		H.updateHaplotypes(G);
 			//if (options.count("pedigree")) H.checkScaffoldPedigrees(G, options["pedigree"].as < string > ());
 			//TRANSPOSE H from Hfirst to Vfirst (for next PBWT compute)
 			H.transposeHaplotypes_H2V(false);
