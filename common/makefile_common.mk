@@ -18,8 +18,8 @@ CXXFLAG+= -D__COMMIT_DATE__=\"$(COMMIT_DATE)\"
 
 # DYNAMIC LIBRARIES # Standard libraries are still dynamic in static exe
 DYN_LIBS_FOR_STATIC=-lz -lpthread -lbz2 -llzma -lcurl -lcrypto -ldeflate
-# Non static exe links with all libraries
-DYN_LIBS=$(DYN_LIBS_FOR_STATIC) -lboost_iostreams -lboost_program_options -lboost_serialization -lhts
+# Non static exe links with all libraries - use explicit brew paths to avoid system conflicts
+DYN_LIBS=-L$(BOOST_LIB) -lboost_iostreams -lboost_program_options -lboost_serialization $(HTSLIB_LIB) $(DYN_LIBS_FOR_STATIC)
 
 HFILE=$(shell find src -name *.h)
 CFILE=$(shell find src -name *.cpp)
@@ -175,7 +175,7 @@ static_exe_robin_desktop: $(EXEFILE)
 all: desktop
 
 $(BFILE): $(OFILE)
-	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+	$(CXX) $(LDFLAG) -Wl,-rpath-link,$(BOOST_LIB) -L$(BOOST_LIB) $^ -o $@ $(DYN_LIBS)
 
 $(EXEFILE): $(OFILE)
 	$(CXX) $(LDFLAG) -static -static-libgcc -static-libstdc++ -pthread -o $(EXEFILE) $^ $(HTSLIB_LIB) $(BOOST_LIB_IO) $(BOOST_LIB_PO) -Wl,-Bstatic $(DYN_LIBS_FOR_STATIC)
