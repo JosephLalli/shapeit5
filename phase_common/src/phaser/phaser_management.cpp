@@ -25,6 +25,9 @@
 using namespace std;
 
 phaser::phaser() {
+	enforce_oneallele = false;
+	oneallele_stats_path.clear();
+	oneallele_enforcer.set_enabled(false);
 }
 
 phaser::~phaser() {
@@ -78,4 +81,3 @@ string phaser::get_iteration_scheme() {
 	str += "]";
 	return str;
 }
-

@@ -37,17 +37,25 @@ ifeq (,$(filter clean,$(MAKECMDGOALS)))
 # HTSLIB for static compilation #
 #################################
 # These are the default paths when installing htslib from source
-HTSSRC=$HOME/.linuxbrew
+HTSSRC=/mnt/ssd/lalli/.linuxbrew
 HTSLIB_INC=$(HTSSRC)/include/htslib
 HTSLIB_LIB=$(HTSSRC)/lib/libhts.a
 
 ##########################################
 # Boost libraries for static compilation #
 ##########################################
+<<<<<<< HEAD
 BOOST_INC=$HOME/.linuxbrew/include
 BOOST_LIB_IO=$HOME/.linuxbrew/lib/libboost_iostreams.a
 BOOST_LIB_PO=$HOME/.linuxbrew/lib/libboost_program_options.a
 BOOST_LIB_SE=$HOME/.linuxbrew/lib/libboost_serialization.a
+=======
+BOOST_INC=/mnt/ssd/lalli/.linuxbrew/include
+BOOST_LIB=/mnt/ssd/lalli/.linuxbrew/lib
+BOOST_LIB_IO=/mnt/ssd/lalli/.linuxbrew/lib/libboost_iostreams.a
+BOOST_LIB_PO=/mnt/ssd/lalli/.linuxbrew/lib/libboost_program_options.a
+BOOST_LIB_SE=/mnt/ssd/lalli/.linuxbrew/lib/libboost_serialization.a
+>>>>>>> 126c8ed (Add multiallelic site phasing capability to SHAPEIT5)
 
 # If not set by user command, search for it
 BOOST_LIB_IO?=$(shell whereis libboost_iostreams | grep -o '\S*\.a\b')
@@ -147,8 +155,8 @@ wally: BOOST_LIB_IO=/scratch/wally/FAC/FBM/DBC/odelanea/default/libs/boost/lib/l
 wally: BOOST_LIB_PO=/scratch/wally/FAC/FBM/DBC/odelanea/default/libs/boost/lib/libboost_program_options.a
 wally: $(BFILE)
 
-static_exe: CXXFLAG=-O2 -mavx2 -mfma -D__COMMIT_ID__=\"$(COMMIT_VERS)\" -D__COMMIT_DATE__=\"$(COMMIT_DATE)\"
-static_exe: LDFLAG=-O2
+static_exe: CXXFLAG=-O3 -mavx2 -mfma -D__COMMIT_ID__=\"$(COMMIT_VERS)\" -D__COMMIT_DATE__=\"$(COMMIT_DATE)\"
+static_exe: LDFLAG=-O3
 static_exe: $(EXEFILE)
 
 # static desktop Robin

@@ -25,6 +25,8 @@
 #include <io/haplotype_writer.h>
 #include <io/graph_writer.h>
 
+#include <fstream>
+
 void phaser::write_files_and_finalise() {
 	vrb.title("Finalization:");
 
@@ -42,6 +44,21 @@ void phaser::write_files_and_finalise() {
 		graph_writer(G, V).writeGraphs(options["bingraph"].as < std::string > ());
 	else
 		haplotype_writer(H, G, V, options["thread"].as < int > ()).writeHaplotypes(options["output"].as < std::string > (), oformat , options["input"].as < std::string > ());
+
+	if (enforce_oneallele) {
+		const shapeit5::modules::OneAlleleStats& stats = oneallele_enforcer.stats();
+		vrb.bullet("One-allele enforcement : positions=" + stb.str(stats.positions_checked) + " / violations=" + stb.str(stats.violations_found) + " / flips=" + stb.str(stats.flips_applied));
+		if (!oneallele_stats_path.empty()) {
+			std::ofstream ofs(oneallele_stats_path);
+			if (!ofs.good()) {
+				vrb.warning("Unable to write one-allele stats to [" + oneallele_stats_path + "]");
+			} else {
+				ofs << "positions_checked\t" << stats.positions_checked << "\n";
+				ofs << "violations_found\t" << stats.violations_found << "\n";
+				ofs << "flips_applied\t" << stats.flips_applied << "\n";
+			}
+		}
+	}
 
 	//step2: Measure overall running time
 	vrb.bullet("Total running time = " + stb.str(tac.abs_time()) + " seconds");
