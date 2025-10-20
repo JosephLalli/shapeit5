@@ -94,28 +94,61 @@ void genotype_reader::readGenotypes() {
 			bool minor = (XR.getAF(idx_unphased) < 0.5f);
 
 			// ... in BCF format
-			if (unph_type == RECORD_BCFVCF_GENOTYPE) {
-				XR.readRecord(idx_unphased, reinterpret_cast< char** > (&input_buffer));
-				for(int i = 0 ; i < 2 * n_samples ; i += 2) {
-					bool a0 = (bcf_gt_allele(input_buffer[i+0])==1);
-					bool a1 = (bcf_gt_allele(input_buffer[i+1])==1);
-					bool mi = (input_buffer[i+0] == bcf_gt_missing || input_buffer[i+1] == bcf_gt_missing);
-					if (mi) V.vec_full[vt]->cmis ++;
-					else { V.vec_full[vt]->cref += 2-(a0+a1); V.vec_full[vt]->calt += a0+a1; }
+            if (unph_type == RECORD_BCFVCF_GENOTYPE) {
+                // Try to fetch GP or PL for genotype posteriors (heterozygous probability)
+                std::vector<double> phet(n_samples, 1.0);
+                {
+                    int ngp = 0;
+                    float* gp = NULL;
+                    int ret_gp = bcf_get_format_float(XR.sync_reader->readers[idx_unphased].header, XR.sync_lines[idx_unphased], "GP", &gp, &ngp);
+                    if (ret_gp >= (int)(n_samples*3)) {
+                        for (int s = 0; s < (int)n_samples; ++s) {
+                            double p0 = gp[3*s+0], p1 = gp[3*s+1], p2 = gp[3*s+2];
+                            double sum = (std::max(0.0, p0) + std::max(0.0, p1) + std::max(0.0, p2));
+                            phet[s] = (sum > 0.0) ? std::max(0.0, std::min(1.0, p1 / sum)) : 1.0;
+                        }
+                    } else {
+                        int npl = 0; int32_t* pl = NULL;
+                        int ret_pl = bcf_get_format_int32(XR.sync_reader->readers[idx_unphased].header, XR.sync_lines[idx_unphased], "PL", &pl, &npl);
+                        if (ret_pl >= (int)(n_samples*3)) {
+                            for (int s = 0; s < (int)n_samples; ++s) {
+                                int32_t q0 = pl[3*s+0], q1 = pl[3*s+1], q2 = pl[3*s+2];
+                                // Convert Phred-scaled likelihoods to probabilities; use min-shift for stability
+                                int32_t qmin = std::min(q0, std::min(q1, q2));
+                                double l0 = std::pow(10.0, -0.1 * (q0 - qmin));
+                                double l1 = std::pow(10.0, -0.1 * (q1 - qmin));
+                                double l2 = std::pow(10.0, -0.1 * (q2 - qmin));
+                                double sum = l0 + l1 + l2;
+                                phet[s] = (sum > 0.0) ? (l1 / sum) : 1.0;
+                            }
+                        }
+                        if (pl) free(pl);
+                    }
+                    if (gp) free(gp);
+                }
 
-					if (mi) {
-						G.pushRareMissing(vr, i/2, !minor);
-						n_rare_genotypes[3] ++;
-					} else if ((a0+a1) == 1) {
-						G.pushRareUnphasedHet(vr, i/2);
-						n_rare_genotypes[1] ++;
-					} else if (a0 == minor) {
-						G.pushRareHom(vr, i/2, !minor);
-						n_rare_genotypes[a0*2] ++;
-					} else n_rare_genotypes[a1*2] ++;
-				}
-				vr++; vt ++;
-			}
+                XR.readRecord(idx_unphased, reinterpret_cast< char** > (&input_buffer));
+                for(int i = 0 ; i < 2 * n_samples ; i += 2) {
+                    bool a0 = (bcf_gt_allele(input_buffer[i+0])==1);
+                    bool a1 = (bcf_gt_allele(input_buffer[i+1])==1);
+                    bool mi = (input_buffer[i+0] == bcf_gt_missing || input_buffer[i+1] == bcf_gt_missing);
+                    if (mi) V.vec_full[vt]->cmis ++;
+                    else { V.vec_full[vt]->cref += 2-(a0+a1); V.vec_full[vt]->calt += a0+a1; }
+
+                    if (mi) {
+                        G.pushRareMissing(vr, i/2, !minor);
+                        n_rare_genotypes[3] ++;
+                    } else if ((a0+a1) == 1) {
+                        G.pushRareUnphasedHet(vr, i/2);
+                        if (!G.GRvar_genotypes[vr].empty()) G.GRvar_genotypes[vr].back().ghet = (float)std::max(0.0, std::min(1.0, phet[i/2]));
+                        n_rare_genotypes[1] ++;
+                    } else if (a0 == minor) {
+                        G.pushRareHom(vr, i/2, !minor);
+                        n_rare_genotypes[a0*2] ++;
+                    } else n_rare_genotypes[a1*2] ++;
+                }
+                vr++; vt ++;
+            }
 
 			// ... in Binary format
 			else if (unph_type == RECORD_BINARY_GENOTYPE) {
