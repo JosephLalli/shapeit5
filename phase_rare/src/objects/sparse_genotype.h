@@ -41,38 +41,43 @@ public:
 	unsigned int mis : 1;	//Is it missing?	If none of the two, it is then Minor/Minor
 	unsigned int al0 : 1;	//What's the allele on haplotype 0?
 	unsigned int al1 : 1;	//What's the allele on haplotype 1?
-	unsigned int pha : 1;	//Is the genotype phased?
-	float prob;				//Probability
+    unsigned int pha : 1;	//Is the genotype phased?
+    float prob;				//Probability
+    float ghet;              // Posterior probability of being heterozygous (if available)
 
-	sparse_genotype() {
-		idx = het = mis = al0 = al1 = pha = 0;
-		prob = -1.0f;
-	}
+    sparse_genotype() {
+        idx = het = mis = al0 = al1 = pha = 0;
+        prob = -1.0f;
+        ghet = 1.0f;
+    }
 
-	sparse_genotype(unsigned int value) {
-		set(value);
-		prob = pha?1.0f:-1.0f;
-	}
+    sparse_genotype(unsigned int value) {
+        set(value);
+        prob = pha?1.0f:-1.0f;
+        ghet = het?1.0f:0.0f;
+    }
 
-	sparse_genotype(unsigned int _idx, bool _het, bool _mis, bool _al0, bool _al1, bool _pha) {
-		idx = _idx; het = _het; mis = _mis; al0 = _al0; al1 = _al1;
+    sparse_genotype(unsigned int _idx, bool _het, bool _mis, bool _al0, bool _al1, bool _pha) {
+        idx = _idx; het = _het; mis = _mis; al0 = _al0; al1 = _al1;
 
 		pha = _pha || (!het && !mis);
 
-		if (pha) prob = 1.0f;
-		else {
-			prob = -1.0f;
-			if (al0 != al1) {
-				if (rng.flipCoin()) { al0 = 0; al1 = 1; }
-				else { al0 = 1; al1 = 0; }
-			}
-		}
-	}
+        if (pha) prob = 1.0f;
+        else {
+            prob = -1.0f;
+            if (al0 != al1) {
+                if (rng.flipCoin()) { al0 = 0; al1 = 1; }
+                else { al0 = 1; al1 = 0; }
+            }
+        }
+        ghet = het?1.0f:0.0f;
+    }
 
-	~sparse_genotype() {
-		idx = het = mis = al0 = al1 = pha = 0;
-		prob = -1.0f;
-	}
+    ~sparse_genotype() {
+        idx = het = mis = al0 = al1 = pha = 0;
+        prob = -1.0f;
+        ghet = 1.0f;
+    }
 
 	bool operator < (const sparse_genotype & rg) const {
 		return idx < rg.idx;
@@ -94,14 +99,15 @@ public:
 		return value;
 	}
 
-	void set(unsigned int value) {
-		idx = (value >> 5);
-		het = GETBIT(value, 4);
-		mis = GETBIT(value, 3);
-		al0 = GETBIT(value, 2);
-		al1 = GETBIT(value, 1);
-		pha = GETBIT(value, 0);
-	}
+    void set(unsigned int value) {
+        idx = (value >> 5);
+        het = GETBIT(value, 4);
+        mis = GETBIT(value, 3);
+        al0 = GETBIT(value, 2);
+        al1 = GETBIT(value, 1);
+        pha = GETBIT(value, 0);
+        ghet = het?1.0f:0.0f;
+    }
 
 	void phase(unsigned int g) {
 		if (!pha) {
