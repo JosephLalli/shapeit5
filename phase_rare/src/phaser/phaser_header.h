@@ -44,8 +44,17 @@ public:
 	conditioning_set H;
 	genotype_set G;
 	hmm_parameters M;
-	variant_map V;
-	state_set P;
+    variant_map V;
+    state_set P;
+
+    // One-allele constraint (rare)
+    bool enforce_oneallele_rare;
+    std::string oneallele_rare_stats_path;
+    struct OneAlleleRareStats {
+        unsigned long long positions_checked = 0;
+        unsigned long long sample_violations_found = 0;
+        unsigned long long flips_applied = 0;
+    } oneallele_rare_stats;
 
 	//MULTI-THREADING
 	int i_jobs, i_threads, nthreads;
@@ -96,5 +105,4 @@ public:
 
 
 #endif
-
 

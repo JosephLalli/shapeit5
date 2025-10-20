@@ -25,7 +25,7 @@
 #include <io/haplotype_writer.h>
 
 void phaser::write_files_and_finalise() {
-	vrb.title("Finalization:");
+    vrb.title("Finalization:");
 
 	//step0: multi-threading
 	if (options["thread"].as < int > () > 1) pthread_mutex_destroy(&mutex_workers);
@@ -35,6 +35,22 @@ void phaser::write_files_and_finalise() {
 	writerH.setRegions(input_start, input_stop);
 	writerH.writeHaplotypes(options["output"].as < std::string > (), options["input"].as < std::string > ());
 
-	//step2: Measure overall running time
-	vrb.bullet("Total running time = " + stb.str(tac.abs_time()) + " seconds");
+    //step2: Measure overall running time
+    vrb.bullet("Total running time = " + stb.str(tac.abs_time()) + " seconds");
+
+    if (enforce_oneallele_rare) {
+        vrb.bullet("One-allele (rare) : positions=" + stb.str(oneallele_rare_stats.positions_checked) +
+                   " / sample-violations=" + stb.str(oneallele_rare_stats.sample_violations_found) +
+                   " / flips=" + stb.str(oneallele_rare_stats.flips_applied));
+        if (!oneallele_rare_stats_path.empty()) {
+            std::ofstream ofs(oneallele_rare_stats_path);
+            if (!ofs.good()) {
+                vrb.warning("Unable to write rare one-allele stats to [" + oneallele_rare_stats_path + "]");
+            } else {
+                ofs << "positions_checked\t" << oneallele_rare_stats.positions_checked << "\n";
+                ofs << "sample_violations_found\t" << oneallele_rare_stats.sample_violations_found << "\n";
+                ofs << "flips_applied\t" << oneallele_rare_stats.flips_applied << "\n";
+            }
+        }
+    }
 }
