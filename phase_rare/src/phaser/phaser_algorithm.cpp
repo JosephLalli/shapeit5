@@ -23,6 +23,7 @@
 #include <phaser/phaser_header.h>
 #include <unordered_map>
 #include <string>
+#include <cmath>
 
 using namespace std;
 
@@ -170,9 +171,10 @@ void phaser::phase() {
                     // Compute joint PP if aligning to anchor
                     double p1 = clamp01(to_flip->prob);
                     double p2 = clamp01(anchor->prob);
-                    double D = (1.0 - p1) * p2 + p1 * (1.0 - p2);
-                    double newPP = 0.5;
-                    if (D > 1e-12) newPP = ((1.0 - p1) * p2) / D; // flipping to_flip to match anchor
+                    // Numerically stable: newPP = sigmoid(logit(p2) - logit(p1))
+                    auto logit = [](double x){ return std::log(x) - std::log1p(-x); };
+                    double delta = logit(p1) - logit(p2);
+                    double newPP = 1.0 / (1.0 + std::exp(delta));
                     newPP = clamp01(newPP);
 
                     // Flip the selected entry
