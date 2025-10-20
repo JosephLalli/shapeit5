@@ -56,13 +56,18 @@ void phaser::declare_options() {
 	opt_hmm.add_options()
 			("effective-size", bpo::value<int>()->default_value(15000), "Effective size of the population");
 
-	bpo::options_description opt_output ("Output files");
-	opt_output.add_options()
-			("output", bpo::value< string >(), "Phased haplotypes (at common AND rare variants)")
-			("score-singletons", "Score singleton phasing between 0.5 and 1.0 (experimental)");
-			("log", bpo::value< string >(), "Log file");
+    bpo::options_description opt_output ("Output files");
+    opt_output.add_options()
+            ("output", bpo::value< string >(), "Phased haplotypes (at common AND rare variants)")
+            ("score-singletons", "Score singleton phasing between 0.5 and 1.0 (experimental)");
+            ("log", bpo::value< string >(), "Log file");
 
-	descriptions.add(opt_base).add(opt_input).add(opt_pbwt).add(opt_hmm).add(opt_output);
+    bpo::options_description opt_constraints ("Constraint enforcement");
+    opt_constraints.add_options()
+            ("enforce-oneallele-rare", "Resolve multiallelic rare sites to enforce ≤1 ALT allele per haplotype")
+            ("oneallele-rare-stats", bpo::value< string >(), "Write rare one-allele enforcement statistics to this file");
+
+    descriptions.add(opt_base).add(opt_input).add(opt_pbwt).add(opt_hmm).add(opt_output).add(opt_constraints);
 }
 
 void phaser::parse_command_line(vector < string > & args) {
@@ -106,8 +111,12 @@ void phaser::check_options() {
 	if (!options["thread"].defaulted() && !options["seed"].defaulted())
 		vrb.warning("Using multi-threading prevents reproducing a run by specifying --seed");
 
-	if (!options["effective-size"].defaulted() && options["effective-size"].as < int > () < 1)
-		vrb.error("You must specify a positive effective size");
+    if (!options["effective-size"].defaulted() && options["effective-size"].as < int > () < 1)
+        vrb.error("You must specify a positive effective size");
+
+    // Constraint flags
+    enforce_oneallele_rare = options.count("enforce-oneallele-rare") || options.count("oneallele-rare-stats");
+    if (options.count("oneallele-rare-stats")) oneallele_rare_stats_path = options["oneallele-rare-stats"].as< string >();
 }
 
 void phaser::verbose_files() {
@@ -127,5 +136,9 @@ void phaser::verbose_options() {
 	vrb.bullet("PBWT    : [depth = " + stb.str(options["pbwt-depth-common"].as < int > ()) + "," + stb.str(options["pbwt-depth-rare"].as < int > ()) + " / modulo = " + stb.str(options["pbwt-modulo"].as < double > ()) + " / mac = " + stb.str(options["pbwt-mac"].as < int > ()) + " / mdr = " + stb.str(options["pbwt-mdr"].as < double > ()) + "]");
 	if (options.count("map")) vrb.bullet("HMM     : [Ne = " + stb.str(options["effective-size"].as < int > ()) + " / Recombination rates given by genetic map]");
 	else vrb.bullet("HMM     : [Ne = " + stb.str(options["effective-size"].as < int > ()) + " / Constant recombination rate of 1cM per Mb]");
-	if (options.count("score-singletons")) vrb.bullet("HMM     : [Score singleton phasing]");
+    if (options.count("score-singletons")) vrb.bullet("HMM     : [Score singleton phasing]");
+    if (enforce_oneallele_rare) {
+        std::string stats_info = oneallele_rare_stats_path.empty() ? "" : (" / stats = " + oneallele_rare_stats_path);
+        vrb.bullet("Constraint : rare one-allele enforcement enabled" + stats_info);
+    }
 }
