@@ -3,3 +3,6 @@ test/scripts/expected/phase.wgs.family.vcf
 test/scripts/expected/phase.wgs.haploid.vcf
 test/scripts/expected/phase.wgs.unrelated.vcf
 test/multiallelic_violation_complete.vcf
+
+AGENTS.md
+CLAUDE.md

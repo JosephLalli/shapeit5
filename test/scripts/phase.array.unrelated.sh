@@ -22,4 +22,4 @@ region="${TEST_REGION:-1:5000000-6000000}"
   --output "$output_bcf" \
   --thread 1
 
-assert_same_variants "$output_bcf" "$SCRIPT_DIR/expected/phase.array.unrelated.vcf"
+assert_same_md5 "$output_bcf" "phase.array.unrelated"
