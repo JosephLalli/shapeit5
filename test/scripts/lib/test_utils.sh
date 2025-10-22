@@ -53,3 +53,83 @@ assert_same_variants() {
   normalize_bcf "$actual_bcf" >"$normalized_actual"
   diff -u "$expected_vcf" "$normalized_actual"
 }
+
+# New headerless VCF.gz + MD5 validation functions
+
+extract_variants() {
+  local bcf_path=$1
+  local output_path=$2
+  if [[ ! -f $bcf_path ]]; then
+    echo "extract_variants: missing file $bcf_path" >&2
+    return 1
+  fi
+  # Extract headerless variants and compress
+  bcftools view -H -Oz "$bcf_path" -o "$output_path"
+}
+
+generate_headerless_vcf_gz() {
+  local bcf_path=$1
+  local output_base=$2
+  if [[ ! -f $bcf_path ]]; then
+    echo "generate_headerless_vcf_gz: missing file $bcf_path" >&2
+    return 1
+  fi
+  
+  local vcf_gz="${output_base}.vcf.gz"
+  local md5_file="${output_base}.md5"
+  
+  # Extract headerless variants and compress
+  extract_variants "$bcf_path" "$vcf_gz"
+  
+  # Generate MD5 checksum
+  md5sum "$vcf_gz" | cut -d' ' -f1 > "$md5_file"
+  
+  echo "Generated: $vcf_gz and $md5_file"
+}
+
+assert_same_md5() {
+  local actual_bcf=$1
+  local expected_base=$2
+  
+  local expected_vcf_gz="$SCRIPT_DIR/expected/${expected_base}.vcf.gz"
+  local expected_md5="$SCRIPT_DIR/expected/${expected_base}.md5"
+  
+  if [[ ! -f $expected_vcf_gz ]]; then
+    echo "assert_same_md5: missing expected VCF.gz $expected_vcf_gz" >&2
+    return 1
+  fi
+  
+  if [[ ! -f $expected_md5 ]]; then
+    echo "assert_same_md5: missing expected MD5 $expected_md5" >&2
+    return 1
+  fi
+  
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  trap 'rm -rf "$tmp_dir"' RETURN
+  
+  local actual_vcf_gz="$tmp_dir/actual.vcf.gz"
+  
+  # Extract variants from actual BCF
+  extract_variants "$actual_bcf" "$actual_vcf_gz"
+  
+  # Calculate MD5 of actual output
+  local actual_md5
+  actual_md5=$(md5sum "$actual_vcf_gz" | cut -d' ' -f1)
+  
+  # Read expected MD5
+  local expected_md5_value
+  expected_md5_value=$(cat "$expected_md5")
+  
+  # Compare MD5 checksums
+  if [[ "$actual_md5" == "$expected_md5_value" ]]; then
+    echo "✓ MD5 validation passed: $actual_md5"
+    return 0
+  else
+    echo "✗ MD5 validation failed:" >&2
+    echo "  Expected: $expected_md5_value" >&2
+    echo "  Actual:   $actual_md5" >&2
+    echo "  Files: $expected_vcf_gz vs $actual_vcf_gz" >&2
+    return 1
+  fi
+}
