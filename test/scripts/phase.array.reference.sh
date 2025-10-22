@@ -15,12 +15,12 @@ output_bcf="$tmp_dir/target.phased.bcf"
 region="${TEST_REGION:-1:5000000-6000000}"
 
 ../phase_common/bin/phase_common \
-  --input array/target.unrelated.bcf \
-  --reference array/reference.bcf \
+  --input array/target.unrelated.5k.bcf \
+  --reference array/reference.5k.bcf \
   --region "$region" \
   --map info/chr1.gmap.gz \
   --seed 15052011 \
   --output "$output_bcf" \
-  --thread 8
+  --thread 1
 
 assert_same_variants "$output_bcf" "$SCRIPT_DIR/expected/phase.array.reference.vcf"
