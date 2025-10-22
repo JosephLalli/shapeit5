@@ -8,15 +8,15 @@ cd "$TEST_DIR"
 
 source "$SCRIPT_DIR/lib/test_utils.sh"
 
-tmp_dir=$(mktemp -d)
-trap 'rm -rf "$tmp_dir"' EXIT
+tmp_dir="$TEST_DIR/tmp"
+mkdir -p "$tmp_dir"
 
 scaffold_region="${TEST_SCAFFOLD_REGION:-chrX:153929053-154248138}"
 comparison_region="${TEST_REGION:-chrX:153929053-154248138}"
 
 FAM=info/1kgp_t2t.par2.ped
-scaffold_bcf="$tmp_dir/target.scaffold.bcf"
-output_bcf="$tmp_dir/target.phased.bcf"
+scaffold_bcf="$tmp_dir/target.scaffold.wgs.family.bcf"
+output_bcf="$tmp_dir/target.phased.wgs.family.bcf"
 
 # Phase common variants first
 ../phase_common/bin/phase_common \
@@ -54,7 +54,7 @@ else
   fi
 fi
 
-filtered_bcf="$tmp_dir/target.phased.filtered.bcf"
+filtered_bcf="$tmp_dir/target.phased.wgs.family.filtered.bcf"
 SSH_AUTH_SOCK= bcftools view -Ob -o "$filtered_bcf" -r "$comparison_region" "$output_bcf"
 
 assert_same_md5 "$filtered_bcf" "phase.wgs.family"
