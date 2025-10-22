@@ -18,6 +18,7 @@ region="${TEST_REGION:-1:5000000-6000000}"
   --input array/target.unrelated.bcf \
   --region "$region" \
   --map info/chr1.gmap.gz \
+  --seed 15052011 \
   --output "$output_bcf" \
   --thread 8
 

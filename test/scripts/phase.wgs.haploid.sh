@@ -29,6 +29,7 @@ scaffold_bcf="$tmp_dir/target.scaffold.bcf"
   --haploids "$HAP" \
   --region "$scaffold_region" \
   --map info/chr1.gmap.gz \
+  --seed 15052011 \
   --output "$scaffold_bcf" \
   --thread 8
 
@@ -44,6 +45,7 @@ while read -r CHK CHR SRG IRG; do
       --input-region "$IRG" \
       --scaffold-region "$SRG" \
       --output "$OUT" \
+      --seed 15052011 \
       --thread 8 >"$log_file" 2>&1; then
     if [[ -f "$OUT" ]]; then
       echo "$OUT" >>"$list_file"
