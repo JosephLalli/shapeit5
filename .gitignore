@@ -1,10 +1,27 @@
-# Large test files (>50MB) 
+## Large test files and binary genomics artifacts (>50MB typical)
 test/scripts/expected/phase.wgs.family.vcf
 test/scripts/expected/phase.wgs.haploid.vcf
 test/scripts/expected/phase.wgs.unrelated.vcf
+test/multiallelic_violation_complete.vcf
+
+# Array/WGS large references and targets
 test/array/reference.bcf
 test/wgs/*.bcf*
+
+# General large/binary formats we don't want in Git (use artifacts or regenerate)
+*.bcf
+*.bcf.gz
+*.bcf.csi
+*.vcf
+*.vcf.gz
+*.vcf.bgz
+*.csi
+*.log
+
+# Temporary files and bins
 **tmp**
-*bcf.csi
-*log
-*txt
+*/bin/*
+ligate/bin/ligate
+
+# Specific generated test artifact
+test/target.phased.wgs.family.vcf
