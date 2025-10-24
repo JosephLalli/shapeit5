@@ -59,6 +59,7 @@ public:
 	double pbwt_modulo;
 	bool enforce_oneallele;
 	std::string oneallele_stats_path;
+	double oneallele_time_ms;
 
 	//MULTI-THREADING
 	int i_workers, i_jobs;

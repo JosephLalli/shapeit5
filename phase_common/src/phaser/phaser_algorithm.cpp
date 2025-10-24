@@ -107,6 +107,13 @@ void phaser::phaseWindow() {
 	n_underflow_recovered_summing = 0;
 	n_underflow_recovered_precision = 0;
 	i_workers = 0; i_jobs = 0;
+	
+	// Reset epoch stats for one-allele enforcement
+	if (oneallele_enforcer.enabled()) {
+		oneallele_enforcer.reset_epoch_stats();
+	}
+	oneallele_time_ms = 0.0;
+	
 	statH.clear(); statS.clear();
 	storedKsizes.clear();
 	if (n_thread > 1) {
@@ -117,6 +124,17 @@ void phaser::phaseWindow() {
 		vrb.progress("  * HMM computations", (i+1)*1.0/G.n_ind);
 	}
 	vrb.bullet("HMM computations [K=" + stb.str(statH.mean(), 1) + "+/-" + stb.str(statH.sd(), 1) + " / W=" + stb.str(statS.mean(), 2) + "Mb / US=" + stb.str(n_underflow_recovered_summing) + " / UP=" + stb.str(n_underflow_recovered_precision) + "] (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
+	
+	// Add dedicated multiallelic correction line if enabled
+	if (oneallele_enforcer.enabled()) {
+		std::string mode_str;
+		switch (oneallele_enforcer.mode()) {
+			case shapeit5::modules::OneAlleleMode::TRANSITION: mode_str = "transition"; break;
+			case shapeit5::modules::OneAlleleMode::MICRO: mode_str = "micro"; break;
+			case shapeit5::modules::OneAlleleMode::MICRO_DONOR: mode_str = "micro-donor"; break;
+		}
+		vrb.bullet("Multiallelic correction (" + mode_str + ") [violations=" + stb.str(oneallele_enforcer.epoch_stats().violations_found) + " / flipped=" + stb.str(oneallele_enforcer.epoch_stats().flips_applied) + "] (" + stb.str(oneallele_time_ms*1.0/1000, 2) + "s)");
+	}
 }
 
 void phaser::phase() {
@@ -137,7 +155,9 @@ void phaser::phase() {
 		H.Kbanned.collapse();
 		// Enforce multiallelic one-allele constraint before updating haplotypes
 		if (oneallele_enforcer.enabled() && multiallelic_map.size() > 0) {
+			timer oneallele_timer; oneallele_timer.clock();
 			oneallele_enforcer.enforce(multiallelic_map, G, V);
+			oneallele_time_ms += oneallele_timer.rel_time();
 		}
 		//UPDATE H with new sampled haplotypes
 		H.updateHaplotypes(G);
