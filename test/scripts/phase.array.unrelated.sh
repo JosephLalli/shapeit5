@@ -11,7 +11,7 @@ source "$SCRIPT_DIR/lib/test_utils.sh"
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 
-output_bcf="$tmp_dir/target.phased.bcf"
+output_bcf="$tmp_dir/target.array.unrelated.phased.bcf"
 region="${TEST_REGION:-1:5000000-6000000}"
 
 ../phase_common/bin/phase_common \
@@ -19,7 +19,6 @@ region="${TEST_REGION:-1:5000000-6000000}"
   --region "$region" \
   --map info/chr1.gmap.gz \
   --seed 15052011 \
-  --output "$output_bcf" \
-  --thread 1
+  --output "$output_bcf"
 
 assert_same_md5 "$output_bcf" "phase.array.unrelated"

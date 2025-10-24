@@ -1,6 +1,0 @@
-##fileformat=VCFv4.3
-##contig=<ID=1,length=1000000>
-#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1
-1	1000	rs1_A_T	A	T	.	PASS	.	GT	1|1
-1	1000	rs1_A_G	A	G	.	PASS	.	GT	1|0
-1	2000	rs2_C_G	C	G	.	PASS	.	GT	0|1
