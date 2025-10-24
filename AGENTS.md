@@ -72,7 +72,7 @@ All three run after an HMM sampling step — they are small, local consistency f
 ## 5) Challenges encountered
 
 - Access to donors/windows outside the worker: we solved this by running enforcement per sample inside the worker loop.
-- Anchor detection: respecting phase‑set/segment boundaries is critical; anchors outside the segment are ignored.
+- Anchor detection: respecting phase‑set/segment boundaries is required; anchors outside the segment are ignored.
 - Emissions in `phase_common`: without GL/PL we rely on a simple error model for micro scoring; accuracy improves if GL/PL are present.
 - Determinism/ties: we use deterministic tie‑breaking to keep runs reproducible.
 - Performance: transition‑only is essentially free; micro/micro‑donor remain cheap with small K and m (typically ≤8).
@@ -155,42 +155,42 @@ This architecture ensures reliable regression testing and eliminates false failu
 
 This section captures the precise development state in the codebase and the next engineering steps to complete multiallelic one-allele enforcement as described above.
 
-### Current Implementation Snapshot (December 2024)
+### Current Implementation Snapshot (October 2025)
 
-- Common pipeline (phase_common) - **MAJOR PROGRESS COMPLETED**
-  - **Fully Implemented**
-    - **Mode selection**: `--oneallele-mode {transition|micro|micro-donor}` flag parsing with validation in `phase_common/src/phaser/phaser_parameters.cpp`
-    - **Transition mode**: Complete transition-only enforcement with left/right heterozygous anchors per phase segment using `transition_scorer.{h,cpp}`
-    - **Micro mode**: Full donor-agnostic enumeration algorithm in `oneallele_enforcer.{h,cpp}`:
+- Common pipeline (phase_common)
+  - Implemented
+    - Mode selection: `--oneallele-mode {transition|micro|micro-donor}` flag parsing with validation in `phase_common/src/phaser/phaser_parameters.cpp`
+    - Transition mode: Complete transition-only enforcement with left/right heterozygous anchors per phase segment using `transition_scorer.{h,cpp}`
+    - Micro mode: Full donor-agnostic enumeration algorithm in `oneallele_enforcer.{h,cpp}`:
       - `MicroCandidate` structure for assignment enumeration  
       - `enumerate_micro_candidates()` generates all valid assignments (≤ (K+1)² combinations, ≤1 ALT per hap)
       - `evaluate_candidate_micro()` scores with Li-Stephens transition model + simple emission model
       - `compute_transition_score()` and `compute_emission_score()` for candidate ranking
       - `apply_micro_candidate()` applies maximum likelihood assignment
-    - **Epoch reporting**: Per-iteration stats with timing: `"Multiallelic correction (mode) [violations=N / flipped=N] (X.XXs)"`
-    - **Stats infrastructure**: `OneAlleleStats` for cumulative stats, `OneAlleleEpochStats` for per-epoch tracking
-    - **Core execution**: Enforcement runs after each MCMC iteration in `phase_common/src/phaser/phaser_algorithm.cpp` with proper timing measurement
-    - **CLI integration**: All flags (`--enforce-oneallele`, `--oneallele-mode`, `--oneallele-stats`) parsed and validated
+    - Epoch reporting: Per-iteration stats with timing: `"Multiallelic correction (mode) [violations=N / flipped=N] (X.XXs)"`
+    - Stats infrastructure: `OneAlleleStats` for cumulative stats, `OneAlleleEpochStats` for per-epoch tracking
+    - Core execution: Enforcement runs after each MCMC iteration in `phase_common/src/phaser/phaser_algorithm.cpp` with proper timing measurement
+    - CLI integration: All flags (`--enforce-oneallele`, `--oneallele-mode`, `--oneallele-stats`) parsed and validated
   
-  - **Pending Implementation**
-    - **Micro-donor mode**: Donor-weighted scoring using PBWT Kstates (framework exists, algorithm not implemented)
-    - **Final enforcement pass**: Belt-and-suspenders sweep after `G.solve()` in finalize step
-    - **Per-sample worker enforcement**: Moving enforcement inside worker loop for donor access (current runs post-iteration)
+  - Not yet implemented
+    - Micro-donor mode: Donor-weighted scoring using PBWT Kstates (framework exists, algorithm not implemented)
+    - Final enforcement pass: Belt-and-suspenders sweep after `G.solve()` in finalize step
+    - Per-sample worker enforcement: Moving enforcement inside worker loop for donor access (current runs post-iteration)
 
-- Rare pipeline (phase_rare) - **STABLE**
-  - **Implemented**
+- Rare pipeline (phase_rare)
+  - Implemented
     - Enforcement after merging rare variants onto scaffold (step 3.5) with PP-based flipping
     - Flags `--enforce-oneallele-rare` and `--oneallele-rare-stats` with reporting
-  - **Optional Enhancement**
+  - Optional enhancement
     - Micro-style enumeration for rare sites (current PP-based approach works well)
 
-- **Testing and Validation** - **COMPREHENSIVE** 
-  - **Unit tests**: `test/unit/test_oneallele_enforcer.cpp` covers transition scoring and violation resolution
-  - **Integration tests**: WGS PAR2 and array scripts in `test/scripts/` with deterministic MD5 validation
-  - **Verification tools**: `tools/check_oneallele` for output validation  
-  - **Test coverage**: All three modes (transition/micro/micro-donor) can be tested
-  - **Build verification**: Compiles successfully with `-j 24`, all existing tests pass
-  - **Known issue**: `test/scripts/phase.oneallele.array.family.sh` missing line continuation after `--enforce-oneallele`
+- Testing and validation 
+  - Unit tests: `test/unit/test_oneallele_enforcer.cpp` covers transition scoring and violation resolution
+  - Integration tests: WGS PAR2 and array scripts in `test/scripts/` with deterministic MD5 validation
+  - Verification tools: `tools/check_oneallele` for output validation  
+  - Test coverage: All three modes (transition/micro/micro-donor) can be tested
+  - Build verification: Compiles successfully with `-j 24`, all existing tests pass
+  - Known issue: `test/scripts/phase.oneallele.array.family.sh` missing line continuation after `--enforce-oneallele`
 
 ### Next Steps (Remaining Work - Priority Ordered)
 
@@ -241,7 +241,7 @@ This section captures the precise development state in the codebase and the next
    - **Priority**: Low (current PP-based approach works well)
 
 6) **Enhanced testing** - Quality Assurance
-   - **Goal**: Comprehensive test coverage for all modes and edge cases
+   - **Goal**: Complete test coverage for all modes and edge cases
    - **Tasks**:
      - Unit tests for micro and micro-donor paths (K>2, missing anchors, ties)
      - Integration tests exercising all three modes on PAR2 fixtures
@@ -265,10 +265,10 @@ This section captures the precise development state in the codebase and the next
 
 **Estimated Completion**: 1-2 weeks for micro-donor + finalize pass to reach 100% feature completeness.
 
-**Critical Files for Next Developer**:
+**Key Files for Next Developer**:
 - `phase_common/src/modules/oneallele_enforcer.{h,cpp}` - Core enforcement algorithms
 - `phase_common/src/phaser/phaser_algorithm.cpp` - Integration point for enforcement calls  
 - `phase_common/src/phaser/phaser_parameters.cpp` - CLI flag parsing and validation
 - `test/scripts/phase.*.sh` - Test scripts for validation
 
-This implementation provides significant value even in current state and represents a major algorithmic advancement for SHAPEIT5's multiallelic handling capabilities.
+This implementation provides value in current state and adds multiallelic handling capabilities to SHAPEIT5.
