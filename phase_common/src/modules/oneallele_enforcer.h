@@ -48,6 +48,11 @@ class OneAlleleEnforcer {
                genotype_set& G,
                const variant_map& V);
 
+  void enforce_sample(const MultiallelicPositionMap& map,
+                      genotype& g,
+                      const variant_map& V,
+                      const std::vector<std::vector<unsigned int>>& Kstates);
+
  private:
   bool enabled_ = false;
   OneAlleleMode mode_ = OneAlleleMode::TRANSITION;
@@ -95,6 +100,14 @@ class OneAlleleEnforcer {
                           std::vector<uint8_t>& hap0_bits,
                           std::vector<uint8_t>& hap1_bits);
 
+  bool enforce_group_micro_donor(genotype& g,
+                                 const variant_map& V,
+                                 const std::vector<int>& variant_to_segment,
+                                 const std::vector<int>& position_group_indices,
+                                 std::vector<uint8_t>& hap0_bits,
+                                 std::vector<uint8_t>& hap1_bits,
+                                 const std::vector<std::vector<unsigned int>>& Kstates);
+
   std::vector<MicroCandidate> enumerate_micro_candidates(
       const std::vector<int>& position_group_indices,
       const std::vector<uint8_t>& current_hap0,
@@ -105,6 +118,13 @@ class OneAlleleEnforcer {
                                  const variant_map& V,
                                  const std::vector<int>& variant_to_segment,
                                  const std::vector<int>& position_group_indices);
+
+  double evaluate_candidate_micro_donor(const MicroCandidate& candidate,
+                                       genotype& g,
+                                       const variant_map& V,
+                                       const std::vector<int>& variant_to_segment,
+                                       const std::vector<int>& position_group_indices,
+                                       const std::vector<std::vector<unsigned int>>& Kstates);
 
   double compute_transition_score(genotype& g,
                                  const variant_map& V,
@@ -124,6 +144,16 @@ class OneAlleleEnforcer {
                             const std::vector<int>& position_group_indices,
                             std::vector<uint8_t>& hap0_bits,
                             std::vector<uint8_t>& hap1_bits);
+
+  double compute_chain_score_with_donors(genotype& g,
+                                         const variant_map& V,
+                                         const std::vector<int>& variant_to_segment,
+                                         int left_anchor,
+                                         int right_anchor,
+                                         const std::vector<int>& group_indices,
+                                         const std::vector<uint8_t>& hap0_assignment,
+                                         const std::vector<uint8_t>& hap1_assignment,
+                                         const std::vector<std::vector<unsigned int>>& Kstates);
 };
 
 }  // namespace modules

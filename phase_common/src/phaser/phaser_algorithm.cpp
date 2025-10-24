@@ -99,6 +99,12 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 						G.vecG[id_job]->store(threadData[id_worker].T, threadData[id_worker].M);
 						break;
 	}
+
+	// Per-sample multiallelic enforcement for micro-donor mode
+	if (oneallele_enforcer.enabled() && oneallele_enforcer.mode() == shapeit5::modules::OneAlleleMode::MICRO_DONOR && 
+		multiallelic_map.size() > 0) {
+		oneallele_enforcer.enforce_sample(multiallelic_map, *G.vecG[id_job], V, threadData[id_worker].Kstates);
+	}
 }
 
 void phaser::phaseWindow() {
