@@ -24,8 +24,9 @@ output_bcf="$tmp_dir/target.phased.wgs.unrelated.bcf"
   --region "$scaffold_region" \
   --map info/par2.gmap.gz \
   --seed 15052011 \
-  --output "$scaffold_bcf" \
-  --thread 1
+  --output "$scaffold_bcf"
+
+assert_same_md5 "$scaffold_bcf" "phase.wgs.unrelated.common"
 
 # Phase rare variants in one go (no chunking)
 log_file="$tmp_dir/phase_rare.log"
@@ -36,8 +37,7 @@ if ../phase_rare/bin/phase_rare \
     --input-region "$scaffold_region" \
     --scaffold-region "$scaffold_region" \
     --output "$output_bcf" \
-    --seed 15052011 \
-    --thread 1 >"$log_file" 2>&1; then
+    --seed 15052011 >"$log_file" 2>&1; then
   echo "Rare variant phasing completed successfully"
 else
   if grep -q "No variants to be phased" "$log_file"; then

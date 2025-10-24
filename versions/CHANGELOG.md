@@ -10,6 +10,10 @@ All notable changes to this project are documented in this file.
 {: .highlight }
 Version 5.1.1 is now available [here] (https://github.com/odelaneau/shapeit5/releases) as docker image or static binaries. 
 
+## v5.2
+	* Added support for multiallelic-aware phasing in phase_[common/rare]. 
+		- Input files will still need to be biallelic, but no more than one variant at the same position wil be phased to the same haplotype.
+	* Enhanced test suite to verify output consistency during development
 
 ## v5.1.1
 	* Bugfix of a nasty segfault, thanks to Ami Williams (23andMe). 
@@ -20,7 +24,7 @@ Version 5.1.1 is now available [here] (https://github.com/odelaneau/shapeit5/rel
 	* Chromosome X support added in phase_[common/rare]
 	* Pedigree phasing support added in phase_[common/rare/ligate]
 	* Many small optimizations in phase_[common/rare]
-	* IBD2 protection improved in phase_common abd added in phase_rare
+	* IBD2 protection improved in phase_common and added in phase_rare
 	* Automatic indexing of VCF/BCF files	
 
 ## v5.0.0
