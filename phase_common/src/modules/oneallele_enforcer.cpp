@@ -19,9 +19,17 @@ void OneAlleleEnforcer::set_enabled(bool enabled) { enabled_ = enabled; }
 
 bool OneAlleleEnforcer::enabled() const { return enabled_; }
 
+void OneAlleleEnforcer::set_mode(OneAlleleMode mode) { mode_ = mode; }
+
+OneAlleleMode OneAlleleEnforcer::mode() const { return mode_; }
+
 void OneAlleleEnforcer::reset_stats() { stats_ = OneAlleleStats{}; }
 
 const OneAlleleStats& OneAlleleEnforcer::stats() const { return stats_; }
+
+void OneAlleleEnforcer::reset_epoch_stats() { epoch_stats_ = OneAlleleEpochStats{}; }
+
+const OneAlleleEpochStats& OneAlleleEnforcer::epoch_stats() const { return epoch_stats_; }
 
 void OneAlleleEnforcer::set_conditioning_size(int m) {
   default_conditioning_size_ = std::max(m, 2);
@@ -83,35 +91,76 @@ void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
       }
 
       bool found_violation = false;
-      if (alt_indices_h0.size() > 1 && alt_indices_h1.empty()) {
-        found_violation = true;
-        if (resolve_violation_for_hap(g,
-                                      V,
-                                      variant_to_segment,
-                                      hap0_bits,
-                                      hap1_bits,
-                                      alt_indices_h0,
-                                      true)) {
-          stats_.flips_applied++;
-        }
-      } else if (alt_indices_h1.size() > 1 && alt_indices_h0.empty()) {
-        found_violation = true;
-        if (resolve_violation_for_hap(g,
-                                      V,
-                                      variant_to_segment,
-                                      hap1_bits,
-                                      hap0_bits,
-                                      alt_indices_h1,
-                                      false)) {
-          stats_.flips_applied++;
-        }
-      } else if (alt_indices_h0.size() > 1 || alt_indices_h1.size() > 1) {
-        // Mixed violation (unexpected with preprocessing assumptions); mark as found.
-        found_violation = true;
+      
+      // Branch by enforcement mode
+      switch (mode_) {
+        case OneAlleleMode::TRANSITION:
+          // Current transition-only implementation
+          if (alt_indices_h0.size() > 1 && alt_indices_h1.empty()) {
+            found_violation = true;
+            if (resolve_violation_for_hap(g,
+                                          V,
+                                          variant_to_segment,
+                                          hap0_bits,
+                                          hap1_bits,
+                                          alt_indices_h0,
+                                          true)) {
+              stats_.flips_applied++;
+              epoch_stats_.flips_applied++;
+            }
+          } else if (alt_indices_h1.size() > 1 && alt_indices_h0.empty()) {
+            found_violation = true;
+            if (resolve_violation_for_hap(g,
+                                          V,
+                                          variant_to_segment,
+                                          hap1_bits,
+                                          hap0_bits,
+                                          alt_indices_h1,
+                                          false)) {
+              stats_.flips_applied++;
+              epoch_stats_.flips_applied++;
+            }
+          } else if (alt_indices_h0.size() > 1 || alt_indices_h1.size() > 1) {
+            // Mixed violation (unexpected with preprocessing assumptions); mark as found.
+            found_violation = true;
+          }
+          break;
+          
+        case OneAlleleMode::MICRO:
+          // Micro re-decode: enumerate all valid assignments and choose best scoring
+          if (alt_indices_h0.size() > 1 || alt_indices_h1.size() > 1) {
+            found_violation = true;
+            if (enforce_group_micro(g, V, variant_to_segment, position_group.variant_indices, hap0_bits, hap1_bits)) {
+              stats_.flips_applied++;
+              epoch_stats_.flips_applied++;
+            }
+          }
+          break;
+          
+        case OneAlleleMode::MICRO_DONOR:
+          // TODO: Implement micro re-decode with frozen donors
+          // For now, fall back to transition mode
+          if (alt_indices_h0.size() > 1 && alt_indices_h1.empty()) {
+            found_violation = true;
+            if (resolve_violation_for_hap(g, V, variant_to_segment, hap0_bits, hap1_bits, alt_indices_h0, true)) {
+              stats_.flips_applied++;
+              epoch_stats_.flips_applied++;
+            }
+          } else if (alt_indices_h1.size() > 1 && alt_indices_h0.empty()) {
+            found_violation = true;
+            if (resolve_violation_for_hap(g, V, variant_to_segment, hap1_bits, hap0_bits, alt_indices_h1, false)) {
+              stats_.flips_applied++;
+              epoch_stats_.flips_applied++;
+            }
+          } else if (alt_indices_h0.size() > 1 || alt_indices_h1.size() > 1) {
+            found_violation = true;
+          }
+          break;
       }
 
       if (found_violation) {
         stats_.violations_found++;
+        epoch_stats_.violations_found++;
       }
     }
   }
@@ -230,6 +279,245 @@ bool OneAlleleEnforcer::resolve_violation_for_hap(genotype& g,
   flip_alt_to_other_hap(g, variant_to_flip, target_is_hap0, target_hap, other_hap);
 
   return true;
+}
+
+// Micro re-decode implementation
+bool OneAlleleEnforcer::enforce_group_micro(genotype& g,
+                                           const variant_map& V,
+                                           const std::vector<int>& variant_to_segment,
+                                           const std::vector<int>& position_group_indices,
+                                           std::vector<uint8_t>& hap0_bits,
+                                           std::vector<uint8_t>& hap1_bits) {
+  if (position_group_indices.size() < 2) return false;
+
+  // Get current assignments for this group
+  std::vector<uint8_t> current_hap0(position_group_indices.size());
+  std::vector<uint8_t> current_hap1(position_group_indices.size());
+  
+  for (size_t i = 0; i < position_group_indices.size(); ++i) {
+    int idx = position_group_indices[i];
+    if (idx >= 0 && idx < static_cast<int>(hap0_bits.size())) {
+      current_hap0[i] = hap0_bits[idx];
+      current_hap1[i] = hap1_bits[idx];
+    }
+  }
+
+  // Check if already valid (≤1 ALT per haplotype)
+  int alts_h0 = 0, alts_h1 = 0;
+  for (size_t i = 0; i < current_hap0.size(); ++i) {
+    if (current_hap0[i]) alts_h0++;
+    if (current_hap1[i]) alts_h1++;
+  }
+  if (alts_h0 <= 1 && alts_h1 <= 1) return false;
+
+  // Enumerate all valid candidates
+  std::vector<MicroCandidate> candidates = enumerate_micro_candidates(
+      position_group_indices, current_hap0, current_hap1);
+
+  if (candidates.empty()) return false;
+
+  // Score each candidate
+  double best_score = -std::numeric_limits<double>::infinity();
+  int best_idx = -1;
+  
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    if (!candidates[i].is_valid) continue;
+    
+    double score = evaluate_candidate_micro(candidates[i], g, V, variant_to_segment, position_group_indices);
+    candidates[i].score = score;
+    
+    if (score > best_score) {
+      best_score = score;
+      best_idx = static_cast<int>(i);
+    }
+  }
+
+  if (best_idx < 0) return false;
+
+  // Apply the best candidate
+  apply_micro_candidate(g, candidates[best_idx], position_group_indices, hap0_bits, hap1_bits);
+  return true;
+}
+
+std::vector<OneAlleleEnforcer::MicroCandidate> OneAlleleEnforcer::enumerate_micro_candidates(
+    const std::vector<int>& position_group_indices,
+    const std::vector<uint8_t>& current_hap0,
+    const std::vector<uint8_t>& current_hap1) {
+  
+  std::vector<MicroCandidate> candidates;
+  const size_t K = position_group_indices.size();
+  if (K == 0) return candidates;
+
+  // Enumerate all 2^(2K) possible assignments
+  const size_t max_assignments = static_cast<size_t>(1) << (2 * K);
+  
+  for (size_t assignment = 0; assignment < max_assignments; ++assignment) {
+    MicroCandidate candidate;
+    candidate.hap0_assignment.resize(K);
+    candidate.hap1_assignment.resize(K);
+    candidate.score = 0.0;
+    candidate.is_valid = true;
+
+    // Decode assignment bits
+    int alts_h0 = 0, alts_h1 = 0;
+    for (size_t i = 0; i < K; ++i) {
+      candidate.hap0_assignment[i] = (assignment >> (2 * i)) & 1;
+      candidate.hap1_assignment[i] = (assignment >> (2 * i + 1)) & 1;
+      
+      if (candidate.hap0_assignment[i]) alts_h0++;
+      if (candidate.hap1_assignment[i]) alts_h1++;
+    }
+
+    // Check validity: ≤1 ALT per haplotype and at least one genotype matches original
+    if (alts_h0 > 1 || alts_h1 > 1) {
+      candidate.is_valid = false;
+    } else {
+      // Check that each variant has valid diploid genotype (0/0, 0/1, 1/0, 1/1)
+      bool has_valid_genotypes = true;
+      for (size_t i = 0; i < K; ++i) {
+        uint8_t h0 = candidate.hap0_assignment[i];
+        uint8_t h1 = candidate.hap1_assignment[i];
+        // All combinations (0,0), (0,1), (1,0), (1,1) are valid diploid genotypes
+        // But we need at least one ALT in the group
+      }
+      
+      // Ensure at least one ALT allele in the group (otherwise this isn't multiallelic)
+      if (alts_h0 == 0 && alts_h1 == 0) {
+        candidate.is_valid = false;
+      }
+      
+      candidate.is_valid = candidate.is_valid && has_valid_genotypes;
+    }
+
+    candidates.push_back(candidate);
+  }
+
+  return candidates;
+}
+
+double OneAlleleEnforcer::evaluate_candidate_micro(const MicroCandidate& candidate,
+                                                  genotype& g,
+                                                  const variant_map& V,
+                                                  const std::vector<int>& variant_to_segment,
+                                                  const std::vector<int>& position_group_indices) {
+  if (!candidate.is_valid) return -std::numeric_limits<double>::infinity();
+
+  // Find anchors for transition scoring
+  int left_anchor = -1, right_anchor = -1;
+  if (!position_group_indices.empty()) {
+    left_anchor = find_left_neighbor(g, variant_to_segment, position_group_indices.front(), V);
+    right_anchor = find_right_neighbor(g, variant_to_segment, position_group_indices.back(), V);
+  }
+
+  // Compute transition score
+  double transition_score = compute_transition_score(
+      g, V, variant_to_segment, left_anchor, right_anchor,
+      position_group_indices, candidate.hap0_assignment, candidate.hap1_assignment);
+
+  // Compute emission score (simple model)
+  double emission_score = compute_emission_score(
+      position_group_indices, candidate.hap0_assignment, candidate.hap1_assignment);
+
+  return transition_score + emission_score;
+}
+
+double OneAlleleEnforcer::compute_transition_score(genotype& g,
+                                                  const variant_map& V,
+                                                  const std::vector<int>& variant_to_segment,
+                                                  int left_anchor,
+                                                  int right_anchor,
+                                                  const std::vector<int>& group_indices,
+                                                  const std::vector<uint8_t>& hap0_assignment,
+                                                  const std::vector<uint8_t>& hap1_assignment) {
+  if (group_indices.empty()) return 0.0;
+
+  double score = 0.0;
+  const int first_idx = group_indices.front();
+  const int last_idx = group_indices.back();
+
+  // Score transitions from left anchor to first variant
+  if (left_anchor >= 0 && left_anchor < g.n_variants) {
+    unsigned char left_byte = g.Variants[DIV2(left_anchor)];
+    int left_e = MOD2(left_anchor);
+    bool left_h0 = VAR_GET_HAP0(left_e, left_byte);
+    bool left_h1 = VAR_GET_HAP1(left_e, left_byte);
+    
+    double dist_cm = std::fabs(V.vec_pos[first_idx]->cm - V.vec_pos[left_anchor]->cm);
+    dist_cm = std::max(dist_cm, min_distance_cm_);
+    
+    // Simple transition scoring: penalize switches
+    bool switch_h0 = (left_h0 != static_cast<bool>(hap0_assignment[0]));
+    bool switch_h1 = (left_h1 != static_cast<bool>(hap1_assignment[0]));
+    
+    double switch_prob = 0.5 * (1.0 - std::exp(-2.0 * dist_cm));
+    score += switch_h0 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+    score += switch_h1 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+  }
+
+  // Score transitions from last variant to right anchor
+  if (right_anchor >= 0 && right_anchor < g.n_variants) {
+    unsigned char right_byte = g.Variants[DIV2(right_anchor)];
+    int right_e = MOD2(right_anchor);
+    bool right_h0 = VAR_GET_HAP0(right_e, right_byte);
+    bool right_h1 = VAR_GET_HAP1(right_e, right_byte);
+    
+    double dist_cm = std::fabs(V.vec_pos[right_anchor]->cm - V.vec_pos[last_idx]->cm);
+    dist_cm = std::max(dist_cm, min_distance_cm_);
+    
+    size_t last_pos = hap0_assignment.size() - 1;
+    bool switch_h0 = (static_cast<bool>(hap0_assignment[last_pos]) != right_h0);
+    bool switch_h1 = (static_cast<bool>(hap1_assignment[last_pos]) != right_h1);
+    
+    double switch_prob = 0.5 * (1.0 - std::exp(-2.0 * dist_cm));
+    score += switch_h0 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+    score += switch_h1 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+  }
+
+  return score;
+}
+
+double OneAlleleEnforcer::compute_emission_score(const std::vector<int>& group_indices,
+                                                const std::vector<uint8_t>& hap0_assignment,
+                                                const std::vector<uint8_t>& hap1_assignment) {
+  // Simple emission model: slight preference for assignments that preserve heterozygosity
+  double score = 0.0;
+  const double het_bonus = 0.1;  // Small bonus for heterozygous genotypes
+  
+  for (size_t i = 0; i < hap0_assignment.size() && i < hap1_assignment.size(); ++i) {
+    bool is_het = (hap0_assignment[i] != hap1_assignment[i]);
+    if (is_het) {
+      score += het_bonus;
+    }
+  }
+  
+  return score;
+}
+
+void OneAlleleEnforcer::apply_micro_candidate(genotype& g,
+                                             const MicroCandidate& candidate,
+                                             const std::vector<int>& position_group_indices,
+                                             std::vector<uint8_t>& hap0_bits,
+                                             std::vector<uint8_t>& hap1_bits) {
+  for (size_t i = 0; i < position_group_indices.size() && i < candidate.hap0_assignment.size(); ++i) {
+    int variant_idx = position_group_indices[i];
+    if (variant_idx < 0 || variant_idx >= g.n_variants) continue;
+    
+    uint8_t new_h0 = candidate.hap0_assignment[i];
+    uint8_t new_h1 = candidate.hap1_assignment[i];
+    
+    // Update genotype bits
+    unsigned char& byte = g.Variants[DIV2(variant_idx)];
+    int e = MOD2(variant_idx);
+    
+    if (new_h0) VAR_SET_HAP0(e, byte); else VAR_CLR_HAP0(e, byte);
+    if (new_h1) VAR_SET_HAP1(e, byte); else VAR_CLR_HAP1(e, byte);
+    
+    // Update local bit arrays
+    if (variant_idx < static_cast<int>(hap0_bits.size())) {
+      hap0_bits[variant_idx] = new_h0;
+      hap1_bits[variant_idx] = new_h1;
+    }
+  }
 }
 
 }  // namespace modules

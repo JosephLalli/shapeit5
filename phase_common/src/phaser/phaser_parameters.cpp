@@ -23,6 +23,7 @@
 #include "../../versions/versions.h"
 
 #include <phaser/phaser_header.h>
+#include <modules/oneallele_enforcer.h>
 
 using namespace std;
 
@@ -77,6 +78,7 @@ void phaser::declare_options() {
 	bpo::options_description opt_constraints ("Constraint enforcement");
 	opt_constraints.add_options()
 		("enforce-oneallele", "Resolve multiallelic sites to enforce ≤1 ALT allele per haplotype")
+		("oneallele-mode", bpo::value< string >()->default_value("transition"), "One-allele enforcement algorithm: transition|micro|micro-donor")
 		("oneallele-stats", bpo::value< string >(), "Write one-allele enforcement statistics to this file");
 
 	descriptions.add(opt_base)
@@ -148,6 +150,20 @@ void phaser::check_options() {
 	if (options.count("oneallele-stats")) {
 		oneallele_stats_path = options["oneallele-stats"].as < string > ();
 	}
+	
+	// Parse oneallele-mode
+	if (enforce_oneallele) {
+		string mode_str = options["oneallele-mode"].as < string > ();
+		if (mode_str == "transition") {
+			oneallele_enforcer.set_mode(shapeit5::modules::OneAlleleMode::TRANSITION);
+		} else if (mode_str == "micro") {
+			oneallele_enforcer.set_mode(shapeit5::modules::OneAlleleMode::MICRO);
+		} else if (mode_str == "micro-donor") {
+			oneallele_enforcer.set_mode(shapeit5::modules::OneAlleleMode::MICRO_DONOR);
+		} else {
+			vrb.error("Invalid --oneallele-mode [" + mode_str + "]. Valid options: transition, micro, micro-donor");
+		}
+	}
 }
 
 void phaser::verbose_files() {
@@ -180,8 +196,14 @@ void phaser::verbose_options() {
 	if (options.count("filter-snp") || (!options["filter-maf"].defaulted()))
 		vrb.bullet("FILTERS : [snp only = " + stb.str(options.count("filter-snp")) + " / MAF = " + stb.str(options["filter-maf"].as < double > ()) + "]");
 	if (enforce_oneallele) {
+		std::string mode_str;
+		switch (oneallele_enforcer.mode()) {
+			case shapeit5::modules::OneAlleleMode::TRANSITION: mode_str = "transition"; break;
+			case shapeit5::modules::OneAlleleMode::MICRO: mode_str = "micro"; break;
+			case shapeit5::modules::OneAlleleMode::MICRO_DONOR: mode_str = "micro-donor"; break;
+		}
 		std::string stats_info = oneallele_stats_path.empty() ? "" : (" / stats = " + oneallele_stats_path);
-		vrb.bullet("Constraint : multiallelic one-allele enforcement enabled" + stats_info);
+		vrb.bullet("Constraint : multiallelic one-allele enforcement enabled (mode = " + mode_str + ")" + stats_info);
 	} else if (options.count("oneallele-stats")) {
 		vrb.warning("--oneallele-stats requested but enforcement disabled; enabling automatically");
 	}
