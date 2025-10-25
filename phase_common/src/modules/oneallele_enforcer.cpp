@@ -15,38 +15,128 @@
 namespace shapeit5 {
 namespace modules {
 
+// ============================================================================
+// CONSTRUCTOR AND CONFIGURATION
+// ============================================================================
+
 OneAlleleEnforcer::OneAlleleEnforcer() = default;
 
+/**
+ * @brief Enable or disable multiallelic enforcement.
+ * 
+ * When disabled, all enforce() and enforce_sample() calls become no-ops.
+ * Used to toggle enforcement via --enforce-oneallele flag.
+ */
 void OneAlleleEnforcer::set_enabled(bool enabled) { enabled_ = enabled; }
 
+/**
+ * @brief Check if enforcement is currently enabled.
+ * 
+ * @return true if enforcement is active, false otherwise
+ */
 bool OneAlleleEnforcer::enabled() const { return enabled_; }
 
+/**
+ * @brief Set the enforcement algorithm mode.
+ * 
+ * @param mode The enforcement mode to use:
+ *   - TRANSITION: Fast transition-only scoring with left/right anchors
+ *   - MICRO: Donor-agnostic enumeration of all valid assignments
+ *   - MICRO_DONOR: Donor-weighted scoring using PBWT Kstates
+ * 
+ * Controlled by --oneallele-mode {transition|micro|micro-donor} flag.
+ */
 void OneAlleleEnforcer::set_mode(OneAlleleMode mode) { mode_ = mode; }
 
+/**
+ * @brief Get the current enforcement mode.
+ * 
+ * @return Current OneAlleleMode (TRANSITION, MICRO, or MICRO_DONOR)
+ */
 OneAlleleMode OneAlleleEnforcer::mode() const { return mode_; }
 
+/**
+ * @brief Reset cumulative lifetime statistics to zero.
+ * 
+ * Resets stats_ which tracks violations and flips across all iterations
+ * of the entire phasing run. Typically called at initialization.
+ */
 void OneAlleleEnforcer::reset_stats() { stats_ = OneAlleleStats{}; }
 
+/**
+ * @brief Get cumulative lifetime statistics.
+ * 
+ * @return Reference to OneAlleleStats containing total positions_checked,
+ *         violations_found, and flips_applied across all iterations
+ */
 const OneAlleleStats& OneAlleleEnforcer::stats() const { return stats_; }
 
+/**
+ * @brief Reset per-iteration epoch statistics to zero.
+ * 
+ * Resets epoch_stats_ which tracks violations and flips for the current
+ * iteration only. Called at the start of each phaseWindow() to prepare
+ * for fresh per-iteration reporting.
+ */
 void OneAlleleEnforcer::reset_epoch_stats() { epoch_stats_ = OneAlleleEpochStats{}; }
 
+/**
+ * @brief Get current epoch (per-iteration) statistics.
+ * 
+ * @return Reference to OneAlleleEpochStats for the current iteration,
+ *         used for "violations=N / flipped=M" console reporting
+ */
 const OneAlleleEpochStats& OneAlleleEnforcer::epoch_stats() const { return epoch_stats_; }
 
+/**
+ * @brief Set the conditioning window size for transition scoring.
+ * 
+ * @param m Number of conditioning states (minimum 2)
+ * 
+ * Controls how many states are considered when computing transition
+ * probabilities in TRANSITION mode. Higher values increase accuracy
+ * but are currently not used as m=2 is sufficient.
+ */
 void OneAlleleEnforcer::set_conditioning_size(int m) {
   default_conditioning_size_ = std::max(m, 2);
 }
 
+/**
+ * @brief Set minimum genetic distance for transition scoring.
+ * 
+ * @param d Minimum distance in centiMorgans (must be > 0)
+ * 
+ * Enforces a floor on genetic distance when computing switch probabilities
+ * to avoid numerical issues with very tightly linked markers.
+ */
 void OneAlleleEnforcer::set_min_distance_cm(double d) {
   if (d > 0.0) {
     min_distance_cm_ = d;
   }
 }
 
+/**
+ * @brief Set debug output file for detailed enforcement logging.
+ * 
+ * @param filename Path to TSV file for debug output
+ * 
+ * When set, enforcement decisions are logged with iteration context,
+ * sample index, position, mode, event type, and detailed candidate scores.
+ * Used for algorithm development and debugging.
+ */
 void OneAlleleEnforcer::set_debug_output_file(const std::string& filename) {
   debug_output_file_ = filename;
 }
 
+/**
+ * @brief Write a debug log message to the debug output file.
+ * 
+ * @param message TSV-formatted debug message
+ * 
+ * Appends message to debug file with automatic header initialization.
+ * No-op if debug_output_file_ is not set. Thread-safe via static flag
+ * for header initialization.
+ */
 void OneAlleleEnforcer::debug_log_multiallelic_site(const std::string& message) const {
   if (debug_output_file_.empty()) return;
   
@@ -63,6 +153,28 @@ void OneAlleleEnforcer::debug_log_multiallelic_site(const std::string& message) 
   }
 }
 
+// ============================================================================
+// MAIN ENFORCEMENT ENTRY POINTS
+// ============================================================================
+
+/**
+ * @brief Enforce one-allele constraint across all samples (batch mode).
+ * 
+ * @param map MultiallelicPositionMap grouping split biallelic rows by (chr, pos)
+ * @param G Genotype set containing all samples' phased haplotypes
+ * @param V Variant map with genetic positions and allele information
+ * @param iteration_context String describing current iteration (e.g., "burn-in-3/10")
+ * 
+ * Iterates over all samples and all multiallelic position groups, detecting
+ * violations (>1 ALT allele on same haplotype at same position) and applying
+ * the selected enforcement mode (TRANSITION, MICRO, or MICRO_DONOR fallback).
+ * 
+ * Called after each MCMC iteration in phase() loop. Updates both cumulative
+ * stats_ and per-iteration epoch_stats_.
+ * 
+ * Note: MICRO_DONOR mode falls back to TRANSITION in batch mode because
+ * donor Kstates are only available in per-sample worker context.
+ */
 void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
                                 genotype_set& G,
                                 const variant_map& V,
@@ -161,7 +273,7 @@ void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
           // Micro re-decode: enumerate all valid assignments and choose best scoring
           if (alt_indices_h0.size() > 1 || alt_indices_h1.size() > 1) {
             found_violation = true;
-            if (enforce_group_micro(g, V, variant_to_segment, position_group.variant_indices, hap0_bits, hap1_bits)) {
+            if (enforce_group_micro(g, V, variant_to_segment, position_group_indices, hap0_bits, hap1_bits)) {
               stats_.flips_applied++;
               epoch_stats_.flips_applied++;
             }
@@ -197,6 +309,23 @@ void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
   }
 }
 
+/**
+ * @brief Enforce one-allele constraint for a single sample (per-sample mode).
+ * 
+ * @param map MultiallelicPositionMap grouping split biallelic rows
+ * @param g Single genotype object for one sample
+ * @param V Variant map with genetic positions
+ * @param Kstates PBWT donor haplotype indices per window for this sample
+ * @param iteration_context String describing current iteration
+ * @param sample_index Index of this sample in the cohort
+ * 
+ * Per-sample enforcement called from worker threads during HMM sampling.
+ * Has access to PBWT Kstates, enabling true MICRO_DONOR mode with donor-
+ * weighted scoring. Falls back to MICRO mode if Kstates unavailable.
+ * 
+ * Called after sample() in phaseWindow() worker loop when mode==MICRO_DONOR.
+ * Does NOT update stats (those are tracked in batch enforce() call).
+ */
 void OneAlleleEnforcer::enforce_sample(const MultiallelicPositionMap& map,
                                        genotype& g,
                                        const variant_map& V,
@@ -204,6 +333,9 @@ void OneAlleleEnforcer::enforce_sample(const MultiallelicPositionMap& map,
                                        const std::string& iteration_context,
                                        int sample_index) {
   if (!enabled_) return;
+  
+  // Reset per-sample stats
+  reset_sample_epoch_stats();
   
   // Store context for debug logging
   current_iteration_context_ = iteration_context;
@@ -239,17 +371,56 @@ void OneAlleleEnforcer::enforce_sample(const MultiallelicPositionMap& map,
   for (const auto& group : groups) {
     if (group.variant_indices.empty()) continue;
 
+    // Check for violations
+    std::vector<int> hap0_alts, hap1_alts;
+    for (int idx : group.variant_indices) {
+      if (idx < 0 || idx >= g.n_variants) continue;
+      if (hap0_bits[idx]) hap0_alts.push_back(idx);
+      if (hap1_bits[idx]) hap1_alts.push_back(idx);
+    }
+    
+    bool has_violation = (hap0_alts.size() > 1 || hap1_alts.size() > 1);
+    if (!has_violation) continue;
+    
+    sample_epoch_stats_.violations_found++;
+
     // Use micro or micro-donor algorithm
+    bool resolved = false;
     if (mode_ == OneAlleleMode::MICRO_DONOR) {
       // Use donor-weighted scoring when available
-      enforce_group_micro_donor(g, V, variant_to_segment, group.variant_indices, hap0_bits, hap1_bits, Kstates);
+      resolved = enforce_group_micro_donor(g, V, variant_to_segment, group.variant_indices, hap0_bits, hap1_bits, Kstates);
     } else {
       // Fall back to regular micro algorithm
-      enforce_group_micro(g, V, variant_to_segment, group.variant_indices, hap0_bits, hap1_bits);
+      resolved = enforce_group_micro(g, V, variant_to_segment, group.variant_indices, hap0_bits, hap1_bits);
+    }
+    
+    if (resolved) {
+      sample_epoch_stats_.flips_applied++;
     }
   }
 }
 
+// ============================================================================
+// ANCHOR FINDING (PHASE SET BOUNDARY AWARE)
+// ============================================================================
+
+/**
+ * @brief Find nearest phased heterozygous variant to the left within same segment.
+ * 
+ * @param g Genotype object for this sample
+ * @param variant_to_segment Mapping of variant indices to phase set segments
+ * @param idx Starting variant index
+ * @param V Variant map (used to skip multiallelic rows at same position)
+ * 
+ * @return Index of left anchor heterozygous variant, or -1 if none found
+ * 
+ * Searches leftward from idx within the same phase segment, skipping variants
+ * at the same genomic position (split multiallelic rows). Returns first
+ * heterozygous variant found. Respects segment boundaries to avoid using
+ * anchors across phase set breaks.
+ * 
+ * Used in TRANSITION mode and MICRO mode for transition scoring.
+ */
 int OneAlleleEnforcer::find_left_neighbor(const genotype& g,
                                           const std::vector<int>& variant_to_segment,
                                           int idx,
@@ -268,6 +439,21 @@ int OneAlleleEnforcer::find_left_neighbor(const genotype& g,
   return -1;
 }
 
+/**
+ * @brief Find nearest phased heterozygous variant to the right within same segment.
+ * 
+ * @param g Genotype object for this sample
+ * @param variant_to_segment Mapping of variant indices to phase set segments
+ * @param idx Starting variant index
+ * @param V Variant map (used to skip multiallelic rows at same position)
+ * 
+ * @return Index of right anchor heterozygous variant, or -1 if none found
+ * 
+ * Searches rightward from idx within the same phase segment, skipping variants
+ * at the same genomic position. Returns first heterozygous variant found.
+ * 
+ * Used in TRANSITION mode and MICRO mode for transition scoring.
+ */
 int OneAlleleEnforcer::find_right_neighbor(const genotype& g,
                                            const std::vector<int>& variant_to_segment,
                                            int idx,
@@ -286,6 +472,26 @@ int OneAlleleEnforcer::find_right_neighbor(const genotype& g,
   return -1;
 }
 
+// ============================================================================
+// HAPLOTYPE MANIPULATION
+// ============================================================================
+
+/**
+ * @brief Flip an ALT allele from one haplotype to the other.
+ * 
+ * @param g Genotype object to modify
+ * @param variant_idx Index of variant to flip
+ * @param from_hap0 If true, flip from hap0 to hap1; otherwise flip hap1 to hap0
+ * @param hap0_bits Local bit array tracking hap0 ALT alleles (updated)
+ * @param hap1_bits Local bit array tracking hap1 ALT alleles (updated)
+ * 
+ * Atomically moves an ALT allele from one haplotype to the other by clearing
+ * the bit on the source haplotype and setting it on the destination. Updates
+ * both the genotype's packed Variants array and the local tracking arrays.
+ * 
+ * Core operation for resolving violations: removes excess ALT from one hap
+ * and places it on the other (where it's the only ALT).
+ */
 void OneAlleleEnforcer::flip_alt_to_other_hap(genotype& g,
                                               int variant_idx,
                                               bool from_hap0,
@@ -309,6 +515,35 @@ void OneAlleleEnforcer::flip_alt_to_other_hap(genotype& g,
   }
 }
 
+// ============================================================================
+// TRANSITION MODE ENFORCEMENT
+// ============================================================================
+
+/**
+ * @brief Resolve a violation on one haplotype using transition-only scoring.
+ * 
+ * @param g Genotype object to modify
+ * @param V Variant map with genetic positions
+ * @param variant_to_segment Phase segment mapping
+ * @param target_hap Haplotype with violation (has >1 ALT)
+ * @param other_hap Opposite haplotype (has 0 ALT)
+ * @param alt_indices Indices of ALT variants on target_hap (sorted in-place)
+ * @param target_is_hap0 True if target_hap is haplotype 0
+ * 
+ * @return true if flip was applied
+ * 
+ * TRANSITION mode core algorithm:
+ * 1. Takes two ALT variants (k1, k2) on target_hap
+ * 2. Finds left/right heterozygous anchors (p, n) within same segment
+ * 3. Scores two candidate flips:
+ *    - Flip k1 to other_hap: evaluate chain p→k2→k1→n
+ *    - Flip k2 to other_hap: evaluate chain p→k1→k2→n
+ * 4. Chooses flip with lower switch probability (higher likelihood)
+ * 5. Applies flip via flip_alt_to_other_hap()
+ * 
+ * Fast O(1) algorithm suitable for simple violations (one hap has excess ALT,
+ * other hap has none). Does not consider per-site emissions or donors.
+ */
 bool OneAlleleEnforcer::resolve_violation_for_hap(genotype& g,
                                                   const variant_map& V,
                                                   const std::vector<int>& variant_to_segment,
@@ -365,7 +600,38 @@ bool OneAlleleEnforcer::resolve_violation_for_hap(genotype& g,
   return true;
 }
 
-// Micro re-decode implementation
+// ============================================================================
+// MICRO MODE: CANDIDATE ENUMERATION AND SCORING
+// ============================================================================
+
+/**
+ * @brief Enforce constraint via exhaustive enumeration (MICRO mode).
+ * 
+ * @param g Genotype object to modify
+ * @param V Variant map
+ * @param variant_to_segment Phase segment mapping
+ * @param position_group_indices Indices of K split rows at same position
+ * @param hap0_bits Haplotype 0 ALT tracking array (updated)
+ * @param hap1_bits Haplotype 1 ALT tracking array (updated)
+ * 
+ * @return true if a flip was applied
+ * 
+ * MICRO mode core algorithm (donor-agnostic):
+ * 1. Check if violation exists (>1 ALT on any haplotype)
+ * 2. Enumerate all 2^(2K) possible diploid assignments
+ * 3. Filter to valid candidates (≤1 ALT per haplotype, ≥1 ALT total)
+ * 4. Score each valid candidate with:
+ *    - Transition score from left/right anchors
+ *    - Simple emission score (heterozygosity bonus)
+ * 5. Select maximum likelihood candidate
+ * 6. Apply via apply_micro_candidate()
+ * 
+ * Handles arbitrary K variants at same position and complex violation patterns
+ * (both haps have excess ALT). More sophisticated than TRANSITION mode but
+ * still donor-agnostic.
+ * 
+ * Includes extensive debug logging when debug_output_file_ is set.
+ */
 bool OneAlleleEnforcer::enforce_group_micro(genotype& g,
                                            const variant_map& V,
                                            const std::vector<int>& variant_to_segment,
@@ -522,6 +788,27 @@ bool OneAlleleEnforcer::enforce_group_micro(genotype& g,
   return true;
 }
 
+/**
+ * @brief Generate all valid candidate assignments for K split rows.
+ * 
+ * @param position_group_indices Indices of K variants at same position
+ * @param current_hap0 Current haplotype 0 assignments
+ * @param current_hap1 Current haplotype 1 assignments
+ * 
+ * @return Vector of MicroCandidate objects
+ * 
+ * Enumerates all 2^(2K) possible diploid genotype assignments across K rows:
+ * - For K=2: 16 candidates
+ * - For K=3: 64 candidates
+ * - For K=4: 256 candidates
+ * 
+ * Marks each candidate as valid/invalid based on:
+ * - ≤1 ALT allele per haplotype (biological constraint)
+ * - ≥1 ALT allele total (ensures non-trivial genotype)
+ * 
+ * Used by both MICRO and MICRO_DONOR modes. Complexity grows as O(4^K) but
+ * typical K ≤ 3 keeps this tractable.
+ */
 std::vector<OneAlleleEnforcer::MicroCandidate> OneAlleleEnforcer::enumerate_micro_candidates(
     const std::vector<int>& position_group_indices,
     const std::vector<uint8_t>& current_hap0,
@@ -551,7 +838,7 @@ std::vector<OneAlleleEnforcer::MicroCandidate> OneAlleleEnforcer::enumerate_micr
       if (candidate.hap1_assignment[i]) alts_h1++;
     }
 
-    // Check validity: ≤1 ALT per haplotype and at least one genotype matches original
+    // Check validity: ≤1 ALT allele per hap and at least one genotype matches original
     if (alts_h0 > 1 || alts_h1 > 1) {
       candidate.is_valid = false;
     } else {
@@ -578,6 +865,24 @@ std::vector<OneAlleleEnforcer::MicroCandidate> OneAlleleEnforcer::enumerate_micr
   return candidates;
 }
 
+/**
+ * @brief Score a candidate assignment (constrained evaluation).
+ * 
+ * @param candidate MicroCandidate to evaluate
+ * @param g Genotype object
+ * @param V Variant map
+ * @param variant_to_segment Phase segment mapping
+ * @param position_group_indices Group variant indices
+ * 
+ * @return Log-likelihood score, or -∞ if invalid
+ * 
+ * Evaluates a candidate assignment for MICRO mode:
+ * - Returns -∞ immediately if candidate.is_valid == false
+ * - Otherwise delegates to evaluate_candidate_raw_score()
+ * 
+ * This ensures only biologically valid assignments (≤1 ALT per hap)
+ * are considered during argmax selection.
+ */
 double OneAlleleEnforcer::evaluate_candidate_micro(const MicroCandidate& candidate,
                                                   genotype& g,
                                                   const variant_map& V,
@@ -588,6 +893,27 @@ double OneAlleleEnforcer::evaluate_candidate_micro(const MicroCandidate& candida
   return evaluate_candidate_raw_score(candidate, g, V, variant_to_segment, position_group_indices);
 }
 
+/**
+ * @brief Compute raw score for a candidate (unconstrained).
+ * 
+ * @param candidate MicroCandidate to evaluate
+ * @param g Genotype object
+ * @param V Variant map
+ * @param variant_to_segment Phase segment mapping
+ * @param position_group_indices Group variant indices
+ * 
+ * @return Log-likelihood score (transition + emission)
+ * 
+ * Computes raw score WITHOUT validity check:
+ * - Transition score from left/right anchors (switch penalties)
+ * - Emission score (simple heterozygosity bonus)
+ * 
+ * Used for:
+ * 1. Scoring valid candidates in MICRO mode
+ * 2. Debug logging to show original invalid configuration score
+ * 
+ * Does not incorporate donor information (donor-agnostic).
+ */
 double OneAlleleEnforcer::evaluate_candidate_raw_score(const MicroCandidate& candidate,
                                                       genotype& g,
                                                       const variant_map& V,
@@ -614,6 +940,29 @@ double OneAlleleEnforcer::evaluate_candidate_raw_score(const MicroCandidate& can
   return transition_score + emission_score;
 }
 
+/**
+ * @brief Compute transition score component for a candidate.
+ * 
+ * @param g Genotype object
+ * @param V Variant map with genetic positions
+ * @param variant_to_segment Phase segment mapping
+ * @param left_anchor Index of left heterozygous anchor (or -1)
+ * @param right_anchor Index of right heterozygous anchor (or -1)
+ * @param group_indices Variant indices in multiallelic group
+ * @param hap0_assignment Candidate's haplotype 0 assignment
+ * @param hap1_assignment Candidate's haplotype 1 assignment
+ * 
+ * @return Log-likelihood contribution from transitions
+ * 
+ * Scores the haplotype chain using Li-Stephens transition model:
+ * - Left transition: anchor_left → first_variant_in_group
+ * - Right transition: last_variant_in_group → anchor_right
+ * 
+ * Switch probability: 0.5 * (1 - exp(-2 * dist_cM))
+ * Score: log(switch_prob) if switch occurred, log(1-switch_prob) if not
+ * 
+ * Penalizes configurations requiring haplotype switches across the group.
+ */
 double OneAlleleEnforcer::compute_transition_score(genotype& g,
                                                   const variant_map& V,
                                                   const std::vector<int>& variant_to_segment,
@@ -669,6 +1018,22 @@ double OneAlleleEnforcer::compute_transition_score(genotype& g,
   return score;
 }
 
+/**
+ * @brief Compute emission score component for a candidate.
+ * 
+ * @param group_indices Variant indices (unused in simple model)
+ * @param hap0_assignment Candidate's haplotype 0 assignment
+ * @param hap1_assignment Candidate's haplotype 1 assignment
+ * 
+ * @return Log-likelihood contribution from emissions
+ * 
+ * Simple emission model in absence of GL/PL data:
+ * - Adds small bonus (0.1) for heterozygous genotypes
+ * - Encourages preserving heterozygosity at multiallelic sites
+ * 
+ * Placeholder for more sophisticated emission models that could
+ * incorporate genotype likelihoods if available.
+ */
 double OneAlleleEnforcer::compute_emission_score(const std::vector<int>& group_indices,
                                                 const std::vector<uint8_t>& hap0_assignment,
                                                 const std::vector<uint8_t>& hap1_assignment) {
@@ -686,6 +1051,22 @@ double OneAlleleEnforcer::compute_emission_score(const std::vector<int>& group_i
   return score;
 }
 
+/**
+ * @brief Apply a selected candidate to the genotype.
+ * 
+ * @param g Genotype object to modify
+ * @param candidate MicroCandidate with chosen assignment
+ * @param position_group_indices Variant indices to update
+ * @param hap0_bits Haplotype 0 tracking array (updated)
+ * @param hap1_bits Haplotype 1 tracking array (updated)
+ * 
+ * Writes the candidate's haplotype assignments back to the genotype:
+ * - Updates g.Variants packed bit array for each variant
+ * - Updates local hap0_bits/hap1_bits tracking arrays
+ * 
+ * Called after selecting best candidate in MICRO or MICRO_DONOR modes.
+ * Atomic update ensures all K rows at the position are modified consistently.
+ */
 void OneAlleleEnforcer::apply_micro_candidate(genotype& g,
                                              const MicroCandidate& candidate,
                                              const std::vector<int>& position_group_indices,
@@ -713,6 +1094,36 @@ void OneAlleleEnforcer::apply_micro_candidate(genotype& g,
   }
 }
 
+// ============================================================================
+// MICRO-DONOR MODE: DONOR-WEIGHTED SCORING
+// ============================================================================
+
+/**
+ * @brief Enforce constraint with donor-weighted scoring (MICRO_DONOR mode).
+ * 
+ * @param g Genotype object to modify
+ * @param V Variant map
+ * @param variant_to_segment Phase segment mapping
+ * @param position_group_indices Variant indices at same position
+ * @param hap0_bits Haplotype 0 tracking array (updated)
+ * @param hap1_bits Haplotype 1 tracking array (updated)
+ * @param Kstates PBWT donor haplotype indices per window
+ * 
+ * @return true if flip was applied
+ * 
+ * MICRO_DONOR mode algorithm:
+ * 1. Check for violation (same as MICRO mode)
+ * 2. Enumerate all valid candidates (enumerate_micro_candidates)
+ * 3. Score each with evaluate_candidate_micro_donor():
+ *    - Base transition score
+ *    - Donor-weighted bonus for assignments matching donor haplotypes
+ * 4. Select and apply best candidate
+ * 
+ * Improves on MICRO mode by incorporating PBWT donor context. Only available
+ * in per-sample enforce_sample() calls where Kstates are accessible.
+ * 
+ * Updates both stats_.flips_applied and epoch_stats_.flips_applied.
+ */
 bool OneAlleleEnforcer::enforce_group_micro_donor(genotype& g,
                                                   const variant_map& V,
                                                   const std::vector<int>& variant_to_segment,
@@ -721,7 +1132,6 @@ bool OneAlleleEnforcer::enforce_group_micro_donor(genotype& g,
                                                   std::vector<uint8_t>& hap1_bits,
                                                   const std::vector<std::vector<unsigned int>>& Kstates) {
   // Check for violations in this group
-  bool has_violation = false;
   std::vector<int> hap0_alts, hap1_alts;
   
   for (int variant_idx : position_group_indices) {
@@ -733,8 +1143,6 @@ bool OneAlleleEnforcer::enforce_group_micro_donor(genotype& g,
   if (hap0_alts.size() <= 1 && hap1_alts.size() <= 1) {
     return false; // No violation
   }
-  
-  has_violation = true;
   
   // Get current haplotype assignments
   std::vector<uint8_t> current_hap0(position_group_indices.size());
@@ -772,11 +1180,8 @@ bool OneAlleleEnforcer::enforce_group_micro_donor(genotype& g,
   if (best_idx < candidates.size() && candidates[best_idx].is_valid) {
     apply_micro_candidate(g, candidates[best_idx], position_group_indices, hap0_bits, hap1_bits);
     
-    // Update stats
-    if (has_violation) {
-      stats_.flips_applied++;
-      epoch_stats_.flips_applied++;
-    }
+    // NOTE: Do NOT update stats here - caller (enforce_sample) handles it
+    // to avoid double-counting and maintain clean separation
     
     return true;
   }
@@ -784,6 +1189,31 @@ bool OneAlleleEnforcer::enforce_group_micro_donor(genotype& g,
   return false;
 }
 
+/**
+ * @brief Compute transition score with donor agreement bonus.
+ * 
+ * @param g Genotype object
+ * @param V Variant map
+ * @param variant_to_segment Phase segment mapping
+ * @param left_anchor Left heterozygous anchor index
+ * @param right_anchor Right heterozygous anchor index
+ * @param group_indices Variant indices in group
+ * @param hap0_assignment Candidate haplotype 0
+ * @param hap1_assignment Candidate haplotype 1
+ * @param Kstates PBWT donor indices per window
+ * 
+ * @return Enhanced score with donor weighting
+ * 
+ * Extends compute_transition_score() with donor-weighted bonus:
+ * - Starts with base transition score
+ * - For each variant, identifies which window it belongs to
+ * - Checks candidate's assignment against donor haplotypes in that window
+ * - Adds weighted bonus for assignments matching donor consensus
+ * 
+ * Current implementation uses simplified donor agreement check as placeholder.
+ * Full implementation would query actual donor haplotype data via Kstates
+ * and H.H_opt_hap reference.
+ */
 double OneAlleleEnforcer::compute_chain_score_with_donors(genotype& g,
                                                          const variant_map& V,
                                                          const std::vector<int>& variant_to_segment,
@@ -843,6 +1273,27 @@ double OneAlleleEnforcer::compute_chain_score_with_donors(genotype& g,
   return base_score + donor_bonus;
 }
 
+/**
+ * @brief Evaluate candidate with donor-weighted scoring.
+ * 
+ * @param candidate MicroCandidate to score
+ * @param g Genotype object
+ * @param V Variant map
+ * @param variant_to_segment Phase segment mapping
+ * @param position_group_indices Group variant indices
+ * @param Kstates PBWT donor indices
+ * 
+ * @return Donor-weighted log-likelihood score
+ * 
+ * MICRO_DONOR scoring function:
+ * 1. Find left/right anchors for transition scoring
+ * 2. Compute donor-weighted chain score (transition + donor bonus)
+ * 3. Add emission score (heterozygosity preference)
+ * 
+ * Combines transition model with donor context to select assignments
+ * that are both locally consistent (smooth transitions) and globally
+ * supported by the reference panel (donor agreement).
+ */
 double OneAlleleEnforcer::evaluate_candidate_micro_donor(const MicroCandidate& candidate,
                                                         genotype& g,
                                                         const variant_map& V,
@@ -868,6 +1319,42 @@ double OneAlleleEnforcer::evaluate_candidate_micro_donor(const MicroCandidate& c
   double emission_score = compute_emission_score(position_group_indices, candidate.hap0_assignment, candidate.hap1_assignment);
   
   return score + emission_score;
+}
+
+/**
+ * @brief Get per-sample epoch statistics.
+ * 
+ * @return Reference to sample_epoch_stats_ for the current sample
+ * 
+ * Used by worker threads to retrieve statistics after enforce_sample() completes.
+ * These stats are then accumulated into the global epoch_stats_ via mutex.
+ */
+const OneAlleleEpochStats& OneAlleleEnforcer::sample_epoch_stats() const {
+  return sample_epoch_stats_;
+}
+
+/**
+ * @brief Accumulate sample statistics into global epoch statistics.
+ * 
+ * @param sample_stats Statistics from one sample's enforcement
+ * 
+ * Called by worker threads (with mutex protection) to add per-sample
+ * statistics to the global epoch_stats_. This allows micro-donor mode
+ * to track violations and flips from per-sample enforcement.
+ */
+void OneAlleleEnforcer::accumulate_sample_stats(const OneAlleleEpochStats& sample_stats) {
+  epoch_stats_.violations_found += sample_stats.violations_found;
+  epoch_stats_.flips_applied += sample_stats.flips_applied;
+}
+
+/**
+ * @brief Reset per-sample epoch statistics.
+ * 
+ * Called before each enforce_sample() call to prepare fresh per-sample
+ * statistics tracking.
+ */
+void OneAlleleEnforcer::reset_sample_epoch_stats() {
+  sample_epoch_stats_ = OneAlleleEpochStats{};
 }
 
 }  // namespace modules
