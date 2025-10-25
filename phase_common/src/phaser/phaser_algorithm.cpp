@@ -103,8 +103,19 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 	// Per-sample multiallelic enforcement for micro-donor mode
 	if (oneallele_enforcer.enabled() && oneallele_enforcer.mode() == shapeit5::modules::OneAlleleMode::MICRO_DONOR && 
 		multiallelic_map.size() > 0) {
+		// Reset per-sample epoch stats before enforcement
+		shapeit5::modules::OneAlleleEpochStats sample_stats;
+		
 		oneallele_enforcer.enforce_sample(multiallelic_map, *G.vecG[id_job], V, threadData[id_worker].Kstates,
 		                                  current_iteration_context, id_job);
+		
+		// Get stats from this sample's enforcement
+		sample_stats = oneallele_enforcer.sample_epoch_stats();
+		
+		// Thread-safe accumulation into global epoch stats
+		if (options["thread"].as < int > () > 1) pthread_mutex_lock(&mutex_workers);
+		oneallele_enforcer.accumulate_sample_stats(sample_stats);
+		if (options["thread"].as < int > () > 1) pthread_mutex_unlock(&mutex_workers);
 	}
 }
 
@@ -114,12 +125,6 @@ void phaser::phaseWindow() {
 	n_underflow_recovered_summing = 0;
 	n_underflow_recovered_precision = 0;
 	i_workers = 0; i_jobs = 0;
-	
-	// Reset epoch stats for one-allele enforcement
-	if (oneallele_enforcer.enabled()) {
-		oneallele_enforcer.reset_epoch_stats();
-	}
-	// DON'T reset oneallele_time_ms here - it accumulates across enforce() calls
 	
 	statH.clear(); statS.clear();
 	storedKsizes.clear();
@@ -131,8 +136,6 @@ void phaser::phaseWindow() {
 		vrb.progress("  * HMM computations", (i+1)*1.0/G.n_ind);
 	}
 	vrb.bullet("HMM computations [K=" + stb.str(statH.mean(), 1) + "+/-" + stb.str(statH.sd(), 1) + " / W=" + stb.str(statS.mean(), 2) + "Mb / US=" + stb.str(n_underflow_recovered_summing) + " / UP=" + stb.str(n_underflow_recovered_precision) + "] (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
-	
-	// Don't report enforcement here - it happens after this function returns
 }
 
 std::string phaser::get_iteration_string(int iter, int stage) {
@@ -169,6 +172,7 @@ void phaser::phase() {
 			// Enforce multiallelic one-allele constraint before updating haplotypes
 			if (oneallele_enforcer.enabled() && multiallelic_map.size() > 0) {
 				tac.clock();
+				oneallele_enforcer.reset_epoch_stats();
 				oneallele_enforcer.enforce(multiallelic_map, G, V, current_iteration_context);
 				
 				// Report enforcement statistics immediately after

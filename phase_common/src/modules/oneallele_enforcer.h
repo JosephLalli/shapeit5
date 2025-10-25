@@ -58,11 +58,21 @@ class OneAlleleEnforcer {
                       const std::string& iteration_context = "unknown",
                       int sample_index = -1);
 
+  // Get per-sample statistics (for worker threads)
+  const OneAlleleEpochStats& sample_epoch_stats() const;
+
+  // Accumulate sample stats into global epoch stats (mutex-protected by caller)
+  void accumulate_sample_stats(const OneAlleleEpochStats& sample_stats);
+
+  // Reset per-sample statistics before enforce_sample() call
+  void reset_sample_epoch_stats();
+
  private:
   bool enabled_ = false;
   OneAlleleMode mode_ = OneAlleleMode::TRANSITION;
   OneAlleleStats stats_;
   OneAlleleEpochStats epoch_stats_;
+  OneAlleleEpochStats sample_epoch_stats_;
   int default_conditioning_size_ = 16;
   double min_distance_cm_ = 1e-8;
   std::string debug_output_file_;
