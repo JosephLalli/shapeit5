@@ -490,7 +490,7 @@ void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
 void OneAlleleEnforcer::enforce_sample(const MultiallelicPositionMap& map,
                                       genotype& g,
                                       const variant_map& V,
-                                      const std::vector<std::vector<int>>& Kstates,
+                                      const std::vector<std::vector<unsigned int>>& Kstates,  // Fix: unsigned int
                                       const std::string& iteration_context,
                                       int sample_idx) {
   if (!enabled_) return;
@@ -503,12 +503,13 @@ void OneAlleleEnforcer::enforce_sample(const MultiallelicPositionMap& map,
   std::vector<int> variant_to_segment(g.n_variants, -1);
   int offset = 0;
   for (unsigned int s = 0; s < g.n_segments; ++s) {
-    for (unsigned int v = 0; v < g.n_segment_sites[s]; ++v) {
+    unsigned short len = g.Lengths[s];  // Use Lengths array instead of n_segment_sites
+    for (unsigned short v = 0; v < len; ++v) {
       if (offset + v < static_cast<unsigned int>(g.n_variants)) {
         variant_to_segment[offset + v] = s;
       }
     }
-    offset += g.n_segment_sites[s];
+    offset += len;
   }
   
   // Extract haplotype bits
@@ -569,6 +570,368 @@ void OneAlleleEnforcer::accumulate_sample_stats(const OneAlleleEpochStats& sampl
   epoch_stats_.flips_applied += sample_stats.flips_applied;
 }
 
-OneAlleleEpochStats OneAlleleEnforcer::sample_epoch_stats() const {
+const OneAlleleEpochStats& OneAlleleEnforcer::sample_epoch_stats() const {
   return sample_epoch_stats_;
 }
+
+void OneAlleleEnforcer::reset_sample_epoch_stats() {
+  sample_epoch_stats_ = OneAlleleEpochStats{};
+}
+
+void OneAlleleEnforcer::check_debug_target_state(const std::string& stage,
+                                                 const MultiallelicPositionMap& map,
+                                                 genotype_set& G,
+                                                 const variant_map& V) const {
+  if (!debug_target_enabled_ || debug_output_file_.empty()) return;
+  
+  // Find target sample
+  for (size_t sample_idx = 0; sample_idx < G.vecG.size(); ++sample_idx) {
+    genotype* g_ptr = G.vecG[sample_idx];
+    if (!g_ptr || g_ptr->name != debug_target_sample_) continue;
+    
+    // Extract haplotype bits
+    std::vector<uint8_t> hap0_bits(g_ptr->n_variants, 0);
+    std::vector<uint8_t> hap1_bits(g_ptr->n_variants, 0);
+    for (unsigned int v = 0; v < g_ptr->n_variants; ++v) {
+      unsigned char byte = g_ptr->Variants[DIV2(v)];
+      int e = MOD2(v);
+      hap0_bits[v] = VAR_GET_HAP0(e, byte);
+      hap1_bits[v] = VAR_GET_HAP1(e, byte);
+    }
+    
+    // Find target position
+    for (const auto& position_group : map.groups()) {
+      std::string chrom = "unknown";
+      int pos = 0;
+      if (!position_group.variant_indices.empty() && 
+          position_group.variant_indices[0] < static_cast<int>(V.vec_pos.size())) {
+        chrom = V.vec_pos[position_group.variant_indices[0]]->chr;
+        pos = V.vec_pos[position_group.variant_indices[0]]->bp;
+      }
+      
+      if (chrom == debug_target_chrom_ && pos == debug_target_pos_) {
+        log_debug_target_state(stage, g_ptr->name, chrom, pos, 
+                              position_group.variant_indices, hap0_bits, hap1_bits, V);
+        return;
+      }
+    }
+  }
+}
+
+// Add stub implementations for the enforcement methods called by enforce_sample
+bool OneAlleleEnforcer::enforce_group_transition(const PositionGroup& position_group,
+                                                genotype& g,
+                                                const variant_map& V,
+                                                const std::vector<int>& variant_to_segment,
+                                                std::vector<uint8_t>& hap0_bits,
+                                                std::vector<uint8_t>& hap1_bits,
+                                                const std::vector<int>& alt_indices_h0,
+                                                const std::vector<int>& alt_indices_h1) {
+  // Transition mode implementation - use existing resolve_violation_for_hap
+  bool fixed = false;
+  if (alt_indices_h0.size() > 1 && alt_indices_h1.empty()) {
+    fixed = resolve_violation_for_hap(g, V, variant_to_segment, hap0_bits, hap1_bits, 
+                                     const_cast<std::vector<int>&>(alt_indices_h0), true);
+    if (fixed) {
+      sample_epoch_stats_.flips_applied++;
+      stats_.flips_applied++;
+    }
+  } else if (alt_indices_h1.size() > 1 && alt_indices_h0.empty()) {
+    fixed = resolve_violation_for_hap(g, V, variant_to_segment, hap1_bits, hap0_bits,
+                                     const_cast<std::vector<int>&>(alt_indices_h1), false);
+    if (fixed) {
+      sample_epoch_stats_.flips_applied++;
+      stats_.flips_applied++;
+    }
+  }
+  return fixed;
+}
+
+// Batch mode version (donor-agnostic) - used by enforce()
+bool OneAlleleEnforcer::enforce_group_micro(genotype& g,
+                                           const variant_map& V,
+                                           const std::vector<int>& variant_to_segment,
+                                           const std::vector<int>& position_group_indices,
+                                           std::vector<uint8_t>& hap0_bits,
+                                           std::vector<uint8_t>& hap1_bits) {
+  if (position_group_indices.size() < 2) return false;
+
+  std::vector<uint8_t> current_hap0(position_group_indices.size());
+  std::vector<uint8_t> current_hap1(position_group_indices.size());
+  
+  for (size_t i = 0; i < position_group_indices.size(); ++i) {
+    int idx = position_group_indices[i];
+    if (idx >= 0 && idx < static_cast<int>(hap0_bits.size())) {
+      current_hap0[i] = hap0_bits[idx];
+      current_hap1[i] = hap1_bits[idx];
+    }
+  }
+
+  int alts_h0 = 0, alts_h1 = 0;
+  for (size_t i = 0; i < current_hap0.size(); ++i) {
+    if (current_hap0[i]) alts_h0++;
+    if (current_hap1[i]) alts_h1++;
+  }
+  
+  if (alts_h0 <= 1 && alts_h1 <= 1) return false;
+
+  auto candidates = enumerate_micro_candidates(position_group_indices, current_hap0, current_hap1);
+  if (candidates.empty()) return false;
+
+  double best_score = -std::numeric_limits<double>::infinity();
+  int best_idx = -1;
+  
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    double score = evaluate_candidate_micro(candidates[i], g, V, variant_to_segment, position_group_indices);
+    candidates[i].score = score;
+    
+    if (candidates[i].is_valid && score > best_score) {
+      best_score = score;
+      best_idx = static_cast<int>(i);
+    }
+  }
+
+  if (best_idx < 0) return false;
+
+  apply_micro_candidate(g, candidates[best_idx], position_group_indices, hap0_bits, hap1_bits);
+  return true;
+}
+
+// Per-sample mode version (with donor context) - used by enforce_sample()
+bool OneAlleleEnforcer::enforce_group_micro(const PositionGroup& position_group,
+                                           genotype& g,
+                                           const variant_map& V,
+                                           const std::vector<std::vector<unsigned int>>& Kstates,
+                                           const std::vector<int>& variant_to_segment,
+                                           std::vector<uint8_t>& hap0_bits,
+                                           std::vector<uint8_t>& hap1_bits,
+                                           const std::vector<int>& alt_indices_h0,
+                                           const std::vector<int>& alt_indices_h1,
+                                           bool use_donors) {
+  // Delegate to batch version for now (ignoring donor context)
+  // TODO: Implement donor-weighted scoring when use_donors=true
+  return enforce_group_micro(g, V, variant_to_segment, position_group.variant_indices, 
+                            hap0_bits, hap1_bits);
+}
+
+// ============================================================================
+// MICRO MODE: CANDIDATE ENUMERATION AND SCORING
+// ============================================================================
+
+/**
+ * @brief Generate all valid candidate assignments for K split rows.
+ */
+std::vector<OneAlleleEnforcer::MicroCandidate> OneAlleleEnforcer::enumerate_micro_candidates(
+    const std::vector<int>& position_group_indices,
+    const std::vector<uint8_t>& current_hap0,
+    const std::vector<uint8_t>& current_hap1) {
+  
+  std::vector<MicroCandidate> candidates;
+  const size_t K = position_group_indices.size();
+  if (K == 0) return candidates;
+
+  // Enumerate all 2^(2K) possible assignments
+  const size_t max_assignments = static_cast<size_t>(1) << (2 * K);
+  
+  for (size_t assignment = 0; assignment < max_assignments; ++assignment) {
+    MicroCandidate candidate;
+    candidate.hap0_assignment.resize(K);
+    candidate.hap1_assignment.resize(K);
+    candidate.score = 0.0;
+    candidate.is_valid = true;
+
+    // Decode assignment bits
+    int alts_h0 = 0, alts_h1 = 0;
+    for (size_t i = 0; i < K; ++i) {
+      candidate.hap0_assignment[i] = (assignment >> (2 * i)) & 1;
+      candidate.hap1_assignment[i] = (assignment >> (2 * i + 1)) & 1;
+      
+      if (candidate.hap0_assignment[i]) alts_h0++;
+      if (candidate.hap1_assignment[i]) alts_h1++;
+    }
+
+    // Check validity: ≤1 ALT allele per hap
+    if (alts_h0 > 1 || alts_h1 > 1) {
+      candidate.is_valid = false;
+    } else if (alts_h0 == 0 && alts_h1 == 0) {
+      // Ensure at least one ALT allele in the group
+      candidate.is_valid = false;
+    }
+
+    candidates.push_back(candidate);
+  }
+
+  return candidates;
+}
+
+/**
+ * @brief Score a candidate assignment (constrained evaluation).
+ */
+double OneAlleleEnforcer::evaluate_candidate_micro(const MicroCandidate& candidate,
+                                                  genotype& g,
+                                                  const variant_map& V,
+                                                  const std::vector<int>& variant_to_segment,
+                                                  const std::vector<int>& position_group_indices) {
+  if (!candidate.is_valid) return -std::numeric_limits<double>::infinity();
+  return evaluate_candidate_raw_score(candidate, g, V, variant_to_segment, position_group_indices);
+}
+
+/**
+ * @brief Compute raw score for a candidate (unconstrained).
+ */
+double OneAlleleEnforcer::evaluate_candidate_raw_score(const MicroCandidate& candidate,
+                                                      genotype& g,
+                                                      const variant_map& V,
+                                                      const std::vector<int>& variant_to_segment,
+                                                      const std::vector<int>& position_group_indices) {
+  int left_anchor = -1, right_anchor = -1;
+  if (!position_group_indices.empty()) {
+    left_anchor = find_left_neighbor(g, variant_to_segment, position_group_indices.front(), V);
+    right_anchor = find_right_neighbor(g, variant_to_segment, position_group_indices.back(), V);
+  }
+
+  double transition_score = compute_transition_score(
+      g, V, variant_to_segment, left_anchor, right_anchor,
+      position_group_indices, candidate.hap0_assignment, candidate.hap1_assignment);
+
+  double emission_score = compute_emission_score(
+      position_group_indices, candidate.hap0_assignment, candidate.hap1_assignment);
+
+  return transition_score + emission_score;
+}
+
+/**
+ * @brief Compute transition score component for a candidate.
+ */
+double OneAlleleEnforcer::compute_transition_score(genotype& g,
+                                                  const variant_map& V,
+                                                  const std::vector<int>& variant_to_segment,
+                                                  int left_anchor,
+                                                  int right_anchor,
+                                                  const std::vector<int>& group_indices,
+                                                  const std::vector<uint8_t>& hap0_assignment,
+                                                  const std::vector<uint8_t>& hap1_assignment) {
+  if (group_indices.empty()) return 0.0;
+
+  double score = 0.0;
+  const int first_idx = group_indices.front();
+  const int last_idx = group_indices.back();
+
+  // Score transitions from left anchor
+  if (left_anchor >= 0 && left_anchor < g.n_variants) {
+    unsigned char left_byte = g.Variants[DIV2(left_anchor)];
+    int left_e = MOD2(left_anchor);
+    bool left_h0 = VAR_GET_HAP0(left_e, left_byte);
+    bool left_h1 = VAR_GET_HAP1(left_e, left_byte);
+    
+    double dist_cm = std::fabs(V.vec_pos[first_idx]->cm - V.vec_pos[left_anchor]->cm);
+    dist_cm = std::max(dist_cm, min_distance_cm_);
+    
+    bool switch_h0 = (left_h0 != static_cast<bool>(hap0_assignment[0]));
+    bool switch_h1 = (left_h1 != static_cast<bool>(hap1_assignment[0]));
+    
+    double switch_prob = 0.5 * (1.0 - std::exp(-2.0 * dist_cm));
+    score += switch_h0 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+    score += switch_h1 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+  }
+
+  // Score transitions to right anchor
+  if (right_anchor >= 0 && right_anchor < g.n_variants) {
+    unsigned char right_byte = g.Variants[DIV2(right_anchor)];
+    int right_e = MOD2(right_anchor);
+    bool right_h0 = VAR_GET_HAP0(right_e, right_byte);
+    bool right_h1 = VAR_GET_HAP1(right_e, right_byte);
+    
+    double dist_cm = std::fabs(V.vec_pos[right_anchor]->cm - V.vec_pos[last_idx]->cm);
+    dist_cm = std::max(dist_cm, min_distance_cm_);
+    
+    size_t last_pos = hap0_assignment.size() - 1;
+    bool switch_h0 = (static_cast<bool>(hap0_assignment[last_pos]) != right_h0);
+    bool switch_h1 = (static_cast<bool>(hap1_assignment[last_pos]) != right_h1);
+    
+    double switch_prob = 0.5 * (1.0 - std::exp(-2.0 * dist_cm));
+    score += switch_h0 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+    score += switch_h1 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+  }
+
+  return score;
+}
+
+/**
+ * @brief Compute emission score component for a candidate.
+ */
+double OneAlleleEnforcer::compute_emission_score(const std::vector<int>& group_indices,
+                                                const std::vector<uint8_t>& hap0_assignment,
+                                                const std::vector<uint8_t>& hap1_assignment) {
+  double score = 0.0;
+  const double het_bonus = 0.1;
+  
+  for (size_t i = 0; i < hap0_assignment.size() && i < hap1_assignment.size(); ++i) {
+    bool is_het = (hap0_assignment[i] != hap1_assignment[i]);
+    if (is_het) score += het_bonus;
+  }
+  
+  return score;
+}
+
+/**
+ * @brief Apply a selected candidate to the genotype.
+ */
+void OneAlleleEnforcer::apply_micro_candidate(genotype& g,
+                                             const MicroCandidate& candidate,
+                                             const std::vector<int>& position_group_indices,
+                                             std::vector<uint8_t>& hap0_bits,
+                                             std::vector<uint8_t>& hap1_bits) {
+  for (size_t i = 0; i < position_group_indices.size() && i < candidate.hap0_assignment.size(); ++i) {
+    int variant_idx = position_group_indices[i];
+    if (variant_idx < 0 || variant_idx >= g.n_variants) continue;
+    
+    uint8_t new_h0 = candidate.hap0_assignment[i];
+    uint8_t new_h1 = candidate.hap1_assignment[i];
+    
+    unsigned char& byte = g.Variants[DIV2(variant_idx)];
+    int e = MOD2(variant_idx);
+    
+    if (new_h0) VAR_SET_HAP0(e, byte); else VAR_CLR_HAP0(e, byte);
+    if (new_h1) VAR_SET_HAP1(e, byte); else VAR_CLR_HAP1(e, byte);
+    
+    if (variant_idx < static_cast<int>(hap0_bits.size())) {
+      hap0_bits[variant_idx] = new_h0;
+      hap1_bits[variant_idx] = new_h1;
+    }
+  }
+}
+
+/**
+ * @brief Donor-weighted scoring (stub for MICRO_DONOR mode).
+ */
+double OneAlleleEnforcer::evaluate_candidate_micro_donor(const MicroCandidate& candidate,
+                                                        genotype& g,
+                                                        const variant_map& V,
+                                                        const std::vector<int>& variant_to_segment,
+                                                        const std::vector<int>& position_group_indices,
+                                                        const std::vector<std::vector<unsigned int>>& Kstates) {
+  // TODO: Implement full donor-weighted scoring
+  // For now, fall back to donor-agnostic scoring
+  return evaluate_candidate_micro(candidate, g, V, variant_to_segment, position_group_indices);
+}
+
+/**
+ * @brief Compute chain score with frozen donors (stub).
+ */
+double OneAlleleEnforcer::compute_chain_score_with_donors(genotype& g,
+                                                         const variant_map& V,
+                                                         const std::vector<int>& variant_to_segment,
+                                                         int left_anchor,
+                                                         int right_anchor,
+                                                         const std::vector<int>& group_indices,
+                                                         const std::vector<uint8_t>& hap0_assignment,
+                                                         const std::vector<uint8_t>& hap1_assignment,
+                                                         const std::vector<std::vector<unsigned int>>& Kstates) {
+  // TODO: Implement donor-weighted chain scoring
+  return compute_transition_score(g, V, variant_to_segment, left_anchor, right_anchor, 
+                                 group_indices, hap0_assignment, hap1_assignment);
+}
+
+}  // namespace modules
+}  // namespace shapeit5

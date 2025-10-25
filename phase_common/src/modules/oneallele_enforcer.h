@@ -55,7 +55,7 @@ class OneAlleleEnforcer {
   void enforce_sample(const MultiallelicPositionMap& map,
                       genotype& g,
                       const variant_map& V,
-                      const std::vector<std::vector<unsigned int>>& Kstates,
+                      const std::vector<std::vector<unsigned int>>& Kstates,  // Fix: unsigned int is correct
                       const std::string& iteration_context = "unknown",
                       int sample_index = -1);
 
@@ -137,23 +137,37 @@ class OneAlleleEnforcer {
   };
 
   // Enforcement mode implementations
-  bool enforce_group_transition(genotype& g,
+  // Per-sample enforcement helpers (used by enforce_sample)
+  bool enforce_group_transition(const PositionGroup& position_group,
+                                genotype& g,
                                 const variant_map& V,
                                 const std::vector<int>& variant_to_segment,
-                                const std::vector<int>& position_group_indices,
                                 std::vector<uint8_t>& hap0_bits,
-                                std::vector<uint8_t>& hap1_bits);
+                                std::vector<uint8_t>& hap1_bits,
+                                const std::vector<int>& alt_indices_h0,
+                                const std::vector<int>& alt_indices_h1);
 
+  // Batch mode version (used by enforce()) - donor-agnostic
   bool enforce_group_micro(genotype& g,
                           const variant_map& V,
                           const std::vector<int>& variant_to_segment,
                           const std::vector<int>& position_group_indices,
                           std::vector<uint8_t>& hap0_bits,
-                          std::vector<uint8_t>& hap1_bits,
-                          const std::vector<std::vector<unsigned int>>& Kstates,
-                          bool use_donors);
+                          std::vector<uint8_t>& hap1_bits);
 
-  // Candidate enumeration and scoring
+  // Per-sample mode version (used by enforce_sample()) - with donor context
+  bool enforce_group_micro(const PositionGroup& position_group,
+                          genotype& g,
+                          const variant_map& V,
+                          const std::vector<std::vector<unsigned int>>& Kstates,
+                          const std::vector<int>& variant_to_segment,
+                          std::vector<uint8_t>& hap0_bits,
+                          std::vector<uint8_t>& hap1_bits,
+                          const std::vector<int>& alt_indices_h0,
+                          const std::vector<int>& alt_indices_h1,
+                          bool use_donors);
+                          
+// Candidate enumeration and scoring
   std::vector<MicroCandidate> enumerate_micro_candidates(
       const std::vector<int>& position_group_indices,
       const std::vector<uint8_t>& current_hap0,
