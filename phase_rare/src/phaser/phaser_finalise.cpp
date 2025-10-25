@@ -41,6 +41,7 @@ void phaser::write_files_and_finalise() {
     if (enforce_oneallele_rare) {
         vrb.bullet("One-allele (rare) : positions=" + stb.str(oneallele_rare_stats.positions_checked) +
                    " / sample-violations=" + stb.str(oneallele_rare_stats.sample_violations_found) +
+                   " / extreme-violations=" + stb.str(oneallele_rare_stats.extreme_violations_found) +
                    " / flips=" + stb.str(oneallele_rare_stats.flips_applied));
         if (!oneallele_rare_stats_path.empty()) {
             std::ofstream ofs(oneallele_rare_stats_path);
@@ -49,6 +50,7 @@ void phaser::write_files_and_finalise() {
             } else {
                 ofs << "positions_checked\t" << oneallele_rare_stats.positions_checked << "\n";
                 ofs << "sample_violations_found\t" << oneallele_rare_stats.sample_violations_found << "\n";
+                ofs << "extreme_violations_found\t" << oneallele_rare_stats.extreme_violations_found << "\n";
                 ofs << "flips_applied\t" << oneallele_rare_stats.flips_applied << "\n";
             }
         }

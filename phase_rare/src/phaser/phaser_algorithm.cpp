@@ -147,6 +147,12 @@ void phaser::phase() {
                 bool violation = (alt_h0 > 1) || (alt_h1 > 1);
                 if (!violation) continue;
                 oneallele_rare_stats.sample_violations_found++;
+                
+                // Count extreme violations (>2 ALT alleles at same position in same sample)
+                int total_alts = alt_h0 + alt_h1;
+                if (total_alts > 2) {
+                    oneallele_rare_stats.extreme_violations_found++;
+                }
 
                 // Resolve by flipping lowest-PP among ALT on offending hap; may require >1 flip if >2 contributors
                 for (int iter = 0; iter < 4 && ((alt_h0 > 1) || (alt_h1 > 1)); ++iter) {

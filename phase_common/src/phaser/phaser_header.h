@@ -73,6 +73,7 @@ public:
 	unsigned int iteration_stage;
 	int n_underflow_recovered_summing;
 	int n_underflow_recovered_precision;
+	std::string current_iteration_context;
 
 	//STATS
 	stats1D statH,statS;
@@ -95,6 +96,9 @@ public:
 	void check_options();
 	void verbose_options();
 	void verbose_files();
+
+	// Helper functions for debug logging
+	std::string get_iteration_string(int iter, int stage);
 
 	//
 	void read_files_and_initialise();

@@ -79,7 +79,8 @@ void phaser::declare_options() {
 	opt_constraints.add_options()
 		("enforce-oneallele", "Resolve multiallelic sites to enforce ≤1 ALT allele per haplotype")
 		("oneallele-mode", bpo::value< string >()->default_value("transition"), "One-allele enforcement algorithm: transition|micro|micro-donor")
-		("oneallele-stats", bpo::value< string >(), "Write one-allele enforcement statistics to this file");
+		("oneallele-stats", bpo::value< string >(), "Write one-allele enforcement statistics to this file")
+		("oneallele-debug", bpo::value< string >(), "Write detailed one-allele enforcement debug information to this file");
 
 	descriptions.add(opt_base)
 		.add(opt_input)
@@ -149,6 +150,9 @@ void phaser::check_options() {
 	oneallele_enforcer.set_enabled(enforce_oneallele);
 	if (options.count("oneallele-stats")) {
 		oneallele_stats_path = options["oneallele-stats"].as < string > ();
+	}
+	if (options.count("oneallele-debug")) {
+		oneallele_enforcer.set_debug_output_file(options["oneallele-debug"].as < string > ());
 	}
 	
 	// Parse oneallele-mode

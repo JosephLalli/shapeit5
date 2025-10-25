@@ -54,6 +54,7 @@ public:
         unsigned long long positions_checked = 0;
         unsigned long long sample_violations_found = 0;
         unsigned long long flips_applied = 0;
+        unsigned long long extreme_violations_found = 0; // >2 ALT alleles at same position in same sample
     } oneallele_rare_stats;
 
 	//MULTI-THREADING

@@ -38,6 +38,22 @@ void phaser::write_files_and_finalise() {
 	H.updateHaplotypes(G);
 	H.transposeHaplotypes_H2V(false);
 
+	// Final multiallelic constraint enforcement (belt-and-suspenders)
+	if (oneallele_enforcer.enabled() && multiallelic_map.size() > 0) {
+		timer final_enforcement_timer; final_enforcement_timer.clock();
+		auto initial_stats = oneallele_enforcer.stats();
+		oneallele_enforcer.enforce(multiallelic_map, G, V, "final");
+		auto final_stats = oneallele_enforcer.stats();
+		double enforcement_time = final_enforcement_timer.rel_time();
+		
+		uint64_t final_violations = final_stats.violations_found - initial_stats.violations_found;
+		uint64_t final_flips = final_stats.flips_applied - initial_stats.flips_applied;
+		
+		if (final_violations > 0 || final_flips > 0) {
+			vrb.bullet("Final enforcement: " + stb.str(final_violations) + " violations / " + stb.str(final_flips) + " flips (" + stb.str(enforcement_time*1.0/1000, 2) + "s)");
+		}
+	}
+
 	//step1: writing best guess haplotypes in VCF/BCF file
 	std::string oformat = options["output-format"].as < std::string > ();
 	if (oformat == "graph")
