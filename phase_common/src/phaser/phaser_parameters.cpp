@@ -80,7 +80,8 @@ void phaser::declare_options() {
 		("enforce-oneallele", "Resolve multiallelic sites to enforce ≤1 ALT allele per haplotype")
 		("oneallele-mode", bpo::value< string >()->default_value("transition"), "One-allele enforcement algorithm: transition|micro|micro-donor")
 		("oneallele-stats", bpo::value< string >(), "Write one-allele enforcement statistics to this file")
-		("oneallele-debug", bpo::value< string >(), "Write detailed one-allele enforcement debug information to this file");
+		("oneallele-debug", bpo::value< string >(), "Write detailed one-allele enforcement debug information to this file")
+		("oneallele-debug-target", bpo::value< string >(), "Target specific sample and position for debugging (format: sample_name:chrom:pos)");
 
 	descriptions.add(opt_base)
 		.add(opt_input)
@@ -153,6 +154,27 @@ void phaser::check_options() {
 	}
 	if (options.count("oneallele-debug")) {
 		oneallele_enforcer.set_debug_output_file(options["oneallele-debug"].as < string > ());
+	}
+	if (options.count("oneallele-debug-target")) {
+		string target_str = options["oneallele-debug-target"].as < string > ();
+		// Parse format: sample_name:chrom:pos
+		size_t first_colon = target_str.find(':');
+		size_t last_colon = target_str.rfind(':');
+		if (first_colon != string::npos && last_colon != string::npos && first_colon != last_colon) {
+			string sample_name = target_str.substr(0, first_colon);
+			string chrom = target_str.substr(first_colon + 1, last_colon - first_colon - 1);
+			string pos_str = target_str.substr(last_colon + 1);
+			try {
+				int pos = stoi(pos_str);
+				oneallele_enforcer.set_debug_target(sample_name, chrom, pos);
+			} catch (const std::exception& e) {
+				cerr << "Error: Invalid position in oneallele-debug-target: " << pos_str << endl;
+				exit(1);
+			}
+		} else {
+			cerr << "Error: Invalid format for oneallele-debug-target. Expected: sample_name:chrom:pos" << endl;
+			exit(1);
+		}
 	}
 	
 	// Parse oneallele-mode
