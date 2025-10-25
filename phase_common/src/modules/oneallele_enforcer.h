@@ -45,6 +45,7 @@ class OneAlleleEnforcer {
   void set_conditioning_size(int m);
   void set_min_distance_cm(double d);
   void set_debug_output_file(const std::string& filename);
+  void set_debug_target(const std::string& sample_name, const std::string& chrom, int pos);
 
   void enforce(const MultiallelicPositionMap& map,
                genotype_set& G,
@@ -67,6 +68,12 @@ class OneAlleleEnforcer {
   // Reset per-sample statistics before enforce_sample() call
   void reset_sample_epoch_stats();
 
+  // Check and log state of debug target from genotype_set 
+  void check_debug_target_state(const std::string& stage,
+                                 const MultiallelicPositionMap& map,
+                                 genotype_set& G,
+                                 const variant_map& V) const;
+
  private:
   bool enabled_ = false;
   OneAlleleMode mode_ = OneAlleleMode::TRANSITION;
@@ -78,8 +85,24 @@ class OneAlleleEnforcer {
   std::string debug_output_file_;
   std::string current_iteration_context_;
   int current_sample_index_;
+  std::string current_sample_name_;
+
+  // Target debugging
+  std::string debug_target_sample_;
+  std::string debug_target_chrom_;
+  int debug_target_pos_;
+  bool debug_target_enabled_;
 
   void debug_log_multiallelic_site(const std::string& message) const;
+  bool is_debug_target(const std::string& sample_name, const std::string& chrom, int pos) const;
+  void log_debug_target_state(const std::string& stage,
+                               const std::string& sample_name,
+                               const std::string& chrom,
+                               int pos,
+                               const std::vector<int>& variant_indices,
+                               const std::vector<uint8_t>& hap0_bits,
+                               const std::vector<uint8_t>& hap1_bits,
+                               const variant_map& V) const;
 
   int find_left_neighbor(const genotype& g,
                          const std::vector<int>& variant_to_segment,
@@ -113,21 +136,24 @@ class OneAlleleEnforcer {
     bool is_valid;
   };
 
+  // Enforcement mode implementations
+  bool enforce_group_transition(genotype& g,
+                                const variant_map& V,
+                                const std::vector<int>& variant_to_segment,
+                                const std::vector<int>& position_group_indices,
+                                std::vector<uint8_t>& hap0_bits,
+                                std::vector<uint8_t>& hap1_bits);
+
   bool enforce_group_micro(genotype& g,
                           const variant_map& V,
                           const std::vector<int>& variant_to_segment,
                           const std::vector<int>& position_group_indices,
                           std::vector<uint8_t>& hap0_bits,
-                          std::vector<uint8_t>& hap1_bits);
+                          std::vector<uint8_t>& hap1_bits,
+                          const std::vector<std::vector<unsigned int>>& Kstates,
+                          bool use_donors);
 
-  bool enforce_group_micro_donor(genotype& g,
-                                 const variant_map& V,
-                                 const std::vector<int>& variant_to_segment,
-                                 const std::vector<int>& position_group_indices,
-                                 std::vector<uint8_t>& hap0_bits,
-                                 std::vector<uint8_t>& hap1_bits,
-                                 const std::vector<std::vector<unsigned int>>& Kstates);
-
+  // Candidate enumeration and scoring
   std::vector<MicroCandidate> enumerate_micro_candidates(
       const std::vector<int>& position_group_indices,
       const std::vector<uint8_t>& current_hap0,
