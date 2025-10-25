@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <string>
 
 #include "multiallelic_position_map.h"
 
@@ -43,15 +44,19 @@ class OneAlleleEnforcer {
 
   void set_conditioning_size(int m);
   void set_min_distance_cm(double d);
+  void set_debug_output_file(const std::string& filename);
 
   void enforce(const MultiallelicPositionMap& map,
                genotype_set& G,
-               const variant_map& V);
+               const variant_map& V,
+               const std::string& iteration_context = "unknown");
 
   void enforce_sample(const MultiallelicPositionMap& map,
                       genotype& g,
                       const variant_map& V,
-                      const std::vector<std::vector<unsigned int>>& Kstates);
+                      const std::vector<std::vector<unsigned int>>& Kstates,
+                      const std::string& iteration_context = "unknown",
+                      int sample_index = -1);
 
  private:
   bool enabled_ = false;
@@ -60,6 +65,11 @@ class OneAlleleEnforcer {
   OneAlleleEpochStats epoch_stats_;
   int default_conditioning_size_ = 16;
   double min_distance_cm_ = 1e-8;
+  std::string debug_output_file_;
+  std::string current_iteration_context_;
+  int current_sample_index_;
+
+  void debug_log_multiallelic_site(const std::string& message) const;
 
   int find_left_neighbor(const genotype& g,
                          const std::vector<int>& variant_to_segment,
@@ -118,6 +128,12 @@ class OneAlleleEnforcer {
                                  const variant_map& V,
                                  const std::vector<int>& variant_to_segment,
                                  const std::vector<int>& position_group_indices);
+
+  double evaluate_candidate_raw_score(const MicroCandidate& candidate,
+                                     genotype& g,
+                                     const variant_map& V,
+                                     const std::vector<int>& variant_to_segment,
+                                     const std::vector<int>& position_group_indices);
 
   double evaluate_candidate_micro_donor(const MicroCandidate& candidate,
                                        genotype& g,
