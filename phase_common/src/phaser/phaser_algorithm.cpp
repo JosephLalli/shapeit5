@@ -103,7 +103,8 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 	// Per-sample multiallelic enforcement for micro-donor mode
 	if (oneallele_enforcer.enabled() && oneallele_enforcer.mode() == shapeit5::modules::OneAlleleMode::MICRO_DONOR && 
 		multiallelic_map.size() > 0) {
-		oneallele_enforcer.enforce_sample(multiallelic_map, *G.vecG[id_job], V, threadData[id_worker].Kstates);
+		oneallele_enforcer.enforce_sample(multiallelic_map, *G.vecG[id_job], V, threadData[id_worker].Kstates,
+		                                  current_iteration_context, id_job);
 	}
 }
 
@@ -118,7 +119,7 @@ void phaser::phaseWindow() {
 	if (oneallele_enforcer.enabled()) {
 		oneallele_enforcer.reset_epoch_stats();
 	}
-	oneallele_time_ms = 0.0;
+	// DON'T reset oneallele_time_ms here - it accumulates across enforce() calls
 	
 	statH.clear(); statS.clear();
 	storedKsizes.clear();
@@ -131,22 +132,27 @@ void phaser::phaseWindow() {
 	}
 	vrb.bullet("HMM computations [K=" + stb.str(statH.mean(), 1) + "+/-" + stb.str(statH.sd(), 1) + " / W=" + stb.str(statS.mean(), 2) + "Mb / US=" + stb.str(n_underflow_recovered_summing) + " / UP=" + stb.str(n_underflow_recovered_precision) + "] (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
 	
-	// Add dedicated multiallelic correction line if enabled
-	if (oneallele_enforcer.enabled()) {
-		std::string mode_str;
-		switch (oneallele_enforcer.mode()) {
-			case shapeit5::modules::OneAlleleMode::TRANSITION: mode_str = "transition"; break;
-			case shapeit5::modules::OneAlleleMode::MICRO: mode_str = "micro"; break;
-			case shapeit5::modules::OneAlleleMode::MICRO_DONOR: mode_str = "micro-donor"; break;
-		}
-		vrb.bullet("Multiallelic correction (" + mode_str + ") [violations=" + stb.str(oneallele_enforcer.epoch_stats().violations_found) + " / flipped=" + stb.str(oneallele_enforcer.epoch_stats().flips_applied) + "] (" + stb.str(oneallele_time_ms*1.0/1000, 2) + "s)");
+	// Don't report enforcement here - it happens after this function returns
+}
+
+std::string phaser::get_iteration_string(int iter, int stage) {
+	std::string stage_name;
+	switch (iteration_types[stage]) {
+		case STAGE_BURN: stage_name = "burn-in"; break;
+		case STAGE_PRUN: stage_name = "pruning"; break;
+		case STAGE_MAIN: stage_name = "main"; break;
+		default: stage_name = "unknown"; break;
 	}
+	return stage_name + "-" + stb.str(iter+1) + "/" + stb.str(iteration_counts[stage]);
 }
 
 void phaser::phase() {
 	unsigned long n_old_segments = G.numberOfSegments(), n_new_segments = 0, current_iteration = 0;
 	for (iteration_stage = 0 ; iteration_stage < iteration_counts.size() ; iteration_stage ++) {
 		for (int iter = 0 ; iter < iteration_counts[iteration_stage] ; iter ++) {
+			// Store current iteration context for debug logging
+			current_iteration_context = get_iteration_string(iter, iteration_stage);
+			
 			//VERBOSE
 			switch (iteration_types[iteration_stage]) {
 			case STAGE_BURN:	vrb.title("Burn-in iteration [" + stb.str(iter+1) + "/" + stb.str(iteration_counts[iteration_stage]) + "]"); break;
@@ -157,16 +163,29 @@ void phaser::phase() {
 			H.select();
 			//PHASE DATA
 			phaseWindow();
-		//MERGE IBD2 PAIRS
-		H.Kbanned.collapse();
-		// Enforce multiallelic one-allele constraint before updating haplotypes
-		if (oneallele_enforcer.enabled() && multiallelic_map.size() > 0) {
-			timer oneallele_timer; oneallele_timer.clock();
-			oneallele_enforcer.enforce(multiallelic_map, G, V);
-			oneallele_time_ms += oneallele_timer.rel_time();
-		}
-		//UPDATE H with new sampled haplotypes
-		H.updateHaplotypes(G);
+			//MERGE IBD2 PAIRS
+			H.Kbanned.collapse();
+			
+			// Enforce multiallelic one-allele constraint before updating haplotypes
+			if (oneallele_enforcer.enabled() && multiallelic_map.size() > 0) {
+				tac.clock();
+				oneallele_enforcer.enforce(multiallelic_map, G, V, current_iteration_context);
+				
+				// Report enforcement statistics immediately after
+				std::string mode_str;
+				switch (oneallele_enforcer.mode()) {
+					case shapeit5::modules::OneAlleleMode::TRANSITION: mode_str = "transition"; break;
+					case shapeit5::modules::OneAlleleMode::MICRO: mode_str = "micro"; break;
+					case shapeit5::modules::OneAlleleMode::MICRO_DONOR: mode_str = "micro-donor"; break;
+				}
+				vrb.bullet("Multiallelic correction (" + mode_str + ") [violations=" + 
+				          stb.str(oneallele_enforcer.epoch_stats().violations_found) + " / flipped=" + 
+				          stb.str(oneallele_enforcer.epoch_stats().flips_applied) + "] (" + 
+				          stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
+			}
+			
+			//UPDATE H with new sampled haplotypes
+			H.updateHaplotypes(G);
 			//if (options.count("pedigree")) H.checkScaffoldPedigrees(G, options["pedigree"].as < string > ());
 			//TRANSPOSE H from Hfirst to Vfirst (for next PBWT compute)
 			H.transposeHaplotypes_H2V(false);

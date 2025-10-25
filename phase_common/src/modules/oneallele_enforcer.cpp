@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <fstream>
+#include <sstream>
 
 #include <containers/genotype_set.h>
 #include <containers/variant_map.h>
@@ -41,19 +43,48 @@ void OneAlleleEnforcer::set_min_distance_cm(double d) {
   }
 }
 
+void OneAlleleEnforcer::set_debug_output_file(const std::string& filename) {
+  debug_output_file_ = filename;
+}
+
+void OneAlleleEnforcer::debug_log_multiallelic_site(const std::string& message) const {
+  if (debug_output_file_.empty()) return;
+  
+  static bool file_initialized = false;
+  std::ofstream ofs(debug_output_file_, file_initialized ? std::ios_base::app : std::ios_base::out);
+  if (!file_initialized) {
+    ofs << "iteration\tsample\tposition\tmode\tevent\tdetails\n";
+    file_initialized = true;
+  }
+  
+  if (ofs.good()) {
+    ofs << message << "\n";
+    ofs.flush();
+  }
+}
+
 void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
                                 genotype_set& G,
-                                const variant_map& V) {
+                                const variant_map& V,
+                                const std::string& iteration_context) {
   if (!enabled_) return;
+  
+  // Store context for debug logging
+  current_iteration_context_ = iteration_context;
+  current_sample_index_ = -1; // -1 indicates all samples
   const auto& groups = map.groups();
   stats_.positions_checked += static_cast<std::uint64_t>(groups.size());
   if (groups.empty()) return;
 
   const std::size_t n_variants_global = V.vec_pos.size();
 
-  for (genotype* g_ptr : G.vecG) {
+  for (size_t sample_idx = 0; sample_idx < G.vecG.size(); ++sample_idx) {
+    genotype* g_ptr = G.vecG[sample_idx];
     if (!g_ptr) continue;
     genotype& g = *g_ptr;
+    
+    // Update current sample context for debug logging
+    current_sample_index_ = static_cast<int>(sample_idx);
     if (g.n_variants == 0) continue;
     if (static_cast<std::size_t>(g.n_variants) != n_variants_global) continue;
 
@@ -169,8 +200,14 @@ void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
 void OneAlleleEnforcer::enforce_sample(const MultiallelicPositionMap& map,
                                        genotype& g,
                                        const variant_map& V,
-                                       const std::vector<std::vector<unsigned int>>& Kstates) {
+                                       const std::vector<std::vector<unsigned int>>& Kstates,
+                                       const std::string& iteration_context,
+                                       int sample_index) {
   if (!enabled_) return;
+  
+  // Store context for debug logging
+  current_iteration_context_ = iteration_context;
+  current_sample_index_ = sample_index;
   const auto& groups = map.groups();
   if (groups.empty()) return;
 
@@ -355,6 +392,57 @@ bool OneAlleleEnforcer::enforce_group_micro(genotype& g,
     if (current_hap0[i]) alts_h0++;
     if (current_hap1[i]) alts_h1++;
   }
+  
+  // Debug logging for multiallelic site and score original configuration
+  if (!debug_output_file_.empty() && !position_group_indices.empty()) {
+    std::ostringstream debug_msg;
+    debug_msg << current_iteration_context_ << "\t" << (current_sample_index_ >= 0 ? std::to_string(current_sample_index_) : "all") << "\t";
+    if (!position_group_indices.empty() && position_group_indices[0] < V.vec_pos.size()) {
+      debug_msg << V.vec_pos[position_group_indices[0]]->chr << ":" << V.vec_pos[position_group_indices[0]]->bp;
+    } else {
+      debug_msg << "unknown_pos";
+    }
+    debug_msg << "\tmicro\tviolation_check\t";
+    debug_msg << "alts_h0=" << alts_h0 << ",alts_h1=" << alts_h1;
+    debug_msg << ",hap0=[";
+    for (size_t i = 0; i < current_hap0.size(); ++i) {
+      if (i > 0) debug_msg << ",";
+      debug_msg << (int)current_hap0[i];
+    }
+    debug_msg << "],hap1=[";
+    for (size_t i = 0; i < current_hap1.size(); ++i) {
+      if (i > 0) debug_msg << ",";
+      debug_msg << (int)current_hap1[i];
+    }
+    debug_msg << "]";
+    debug_log_multiallelic_site(debug_msg.str());
+    
+    // Score the original invalid configuration - both raw and constrained
+    MicroCandidate original_candidate = {current_hap0, current_hap1, 0.0, false};
+    double original_raw_score = evaluate_candidate_raw_score(original_candidate, g, V, variant_to_segment, position_group_indices);
+    double original_constrained_score = evaluate_candidate_micro(original_candidate, g, V, variant_to_segment, position_group_indices);
+    
+    std::ostringstream orig_debug_msg;
+    orig_debug_msg << current_iteration_context_ << "\t" << (current_sample_index_ >= 0 ? std::to_string(current_sample_index_) : "all") << "\t";
+    if (!position_group_indices.empty() && position_group_indices[0] < V.vec_pos.size()) {
+      orig_debug_msg << V.vec_pos[position_group_indices[0]]->chr << ":" << V.vec_pos[position_group_indices[0]]->bp;
+    }
+    orig_debug_msg << "\tmicro\toriginal_invalid_score\t";
+    orig_debug_msg << "raw_score=" << original_raw_score << ",constrained_score=" << original_constrained_score << ",valid=false";
+    orig_debug_msg << ",hap0=[";
+    for (size_t i = 0; i < current_hap0.size(); ++i) {
+      if (i > 0) orig_debug_msg << ",";
+      orig_debug_msg << (int)current_hap0[i];
+    }
+    orig_debug_msg << "],hap1=[";
+    for (size_t i = 0; i < current_hap1.size(); ++i) {
+      if (i > 0) orig_debug_msg << ",";
+      orig_debug_msg << (int)current_hap1[i];
+    }
+    orig_debug_msg << "]";
+    debug_log_multiallelic_site(orig_debug_msg.str());
+  }
+  
   if (alts_h0 <= 1 && alts_h1 <= 1) return false;
 
   // Enumerate all valid candidates
@@ -367,19 +455,67 @@ bool OneAlleleEnforcer::enforce_group_micro(genotype& g,
   double best_score = -std::numeric_limits<double>::infinity();
   int best_idx = -1;
   
+  // Debug logging for candidate enumeration
+  if (!debug_output_file_.empty() && !position_group_indices.empty()) {
+    std::ostringstream debug_msg;
+    debug_msg << current_iteration_context_ << "\t" << (current_sample_index_ >= 0 ? std::to_string(current_sample_index_) : "all") << "\t";
+    if (!position_group_indices.empty() && position_group_indices[0] < V.vec_pos.size()) {
+      debug_msg << V.vec_pos[position_group_indices[0]]->chr << ":" << V.vec_pos[position_group_indices[0]]->bp;
+    }
+    debug_msg << "\tmicro\tcandidate_enum\t";
+    debug_msg << "n_candidates=" << candidates.size();
+    debug_log_multiallelic_site(debug_msg.str());
+  }
+  
   for (size_t i = 0; i < candidates.size(); ++i) {
-    if (!candidates[i].is_valid) continue;
+    // Score ALL candidates with both raw and constrained scoring
+    double raw_score = evaluate_candidate_raw_score(candidates[i], g, V, variant_to_segment, position_group_indices);
+    double constrained_score = evaluate_candidate_micro(candidates[i], g, V, variant_to_segment, position_group_indices);
+    candidates[i].score = constrained_score;
     
-    double score = evaluate_candidate_micro(candidates[i], g, V, variant_to_segment, position_group_indices);
-    candidates[i].score = score;
+    // Debug logging for ALL candidate scoring (valid and invalid)
+    if (!debug_output_file_.empty() && !position_group_indices.empty()) {
+      std::ostringstream debug_msg;
+      debug_msg << current_iteration_context_ << "\t" << (current_sample_index_ >= 0 ? std::to_string(current_sample_index_) : "all") << "\t";
+      if (!position_group_indices.empty() && position_group_indices[0] < V.vec_pos.size()) {
+        debug_msg << V.vec_pos[position_group_indices[0]]->chr << ":" << V.vec_pos[position_group_indices[0]]->bp;
+      }
+      debug_msg << "\tmicro\tcandidate_score\t";
+      debug_msg << "cand=" << i << ",raw_score=" << raw_score << ",constrained_score=" << constrained_score << ",valid=" << (candidates[i].is_valid ? "true" : "false");
+      debug_msg << ",hap0=[";
+      for (size_t j = 0; j < candidates[i].hap0_assignment.size(); ++j) {
+        if (j > 0) debug_msg << ",";
+        debug_msg << (int)candidates[i].hap0_assignment[j];
+      }
+      debug_msg << "],hap1=[";
+      for (size_t j = 0; j < candidates[i].hap1_assignment.size(); ++j) {
+        if (j > 0) debug_msg << ",";
+        debug_msg << (int)candidates[i].hap1_assignment[j];
+      }
+      debug_msg << "]";
+      debug_log_multiallelic_site(debug_msg.str());
+    }
     
-    if (score > best_score) {
-      best_score = score;
+    // Only consider valid candidates for selection
+    if (candidates[i].is_valid && constrained_score > best_score) {
+      best_score = constrained_score;
       best_idx = static_cast<int>(i);
     }
   }
 
   if (best_idx < 0) return false;
+
+  // Debug logging for best candidate selection
+  if (!debug_output_file_.empty() && !position_group_indices.empty()) {
+    std::ostringstream debug_msg;
+    debug_msg << current_iteration_context_ << "\t" << (current_sample_index_ >= 0 ? std::to_string(current_sample_index_) : "all") << "\t";
+    if (!position_group_indices.empty() && position_group_indices[0] < V.vec_pos.size()) {
+      debug_msg << V.vec_pos[position_group_indices[0]]->chr << ":" << V.vec_pos[position_group_indices[0]]->bp;
+    }
+    debug_msg << "\tmicro\tbest_candidate\t";
+    debug_msg << "best_idx=" << best_idx << ",best_score=" << best_score;
+    debug_log_multiallelic_site(debug_msg.str());
+  }
 
   // Apply the best candidate
   apply_micro_candidate(g, candidates[best_idx], position_group_indices, hap0_bits, hap1_bits);
@@ -448,7 +584,17 @@ double OneAlleleEnforcer::evaluate_candidate_micro(const MicroCandidate& candida
                                                   const std::vector<int>& variant_to_segment,
                                                   const std::vector<int>& position_group_indices) {
   if (!candidate.is_valid) return -std::numeric_limits<double>::infinity();
+  
+  return evaluate_candidate_raw_score(candidate, g, V, variant_to_segment, position_group_indices);
+}
 
+double OneAlleleEnforcer::evaluate_candidate_raw_score(const MicroCandidate& candidate,
+                                                      genotype& g,
+                                                      const variant_map& V,
+                                                      const std::vector<int>& variant_to_segment,
+                                                      const std::vector<int>& position_group_indices) {
+  // Calculate raw score WITHOUT validity check - pure emission/transmission probabilities
+  
   // Find anchors for transition scoring
   int left_anchor = -1, right_anchor = -1;
   if (!position_group_indices.empty()) {
