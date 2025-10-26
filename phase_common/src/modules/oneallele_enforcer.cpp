@@ -933,5 +933,243 @@ double OneAlleleEnforcer::compute_chain_score_with_donors(genotype& g,
                                  group_indices, hap0_assignment, hap1_assignment);
 }
 
+// ============================================================================
+// TRANSITION MODE: ANCHOR-BASED FLIP SELECTION
+// ============================================================================
+
+/**
+ * @brief Resolve a violation on one haplotype using transition scoring.
+ * 
+ * @param g Genotype object for the sample
+ * @param V Variant map with genetic positions
+ * @param variant_to_segment Mapping from variant index to segment index
+ * @param offending_hap_bits Haplotype bits for the haplotype with >1 ALT
+ * @param other_hap_bits Haplotype bits for the other (clean) haplotype
+ * @param alt_indices Indices of ALT alleles on the offending haplotype
+ * @param is_hap0 true if offending haplotype is hap0, false if hap1
+ * @return true if a flip was applied, false otherwise
+ * 
+ * Uses nearest phased heterozygous anchors to evaluate flip candidates.
+ * For each ALT allele on the offending haplotype, computes likelihood
+ * of flipping it to the other haplotype based on Li-Stephens transition
+ * probabilities across [left_anchor → site → right_anchor].
+ */
+bool OneAlleleEnforcer::resolve_violation_for_hap(genotype& g,
+                                                  const variant_map& V,
+                                                  const std::vector<int>& variant_to_segment,
+                                                  std::vector<uint8_t>& offending_hap_bits,
+                                                  std::vector<uint8_t>& other_hap_bits,
+                                                  std::vector<int>& alt_indices,
+                                                  bool is_hap0) {
+  if (alt_indices.size() <= 1) return false;
+
+  double best_score = -std::numeric_limits<double>::infinity();
+  int best_flip_idx = -1;
+
+  for (int variant_idx : alt_indices) {
+    if (variant_idx < 0 || variant_idx >= g.n_variants) continue;
+
+    int left_anchor = find_left_neighbor(g, variant_to_segment, variant_idx, V);
+    int right_anchor = find_right_neighbor(g, variant_to_segment, variant_idx, V);
+
+    double score = compute_flip_score(g, V, variant_idx, left_anchor, right_anchor, is_hap0);
+
+    if (score > best_score) {
+      best_score = score;
+      best_flip_idx = variant_idx;
+    }
+  }
+
+  if (best_flip_idx < 0) return false;
+
+  // We need to pass both hap0_bits and hap1_bits, and specify which hap we're flipping from
+  if (is_hap0) {
+    flip_alt_to_other_hap(g, best_flip_idx, true, offending_hap_bits, other_hap_bits);
+  } else {
+    flip_alt_to_other_hap(g, best_flip_idx, false, other_hap_bits, offending_hap_bits);
+  }
+  return true;
+}
+
+/**
+ * @brief Find the nearest phased heterozygous variant to the left.
+ * 
+ * @param g Genotype object
+ * @param variant_to_segment Variant-to-segment mapping
+ * @param site_idx Current variant index
+ * @param V Variant map
+ * @return Index of left anchor, or -1 if none found
+ * 
+ * Searches backwards from site_idx within the same phase segment for
+ * the nearest heterozygous variant (hap0 != hap1). Respects segment
+ * boundaries to avoid anchors from different phase sets.
+ */
+int OneAlleleEnforcer::find_left_neighbor(const genotype& g,
+                                          const std::vector<int>& variant_to_segment,
+                                          int site_idx,
+                                          const variant_map& V) const {
+  if (site_idx < 0 || site_idx >= g.n_variants) return -1;
+  
+  int current_segment = variant_to_segment[site_idx];
+  if (current_segment < 0) return -1;
+
+  for (int idx = site_idx - 1; idx >= 0; --idx) {
+    if (variant_to_segment[idx] != current_segment) break;
+    
+    unsigned char byte = g.Variants[DIV2(idx)];
+    int e = MOD2(idx);
+    bool h0 = VAR_GET_HAP0(e, byte);
+    bool h1 = VAR_GET_HAP1(e, byte);
+    
+    if (h0 != h1) return idx;
+  }
+  
+  return -1;
+}
+
+/**
+ * @brief Find the nearest phased heterozygous variant to the right.
+ * 
+ * @param g Genotype object
+ * @param variant_to_segment Variant-to-segment mapping
+ * @param site_idx Current variant index
+ * @param V Variant map
+ * @return Index of right anchor, or -1 if none found
+ * 
+ * Searches forwards from site_idx within the same phase segment for
+ * the nearest heterozygous variant. Respects segment boundaries.
+ */
+int OneAlleleEnforcer::find_right_neighbor(const genotype& g,
+                                           const std::vector<int>& variant_to_segment,
+                                           int site_idx,
+                                           const variant_map& V) const {
+  if (site_idx < 0 || site_idx >= g.n_variants) return -1;
+  
+  int current_segment = variant_to_segment[site_idx];
+  if (current_segment < 0) return -1;
+
+  for (int idx = site_idx + 1; idx < g.n_variants; ++idx) {
+    if (variant_to_segment[idx] != current_segment) break;
+    
+    unsigned char byte = g.Variants[DIV2(idx)];
+    int e = MOD2(idx);
+    bool h0 = VAR_GET_HAP0(e, byte);
+    bool h1 = VAR_GET_HAP1(e, byte);
+    
+    if (h0 != h1) return idx;
+  }
+  
+  return -1;
+}
+
+/**
+ * @brief Compute Li-Stephens transition score for flipping a variant.
+ * 
+ * @param g Genotype object
+ * @param V Variant map with genetic positions
+ * @param variant_idx Index of variant to flip
+ * @param left_anchor Index of left heterozygous anchor (-1 if none)
+ * @param right_anchor Index of right heterozygous anchor (-1 if none)
+ * @param is_hap0 true if flipping hap0, false if hap1
+ * @return Log-likelihood score for this flip
+ * 
+ * Evaluates the likelihood of flipping variant_idx from one haplotype
+ * to the other by computing stay/switch probabilities across the chain:
+ * [left_anchor → variant → right_anchor]. Higher scores indicate better
+ * consistency with flanking phased heterozygous sites.
+ */
+double OneAlleleEnforcer::compute_flip_score(genotype& g,
+                                            const variant_map& V,
+                                            int variant_idx,
+                                            int left_anchor,
+                                            int right_anchor,
+                                            bool is_hap0) const {
+  double score = 0.0;
+  
+  unsigned char variant_byte = g.Variants[DIV2(variant_idx)];
+  int variant_e = MOD2(variant_idx);
+  bool current_h0 = VAR_GET_HAP0(variant_e, variant_byte);
+  bool current_h1 = VAR_GET_HAP1(variant_e, variant_byte);
+  
+  // After flip, the bits would be swapped
+  bool flipped_h0 = is_hap0 ? !current_h0 : current_h0;
+  bool flipped_h1 = is_hap0 ? current_h1 : !current_h1;
+
+  // Score transition from left anchor
+  if (left_anchor >= 0) {
+    unsigned char left_byte = g.Variants[DIV2(left_anchor)];
+    int left_e = MOD2(left_anchor);
+    bool left_h0 = VAR_GET_HAP0(left_e, left_byte);
+    bool left_h1 = VAR_GET_HAP1(left_e, left_byte);
+    
+    double dist_cm = std::fabs(V.vec_pos[variant_idx]->cm - V.vec_pos[left_anchor]->cm);
+    dist_cm = std::max(dist_cm, min_distance_cm_);
+    
+    bool switch_h0 = (left_h0 != flipped_h0);
+    bool switch_h1 = (left_h1 != flipped_h1);
+    
+    double switch_prob = 0.5 * (1.0 - std::exp(-2.0 * dist_cm));
+    score += switch_h0 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+    score += switch_h1 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+  }
+
+  // Score transition to right anchor
+  if (right_anchor >= 0) {
+    unsigned char right_byte = g.Variants[DIV2(right_anchor)];
+    int right_e = MOD2(right_anchor);
+    bool right_h0 = VAR_GET_HAP0(right_e, right_byte);
+    bool right_h1 = VAR_GET_HAP1(right_e, right_byte);
+    
+    double dist_cm = std::fabs(V.vec_pos[right_anchor]->cm - V.vec_pos[variant_idx]->cm);
+    dist_cm = std::max(dist_cm, min_distance_cm_);
+    
+    bool switch_h0 = (flipped_h0 != right_h0);
+    bool switch_h1 = (flipped_h1 != right_h1);
+    
+    double switch_prob = 0.5 * (1.0 - std::exp(-2.0 * dist_cm));
+    score += switch_h0 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+    score += switch_h1 ? std::log(switch_prob) : std::log(1.0 - switch_prob);
+  }
+
+  return score;
+}
+
+/**
+ * @brief Flip an ALT allele from one haplotype to the other.
+ * 
+ * @param g Genotype object to modify
+ * @param variant_idx Index of variant to flip
+ * @param from_hap_bits Haplotype bits losing the ALT
+ * @param to_hap_bits Haplotype bits gaining the ALT
+ * 
+ * Swaps the haplotype assignment for variant_idx, moving it from
+ * from_hap to to_hap. Updates both the genotype byte array and
+ * the local bit vectors.
+ */
+void OneAlleleEnforcer::flip_alt_to_other_hap(genotype& g,
+                                              int variant_idx,
+                                              bool from_hap0,
+                                              std::vector<uint8_t>& hap0_bits,
+                                              std::vector<uint8_t>& hap1_bits) const {
+  if (variant_idx < 0 || variant_idx >= g.n_variants) return;
+  
+  unsigned char& byte = g.Variants[DIV2(variant_idx)];
+  int e = MOD2(variant_idx);
+  
+  if (from_hap0) {
+    if (!VAR_GET_HAP0(e, byte)) return;
+    VAR_CLR_HAP0(e, byte);
+    VAR_SET_HAP1(e, byte);
+    hap0_bits[variant_idx] = 0U;
+    hap1_bits[variant_idx] = 1U;
+  } else {
+    if (!VAR_GET_HAP1(e, byte)) return;
+    VAR_CLR_HAP1(e, byte);
+    VAR_SET_HAP0(e, byte);
+    hap1_bits[variant_idx] = 0U;
+    hap0_bits[variant_idx] = 1U;
+  }
+}
+
 }  // namespace modules
 }  // namespace shapeit5
