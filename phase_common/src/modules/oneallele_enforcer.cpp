@@ -713,8 +713,13 @@ bool OneAlleleEnforcer::enforce_group_micro(const PositionGroup& position_group,
   // Check for violations
   int alts_h0 = 0, alts_h1 = 0;
   for (size_t i = 0; i < position_group_indices.size(); ++i) {
-    if (i < hap0_bits.size() && hap0_bits[i]) alts_h0++;
-    if (i < hap1_bits.size() && hap1_bits[i]) alts_h1++;
+    const int variant_idx = position_group_indices[i];
+    if (variant_idx >= 0 && variant_idx < static_cast<int>(hap0_bits.size()) && hap0_bits[variant_idx]) {
+      alts_h0++;
+    }
+    if (variant_idx >= 0 && variant_idx < static_cast<int>(hap1_bits.size()) && hap1_bits[variant_idx]) {
+      alts_h1++;
+    }
   }
   
   if (alts_h0 <= 1 && alts_h1 <= 1) return false;
@@ -723,8 +728,17 @@ bool OneAlleleEnforcer::enforce_group_micro(const PositionGroup& position_group,
   std::vector<uint8_t> current_hap0(position_group_indices.size());
   std::vector<uint8_t> current_hap1(position_group_indices.size());
   for (size_t i = 0; i < position_group_indices.size(); ++i) {
-    current_hap0[i] = (i < hap0_bits.size()) ? hap0_bits[i] : 0;
-    current_hap1[i] = (i < hap1_bits.size()) ? hap1_bits[i] : 0;
+    const int variant_idx = position_group_indices[i];
+    if (variant_idx >= 0 && variant_idx < static_cast<int>(hap0_bits.size())) {
+      current_hap0[i] = hap0_bits[variant_idx];
+    } else {
+      current_hap0[i] = 0;
+    }
+    if (variant_idx >= 0 && variant_idx < static_cast<int>(hap1_bits.size())) {
+      current_hap1[i] = hap1_bits[variant_idx];
+    } else {
+      current_hap1[i] = 0;
+    }
   }
 
   auto candidates = enumerate_micro_candidates(position_group_indices, current_hap0, current_hap1);
