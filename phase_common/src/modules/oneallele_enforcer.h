@@ -220,6 +220,13 @@ class OneAlleleEnforcer {
                                          const std::vector<uint8_t>& hap0_assignment,
                                          const std::vector<uint8_t>& hap1_assignment,
                                          const std::vector<std::vector<unsigned int>>& Kstates);
+
+  double compute_flip_score(genotype& g,
+                            const variant_map& V,
+                            int variant_idx,
+                            int left_anchor,
+                            int right_anchor,
+                            bool is_hap0) const;
 };
 
 }  // namespace modules
