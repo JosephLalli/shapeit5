@@ -41,7 +41,7 @@ if ../phase_rare/bin/phase_rare \
     --map info/par2.gmap.gz \
     --input-region "$scaffold_region" \
     --scaffold-region "$scaffold_region" \
-    --enforce-oneallele-rare \ 
+    --enforce-oneallele-rare \
     --output "$output_bcf" \
     --seed 15052011 >"$log_file" 2>&1; then
   echo "Rare variant phasing completed successfully"
