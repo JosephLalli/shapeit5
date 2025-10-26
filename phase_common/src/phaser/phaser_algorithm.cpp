@@ -104,8 +104,8 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 	// This ensures violations are corrected while donor context is available and before
 	// any downstream operations (IBD2 collapse, H update) that could be affected
 	if (oneallele_enforcer.enabled() && multiallelic_map.size() > 0) {
-		// Reset per-sample epoch stats before enforcement
-		shapeit5::modules::OneAlleleEpochStats sample_stats;
+		// Reset per-sample epoch stats before enforcement to prevent cumulative counting
+		oneallele_enforcer.reset_sample_epoch_stats();
 		
 		// Enforce constraints immediately after sampling
 		// - MICRO-DONOR: Uses threadData[id_worker].Kstates for donor-weighted scoring
@@ -115,7 +115,7 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 										  current_iteration_context, id_job);
 		
 		// Get stats from this sample's enforcement
-		sample_stats = oneallele_enforcer.sample_epoch_stats();
+		shapeit5::modules::OneAlleleEpochStats sample_stats = oneallele_enforcer.sample_epoch_stats();
 		
 		// Thread-safe accumulation into global epoch stats
 		if (options["thread"].as < int > () > 1) pthread_mutex_lock(&mutex_workers);
@@ -167,6 +167,12 @@ void phaser::phase() {
 			case STAGE_PRUN:	vrb.title("Pruning iteration [" + stb.str(iter+1) + "/" + stb.str(iteration_counts[iteration_stage]) + "]"); break;
 			case STAGE_MAIN:	vrb.title("Main iteration [" + stb.str(iter+1) + "/" + stb.str(iteration_counts[iteration_stage]) + "]"); break;
 			}
+			
+			// Reset epoch statistics for this iteration
+			if (oneallele_enforcer.enabled()) {
+				oneallele_enforcer.reset_epoch_stats();
+			}
+			
 			//SELECT NEW STATES WITH PBWT
 			H.select();
 			//PHASE DATA
