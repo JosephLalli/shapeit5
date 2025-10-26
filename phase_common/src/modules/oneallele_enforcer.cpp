@@ -361,7 +361,6 @@ void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
                                           alt_indices_h0,
                                           true)) {
               stats_.flips_applied++;
-              epoch_stats_.flips_applied++;
             }
           } else if (alt_indices_h1.size() > 1 && alt_indices_h0.empty()) {
             found_violation = true;
@@ -373,7 +372,6 @@ void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
                                           alt_indices_h1,
                                           false)) {
               stats_.flips_applied++;
-              epoch_stats_.flips_applied++;
             }
           } else if (alt_indices_h0.size() > 1 || alt_indices_h1.size() > 1) {
             // Mixed violation (unexpected with preprocessing assumptions); mark as found.
@@ -387,7 +385,6 @@ void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
             found_violation = true;
             if (enforce_group_micro(g, V, variant_to_segment, position_group.variant_indices, hap0_bits, hap1_bits)) {
               stats_.flips_applied++;
-              epoch_stats_.flips_applied++;
             }
           }
           break;
@@ -399,13 +396,11 @@ void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
             found_violation = true;
             if (resolve_violation_for_hap(g, V, variant_to_segment, hap0_bits, hap1_bits, alt_indices_h0, true)) {
               stats_.flips_applied++;
-              epoch_stats_.flips_applied++;
             }
           } else if (alt_indices_h1.size() > 1 && alt_indices_h0.empty()) {
             found_violation = true;
             if (resolve_violation_for_hap(g, V, variant_to_segment, hap1_bits, hap0_bits, alt_indices_h1, false)) {
               stats_.flips_applied++;
-              epoch_stats_.flips_applied++;
             }
           } else if (alt_indices_h0.size() > 1 || alt_indices_h1.size() > 1) {
             found_violation = true;
@@ -415,7 +410,6 @@ void OneAlleleEnforcer::enforce(const MultiallelicPositionMap& map,
 
       if (found_violation) {
         stats_.violations_found++;
-        epoch_stats_.violations_found++;
       }
     }
   }
@@ -535,9 +529,8 @@ void OneAlleleEnforcer::enforce_sample(const MultiallelicPositionMap& map,
     bool found_violation = (alt_indices_h0.size() > 1 || alt_indices_h1.size() > 1);
     if (!found_violation) continue;
     
-    // Increment violation counter
+    // Increment violation counter (only in sample stats - will be accumulated later)
     sample_epoch_stats_.violations_found++;
-    stats_.violations_found++;
     
     // Branch by mode - all can now use donor context if available
     switch (mode_) {
@@ -634,14 +627,12 @@ bool OneAlleleEnforcer::enforce_group_transition(const PositionGroup& position_g
                                      const_cast<std::vector<int>&>(alt_indices_h0), true);
     if (fixed) {
       sample_epoch_stats_.flips_applied++;
-      stats_.flips_applied++;
     }
   } else if (alt_indices_h1.size() > 1 && alt_indices_h0.empty()) {
     fixed = resolve_violation_for_hap(g, V, variant_to_segment, hap1_bits, hap0_bits,
                                      const_cast<std::vector<int>&>(alt_indices_h1), false);
     if (fixed) {
       sample_epoch_stats_.flips_applied++;
-      stats_.flips_applied++;
     }
   }
   return fixed;
