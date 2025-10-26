@@ -65,6 +65,7 @@ void phaser::declare_options() {
     bpo::options_description opt_constraints ("Constraint enforcement");
     opt_constraints.add_options()
             ("enforce-oneallele-rare", "Resolve multiallelic rare sites to enforce ≤1 ALT allele per haplotype")
+            ("oneallele-rare-mode", bpo::value< string >()->default_value("pp-enhanced"), "Rare variant enforcement algorithm: pp-basic|pp-enhanced|sparse-transition|sparse-micro")
             ("oneallele-rare-stats", bpo::value< string >(), "Write rare one-allele enforcement statistics to this file");
 
     descriptions.add(opt_base).add(opt_input).add(opt_pbwt).add(opt_hmm).add(opt_output).add(opt_constraints);
@@ -117,6 +118,22 @@ void phaser::check_options() {
     // Constraint flags
     enforce_oneallele_rare = options.count("enforce-oneallele-rare") || options.count("oneallele-rare-stats");
     if (options.count("oneallele-rare-stats")) oneallele_rare_stats_path = options["oneallele-rare-stats"].as< string >();
+    
+    // Parse rare variant enforcement mode
+    if (options.count("oneallele-rare-mode")) {
+        std::string mode_str = options["oneallele-rare-mode"].as< string >();
+        if (mode_str == "pp-basic") {
+            oneallele_rare_mode = OneAlleleRareMode::PP_BASIC;
+        } else if (mode_str == "pp-enhanced") {
+            oneallele_rare_mode = OneAlleleRareMode::PP_ENHANCED;
+        } else if (mode_str == "sparse-transition") {
+            oneallele_rare_mode = OneAlleleRareMode::SPARSE_TRANSITION;
+        } else if (mode_str == "sparse-micro") {
+            oneallele_rare_mode = OneAlleleRareMode::SPARSE_MICRO;
+        } else {
+            vrb.error("Unknown one-allele rare mode: " + mode_str + ". Valid options: pp-basic|pp-enhanced|sparse-transition|sparse-micro");
+        }
+    }
 }
 
 void phaser::verbose_files() {
@@ -138,7 +155,14 @@ void phaser::verbose_options() {
 	else vrb.bullet("HMM     : [Ne = " + stb.str(options["effective-size"].as < int > ()) + " / Constant recombination rate of 1cM per Mb]");
     if (options.count("score-singletons")) vrb.bullet("HMM     : [Score singleton phasing]");
     if (enforce_oneallele_rare) {
+        std::string mode_str;
+        switch (oneallele_rare_mode) {
+            case OneAlleleRareMode::PP_BASIC: mode_str = "pp-basic"; break;
+            case OneAlleleRareMode::PP_ENHANCED: mode_str = "pp-enhanced"; break;
+            case OneAlleleRareMode::SPARSE_TRANSITION: mode_str = "sparse-transition"; break;
+            case OneAlleleRareMode::SPARSE_MICRO: mode_str = "sparse-micro"; break;
+        }
         std::string stats_info = oneallele_rare_stats_path.empty() ? "" : (" / stats = " + oneallele_rare_stats_path);
-        vrb.bullet("Constraint : rare one-allele enforcement enabled" + stats_info);
+        vrb.bullet("Constraint : rare one-allele enforcement enabled (mode = " + mode_str + ")" + stats_info);
     }
 }

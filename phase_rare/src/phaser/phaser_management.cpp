@@ -26,6 +26,7 @@ using namespace std;
 
 phaser::phaser() {
     enforce_oneallele_rare = false;
+    oneallele_rare_mode = OneAlleleRareMode::PP_ENHANCED;  // Default to enhanced PP-based
     oneallele_rare_stats_path.clear();
     oneallele_rare_stats = OneAlleleRareStats{};
 }

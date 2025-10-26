@@ -48,13 +48,29 @@ public:
     state_set P;
 
     // One-allele constraint (rare)
+    enum class OneAlleleRareMode {
+        PP_BASIC,           // Basic PP-based enforcement (existing)
+        PP_ENHANCED,        // PP-based with Li-Stephens enhancement
+        SPARSE_TRANSITION,  // Sparse transition scoring with donor context
+        SPARSE_MICRO        // Sparse enumeration for complex cases
+    };
     bool enforce_oneallele_rare;
+    OneAlleleRareMode oneallele_rare_mode;
     std::string oneallele_rare_stats_path;
     struct OneAlleleRareStats {
+        // Base metrics (existing)
         unsigned long long positions_checked = 0;
         unsigned long long sample_violations_found = 0;
         unsigned long long flips_applied = 0;
         unsigned long long extreme_violations_found = 0; // >2 ALT alleles at same position in same sample
+        
+        // Enhanced metrics (new - for improved rare variant enforcement)
+        unsigned long long sparse_donor_resolutions = 0;    // Resolutions using PBWT donor context
+        unsigned long long pp_only_resolutions = 0;         // Resolutions using PP-only scoring
+        unsigned long long genotype_changes = 0;            // REF<->ALT changes (not just phase)
+        unsigned long long phase_only_changes = 0;          // Only haplotype assignment changes
+        unsigned long long complex_enumeration_cases = 0;   // Cases requiring full enumeration
+        unsigned long long li_stephens_enhanced = 0;        // PP resolutions enhanced with Li-Stephens
     } oneallele_rare_stats;
 
 	//MULTI-THREADING

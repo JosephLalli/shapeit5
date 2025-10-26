@@ -43,15 +43,33 @@ void phaser::write_files_and_finalise() {
                    " / sample-violations=" + stb.str(oneallele_rare_stats.sample_violations_found) +
                    " / extreme-violations=" + stb.str(oneallele_rare_stats.extreme_violations_found) +
                    " / flips=" + stb.str(oneallele_rare_stats.flips_applied));
+        
+        // Report enhanced metrics if available (non-basic modes)
+        if (oneallele_rare_mode != OneAlleleRareMode::PP_BASIC && 
+            (oneallele_rare_stats.sparse_donor_resolutions > 0 || oneallele_rare_stats.li_stephens_enhanced > 0)) {
+            vrb.bullet("Enhanced resolution : donor-weighted=" + stb.str(oneallele_rare_stats.sparse_donor_resolutions) +
+                       " / li-stephens=" + stb.str(oneallele_rare_stats.li_stephens_enhanced) +
+                       " / genotype-changes=" + stb.str(oneallele_rare_stats.genotype_changes) +
+                       " / phase-only=" + stb.str(oneallele_rare_stats.phase_only_changes));
+        }
         if (!oneallele_rare_stats_path.empty()) {
             std::ofstream ofs(oneallele_rare_stats_path);
             if (!ofs.good()) {
                 vrb.warning("Unable to write rare one-allele stats to [" + oneallele_rare_stats_path + "]");
             } else {
+                // Base metrics (existing)
                 ofs << "positions_checked\t" << oneallele_rare_stats.positions_checked << "\n";
                 ofs << "sample_violations_found\t" << oneallele_rare_stats.sample_violations_found << "\n";
                 ofs << "extreme_violations_found\t" << oneallele_rare_stats.extreme_violations_found << "\n";
                 ofs << "flips_applied\t" << oneallele_rare_stats.flips_applied << "\n";
+                
+                // Enhanced metrics (new)
+                ofs << "sparse_donor_resolutions\t" << oneallele_rare_stats.sparse_donor_resolutions << "\n";
+                ofs << "pp_only_resolutions\t" << oneallele_rare_stats.pp_only_resolutions << "\n";
+                ofs << "genotype_changes\t" << oneallele_rare_stats.genotype_changes << "\n";
+                ofs << "phase_only_changes\t" << oneallele_rare_stats.phase_only_changes << "\n";
+                ofs << "complex_enumeration_cases\t" << oneallele_rare_stats.complex_enumeration_cases << "\n";
+                ofs << "li_stephens_enhanced\t" << oneallele_rare_stats.li_stephens_enhanced << "\n";
             }
         }
     }
