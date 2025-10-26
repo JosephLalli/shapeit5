@@ -73,6 +73,18 @@ void phaser::write_files_and_finalise() {
     if (enforce_oneallele) {
         const shapeit5::modules::OneAlleleStats& stats = oneallele_enforcer.stats();
         vrb.bullet("One-allele enforcement : positions=" + stb.str(stats.positions_checked) + " / violations=" + stb.str(stats.violations_found) + " / flips=" + stb.str(stats.flips_applied));
+        
+        // Report micro-donor specific statistics if relevant
+        if (oneallele_enforcer.mode() == shapeit5::modules::OneAlleleMode::MICRO_DONOR && 
+            (stats.emission_dominated_decisions > 0 || stats.transition_dominated_decisions > 0)) {
+            vrb.bullet("Micro-donor details : emission-driven=" + stb.str(stats.emission_dominated_decisions) + 
+                       " / transition-driven=" + stb.str(stats.transition_dominated_decisions) + 
+                       " / genotype-changes=" + stb.str(stats.genotype_changes) + 
+                       " / phase-only=" + stb.str(stats.phase_only_changes));
+            vrb.bullet("Donor usage : donor-weighted=" + stb.str(stats.donor_weighted_changes) + 
+                       " / fallback-simple=" + stb.str(stats.fallback_to_simple_emission));
+        }
+        
         if (!oneallele_stats_path.empty()) {
             std::ofstream ofs(oneallele_stats_path);
             if (!ofs.good()) {
@@ -81,6 +93,16 @@ void phaser::write_files_and_finalise() {
                 ofs << "positions_checked\t" << stats.positions_checked << "\n";
                 ofs << "violations_found\t" << stats.violations_found << "\n";
                 ofs << "flips_applied\t" << stats.flips_applied << "\n";
+                
+                // Add micro-donor specific metrics
+                if (oneallele_enforcer.mode() == shapeit5::modules::OneAlleleMode::MICRO_DONOR) {
+                    ofs << "emission_dominated_decisions\t" << stats.emission_dominated_decisions << "\n";
+                    ofs << "transition_dominated_decisions\t" << stats.transition_dominated_decisions << "\n";
+                    ofs << "donor_weighted_changes\t" << stats.donor_weighted_changes << "\n";
+                    ofs << "genotype_changes\t" << stats.genotype_changes << "\n";
+                    ofs << "phase_only_changes\t" << stats.phase_only_changes << "\n";
+                    ofs << "fallback_to_simple_emission\t" << stats.fallback_to_simple_emission << "\n";
+                }
             }
         }
     }

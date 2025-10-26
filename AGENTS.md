@@ -14,7 +14,26 @@ This document explains, at a practical engineering level, what SHAPEIT5 does, wh
 
 ## 2) Why multiallelic handling is a problem
 
-Splitting a multiallelic site into K biallelic rows causes the HMM to treat rows independently. It can assign multiple ALT rows at the same position to the same haplotype in a sample (biologically impossible — a haplotype can carry at most one allele at a base). This can mislead downstream tools (imputation, burden tests, STR analysis).
+**The biological constraint**: At any genomic position, a haplotype can carry at most one allele (REF or one specific ALT). 
+
+**The input format**: SHAPEIT5 takes split biallelic sites as input. A multiallelic site like:
+```
+chr1  1000  .  A  G,T,C    0|2   1|3  2|2    ./.
+```
+gets split into separate biallelic rows:
+```
+chr1  1000  .  A  G  0|0    1|0    0|0    ./.
+chr1  1000  .  A  T  0|1    0|0    1|1    ./.
+chr1  1000  .  A  C  0|0    0|1    0|0    ./.
+```
+
+**The problem**: SHAPEIT5's HMM treats these rows independently during phasing and imputation. This can produce biologically impossible results where a single haplotype has multiple ALT alleles at the same position:
+```
+chr1  1000  .  A  G  0|0    0|1    0|0    1|0
+chr1  1000  .  A  T  0|1    0|0    1|1    1|0  
+chr1  1000  .  A  C  0|0    0|1    0|0    1|0
+```
+Here, sample 2 has both G and C on haplotype 1, and sample 4 has G, T, and C all on haplotype 0 — both biologically impossible. This misleads downstream tools (imputation, burden tests, STR analysis).
 
 ## 3) Three solutions (in order of increasing complexity)
 
@@ -92,9 +111,34 @@ All three run after an HMM sampling step — they are small, local consistency f
 ## Running and validating
 
 - Typical command (common):
-  - `phase_common/bin/phase_common --input X.bcf --map GMAP.gz --region 1 --output out.bcf --enforce-oneallele --oneallele-mode micro`
+  - `phase_common/bin/phase_common --input X.bcf --map GMAP.gz --region 1 --output out.bcf --enforce-oneallele --oneallele-mode micro --seed 42`
 - Checker: `tools/check_oneallele out.bcf` reports per‑haplotype violation counts per position.
 - See `test/scripts` for integration exercises, including a multiallelic‑focused script that runs all three modes.
+
+## Testing System for Multiallelic Enforcement
+
+**Critical testing approach**: To validate the multiallelic enforcement algorithms:
+
+1. **Create unphased input data** with potential multiallelic violations:
+   - Use split biallelic sites at the same genomic position (e.g., chr1:1000 A→G, chr1:1000 A→T, chr1:1000 A→C)  
+   - Input genotypes must be unphased (0/1, not 0|1) so SHAPEIT5 phases them independently
+   - Include samples with multiple heterozygous calls at the same position
+
+2. **Let SHAPEIT5 phase independently** without enforcement:
+   - Run `phase_common --seed 42` (no --threads) to ensure deterministic results
+   - Independent phasing of split multiallelic sites creates violations where single haplotypes get multiple ALT alleles at same position
+
+3. **Test enforcement algorithms** on the same input:
+   - Run with `--enforce-oneallele --oneallele-mode {transition|micro|micro-donor} --seed 42`
+   - Compare outputs to verify violations are detected and corrected
+   - Check final statistics: `violations=N / flips=M` in console output
+
+**Deterministic execution requirements**:
+- Always use `--seed 42` (or any fixed seed) for reproducible results
+- Never specify `--threads` flag as it causes non-deterministic behavior even with `--threads 1`
+- Use identical input data and parameters for before/after comparisons
+
+This testing methodology ensures that enforcement algorithms are validated against real violations created by the core SHAPEIT5 phasing process, rather than artificial pre-phased data.
 
 
 ## WGS PAR2 Fixtures (1KGP T2T)
@@ -158,31 +202,44 @@ This section captures the precise development state in the codebase and the next
 ### Current Implementation Snapshot (October 2025)
 
 - Common pipeline (phase_common)
-  - Implemented
+  - ✅ **Fully Implemented and Working**
     - Mode selection: `--oneallele-mode {transition|micro|micro-donor}` flag parsing with validation in `phase_common/src/phaser/phaser_parameters.cpp`
-    - Transition mode: Complete transition-only enforcement with left/right heterozygous anchors per phase segment using `transition_scorer.{h,cpp}`
-    - Micro mode: Full donor-agnostic enumeration algorithm in `oneallele_enforcer.{h,cpp}`:
-      - `MicroCandidate` structure for assignment enumeration  
-      - `enumerate_micro_candidates()` generates all valid assignments (≤ (K+1)² combinations, ≤1 ALT per hap)
-      - `evaluate_candidate_micro()` scores with Li-Stephens transition model + simple emission model
-      - `compute_transition_score()` and `compute_emission_score()` for candidate ranking
-      - `apply_micro_candidate()` applies maximum likelihood assignment
+    - **Transition mode**: Complete transition-only enforcement with left/right heterozygous anchors per phase segment using `transition_scorer.{h,cpp}`
+      - Statistics reporting fixed (cumulative counting bug resolved)
+      - Handles violations where all ALT alleles are concentrated on one haplotype
+      - Li-Stephens scoring with anchor detection working correctly
+      - Produces biologically valid results (both haplotypes ≤1 ALT)
+    - Final enforcement pass: Belt-and-suspenders cleanup after `G.solve()` in finalize step
     - Epoch reporting: Per-iteration stats with timing: `"Multiallelic correction (mode) [violations=N / flipped=N] (X.XXs)"`
-    - Stats infrastructure: `OneAlleleStats` for cumulative stats, `OneAlleleEpochStats` for per-epoch tracking
+    - Stats infrastructure: `OneAlleleStats` for cumulative stats, `OneAlleleEpochStats` for per-epoch tracking (bugs fixed)
     - Core execution: Enforcement runs after each MCMC iteration in `phase_common/src/phaser/phaser_algorithm.cpp` with proper timing measurement
     - CLI integration: All flags (`--enforce-oneallele`, `--oneallele-mode`, `--oneallele-stats`) parsed and validated
   
-  - Not yet implemented
-    - Micro-donor mode: Donor-weighted scoring using PBWT Kstates (framework exists, algorithm not implemented)
-    - Final enforcement pass: Belt-and-suspenders sweep after `G.solve()` in finalize step
-    - Per-sample worker enforcement: Moving enforcement inside worker loop for donor access (current runs post-iteration)
+  - ✅ **Mostly Implemented (Functional)**
+    - **Micro mode**: Donor-agnostic enumeration algorithm in `oneallele_enforcer.{h,cpp}`:
+      - `MicroCandidate` structure for assignment enumeration  
+      - `enumerate_micro_candidates()` generates all valid assignments (≤ (K+1)² combinations, ≤1 ALT per hap)
+      - `evaluate_candidate_micro()` scores with Li-Stephens transition model + simple emission model
+      - `apply_micro_candidate()` applies maximum likelihood assignment
+      - **Status**: Implementation complete, needs comprehensive testing
+
+  - ⚠️ **Partially Implemented (Incomplete)**
+    - **Micro-donor mode**: Intended to use PBWT donor-weighted scoring:
+      - `enforce_sample()` method for per-sample enforcement with donor context access ✅
+      - `enforce_group_micro()` with donor context parameter ✅
+      - **Missing**: `evaluate_candidate_micro_donor()` currently stubs out to basic micro mode (line 905-907)
+      - **Missing**: `compute_chain_score_with_donors()` is incomplete stub
+      - **Current behavior**: Falls back to micro mode (donor-agnostic scoring)
+      - Integration with worker threads for donor Kstates access during sampling ✅
 
 - Rare pipeline (phase_rare)
   - Implemented
     - Enforcement after merging rare variants onto scaffold (step 3.5) with PP-based flipping
     - Flags `--enforce-oneallele-rare` and `--oneallele-rare-stats` with reporting
-  - Optional enhancement
-    - Micro-style enumeration for rare sites (current PP-based approach works well)
+    - Enhanced violation reporting: tracks extreme violations (>2 ALT alleles at same position in same sample)
+    - Stats include positions_checked, sample_violations_found, extreme_violations_found, flips_applied
+  - Current approach sufficient
+    - PP-based approach works well for sparse rare variant data structure
 
 - Testing and validation 
   - Unit tests: `test/unit/test_oneallele_enforcer.cpp` covers transition scoring and violation resolution
@@ -190,80 +247,81 @@ This section captures the precise development state in the codebase and the next
   - Verification tools: `tools/check_oneallele` for output validation  
   - Test coverage: All three modes (transition/micro/micro-donor) can be tested
   - Build verification: Compiles successfully with `-j 24`, all existing tests pass
-  - Known issue: `test/scripts/phase.oneallele.array.family.sh` missing line continuation after `--enforce-oneallele`
+  - Test script fixes: Fixed line continuation in `test/scripts/phase.oneallele.array.family.sh`
 
 ### Next Steps (Remaining Work - Priority Ordered)
 
 **IMMEDIATE PRIORITIES (High Impact)**
 
-1) **Implement micro-donor scoring** - Core Algorithm Enhancement
-   - **Goal**: Complete the most sophisticated enforcement mode using PBWT donor context
+1) **Complete micro-donor mode implementation** - Core Feature Completion
+   - **Goal**: Implement full PBWT donor-weighted scoring for micro-donor mode
    - **Tasks**: 
-     - Plumb donor/window context from worker to enforcer by moving enforcement into per-sample worker loop 
-     - Access donor Kstates during enforcement (right after `sample(...)` in `phaseWindow`)
-     - Implement `compute_chain_score_with_donors()` for donor-weighted p→site→n scoring
-     - Update `evaluate_candidate_micro()` to use donor information when available
-   - **Files**: `phase_common/src/phaser/phaser_algorithm.cpp`, `oneallele_enforcer.{h,cpp}`
-   - **Complexity**: Medium-High (requires threading/worker integration)
+     - Implement `evaluate_candidate_micro_donor()` with actual donor weighting (currently stub at line 905-907)
+     - Complete `compute_chain_score_with_donors()` to use PBWT Kstates for scoring
+     - Integrate donor haplotype information into Li-Stephens emission probability calculations
+     - Test donor-weighted vs donor-agnostic scoring differences
+   - **Files**: `phase_common/src/modules/oneallele_enforcer.cpp` (lines 899-907, 913+)
+   - **Complexity**: Medium-High (requires understanding PBWT integration)
+   - **Current Status**: Infrastructure exists, core algorithm missing
 
-2) **Add final enforcement pass at finalize** - Robustness Improvement  
-   - **Goal**: Belt-and-suspenders sweep to catch any remaining violations before output
-   - **Tasks**:
-     - Add enforcement call after `G.solve()` in `phase_common/src/phaser/phaser_finalise.cpp`
-     - Use batch `enforce(...)` method (already exists) for final cleanup
-     - Report final violations fixed in finalization output
-   - **Files**: `phase_common/src/phaser/phaser_finalise.cpp`
-   - **Complexity**: Low (straightforward addition)
+2) **Comprehensive testing and validation** - Quality Assurance
+   - **Goal**: Validate all three enforcement modes work correctly and identify remaining edge cases
+   - **Tasks**: 
+     - Test micro mode comprehensively (implementation appears complete but untested)
+     - Create test datasets with complex multiallelic violations (>2 ALTs, mixed patterns)
+     - Compare mode effectiveness: transition vs micro vs micro-donor on same violations
+     - Performance testing with large datasets and varying violation densities
+     - Validate final statistics accuracy across all modes
+   - **Files**: `test/scripts/`, custom test data generation, validation scripts
+   - **Complexity**: Medium (requires careful test design and analysis)
 
 **MAINTENANCE TASKS (Low Risk)**
 
-3) **Fix test script line continuation** - Testing Infrastructure
-   - **Goal**: Fix broken test script for complete test coverage
-   - **Tasks**: Add missing `\` in `test/scripts/phase.oneallele.array.family.sh` after `--enforce-oneallele`
-   - **Files**: `test/scripts/phase.oneallele.array.family.sh`
-   - **Complexity**: Trivial (one-line fix)
-
-4) **Expand stats and configuration** - User Experience
-   - **Goal**: Enhanced statistics and configuration options
+3) **Enhanced debugging and statistics** - User Experience
+   - **Goal**: Improve debugging capabilities and statistics reporting
    - **Tasks**:
-     - Add per-mode counters to `OneAlleleStats`
+     - Fix debug target infrastructure (currently not producing output)
+     - Add per-mode violation type counters to distinguish what each mode handles
+     - Enhanced finalization reporting with mode-specific statistics breakdown
      - Optionally expose `--oneallele-min-cm` for transition scoring distance control
-     - Enhanced finalization reporting with mode-specific statistics
    - **Files**: `oneallele_enforcer.{h,cpp}`, `phaser_parameters.cpp`, `phaser_finalise.cpp`
-   - **Complexity**: Low-Medium (mostly bookkeeping)
+   - **Complexity**: Low-Medium (mostly bookkeeping and debugging infrastructure)
 
 **OPTIONAL ENHANCEMENTS (Future Work)**
 
-5) **Rare pipeline micro upgrade** - Algorithmic Consistency
-   - **Goal**: Apply micro enumeration to rare variant enforcement for consistency
-   - **Tasks**: Replace PP-based flipping with micro enumeration when K>2 or ties occur
-   - **Files**: `phase_rare/src/phaser/phaser_algorithm.cpp`
-   - **Priority**: Low (current PP-based approach works well)
-
-6) **Enhanced testing** - Quality Assurance
-   - **Goal**: Complete test coverage for all modes and edge cases
-   - **Tasks**:
-     - Unit tests for micro and micro-donor paths (K>2, missing anchors, ties)
-     - Integration tests exercising all three modes on PAR2 fixtures
-     - Performance benchmarking for micro vs transition modes
-   - **Files**: `test/unit/`, `test/scripts/`
-   - **Priority**: Medium (good engineering practice)
+4) **Performance optimization** - Algorithmic Efficiency
+   - **Goal**: Optimize enforcement algorithms for large datasets with many violations
+   - **Tasks**: 
+     - Profile micro enumeration performance with large K values
+     - Implement early termination heuristics for candidate evaluation
+     - Memory optimization for large multiallelic groups
+   - **Files**: `oneallele_enforcer.{h,cpp}`
+   - **Priority**: Low (current performance adequate for typical use cases)
 
 ## Summary for Next Developer
 
-**Current Status**: The multiallelic constraint enforcement feature is **substantially complete** and **production-ready** with two of three algorithms fully implemented.
+**Current Status**: The multiallelic constraint enforcement feature is **partially implemented** with transition mode fully working and micro/micro-donor modes needing completion.
 
 **What Works Now**:
-- **Mode selection**: `--oneallele-mode {transition|micro|micro-donor}` with validation
-- **Transition mode**: Fast, lightweight enforcement for simple cases (default, stable)
-- **Micro mode**: Sophisticated enumeration algorithm handling arbitrary K variants (new, tested)
-- **Epoch reporting**: Real-time stats per iteration showing violations and timing
-- **Integration**: Seamlessly integrated into existing MCMC loop with proper timing
-- **Testing**: All existing tests pass, builds successfully
+- **Mode selection**: `--oneallele-mode {transition|micro|micro-donor}` with validation ✅
+- **Transition mode**: Fast, lightweight enforcement for simple cases (fully functional, tested, statistics validated) ✅
+- **Micro mode**: Sophisticated enumeration algorithm handling arbitrary K variants (implemented, needs testing) ⚠️
+- **Micro-donor mode**: Advanced donor-weighted scoring using PBWT context (partially implemented, core algorithm missing) ❌
+- **Final enforcement pass**: Belt-and-suspenders cleanup before output (implemented) ✅
+- **Epoch reporting**: Real-time stats per iteration showing violations and timing ✅
+- **Integration**: Seamlessly integrated into existing MCMC loop with proper timing ✅
+- **Testing**: All existing tests pass, builds successfully ✅
+- **Rare pipeline**: Enhanced with extreme violation reporting (>2 ALT alleles tracking) ✅
 
-**Immediate Next Step**: Implement micro-donor algorithm for ultimate accuracy using PBWT donor context. This requires moderate complexity work to access donor information during enforcement.
+**Immediate Next Steps**: 
+1. **Complete micro-donor mode implementation** (priority #1)
+2. **Test micro mode comprehensively** to validate enumeration algorithm
+3. **Compare all three modes** on same violation datasets
 
-**Estimated Completion**: 1-2 weeks for micro-donor + finalize pass to reach 100% feature completeness.
+**Estimated Completion**: 
+- **Micro-donor mode completion**: 2-3 days (implement donor scoring)
+- **Comprehensive testing**: 3-5 days (validate all modes)
+- **Total remaining work**: ~1 week for full feature completion
 
 **Key Files for Next Developer**:
 - `phase_common/src/modules/oneallele_enforcer.{h,cpp}` - Core enforcement algorithms
@@ -271,4 +329,54 @@ This section captures the precise development state in the codebase and the next
 - `phase_common/src/phaser/phaser_parameters.cpp` - CLI flag parsing and validation
 - `test/scripts/phase.*.sh` - Test scripts for validation
 
-This implementation provides value in current state and adds multiallelic handling capabilities to SHAPEIT5.
+**Specific Implementation Guidance for Micro-Donor Mode**:
+
+The missing pieces are in `oneallele_enforcer.cpp`:
+
+1. **Lines 905-907**: `evaluate_candidate_micro_donor()` currently stubs out:
+   ```cpp
+   // TODO: Implement full donor-weighted scoring
+   // For now, fall back to donor-agnostic scoring
+   return evaluate_candidate_micro(candidate, g, V, variant_to_segment, position_group_indices);
+   ```
+   **Action**: Replace with donor-weighted Li-Stephens emission scoring using the `Kstates` parameter
+
+2. **Line 913+**: `compute_chain_score_with_donors()` is incomplete
+   **Action**: Implement PBWT donor haplotype integration for transition scoring across multiallelic sites
+
+**Reference Implementation Patterns**:
+- Look at existing PBWT usage in `phase_common/src/objects/genotype/genotype_*` files
+- Study Li-Stephens emission calculations in `haplotype_segment_*` classes
+- The `Kstates` parameter contains donor haplotype indices - use these to weight scoring
+
+This implementation provides significant value in current state with transition mode fully functional for the most common violation patterns.
+
+## Design Notes for Future Enhancement
+
+### Transition Scoring Improvements
+
+**User-Configurable Effective Population Size (Ne)**:
+The current `transScore` function in `phase_common/src/modules/transition_scorer.cpp` hardcodes `Ne = 10000.0`. This should be made user-configurable via command-line parameter to allow fine-tuning for different populations and datasets.
+
+**Zero Distance Handling for Same-Position Variants**:
+For multiallelic sites where multiple biallelic variants exist at the same genomic position, the transition score between variants should be zero (no recombination opportunity). The current implementation uses `std::max(e.distance_cM, 1e-8)` which artificially inflates distances. This needs refinement to properly handle same-position scenarios.
+
+**Comprehensive Haplotype Configuration Scoring**:
+The current transition scoring should be enhanced to evaluate both possible haplotype configurations for multiallelic sites:
+- Configuration A: `0|1 1|0` (haplotype 0 gets first variant, haplotype 1 gets second)
+- Configuration B: `1|0 0|1` (haplotype 1 gets first variant, haplotype 0 gets second)
+
+For each configuration, calculate the full transition chain: `upstream_anchor → multiallelic_site → downstream_anchor` for both haplotypes, then select the configuration with the higher overall likelihood. This provides more principled haplotype assignment than current single-variant flipping approaches.
+
+**Li-Stephens Emission Probability Integration** (MICRO and MICRO_DONOR modes):
+The current multiallelic enforcement uses simplified emission scoring (heterozygote bonus) in MICRO and MICRO_DONOR modes even though it runs during `phaseWindow()` when full Li-Stephens HMM probabilities are available. The architecture is well-positioned for enhancement:
+
+- **Current timing**: `enforce_sample()` is called during `phaseWindow()` when `haplotype_segment_*` objects exist with computed forward/backward probabilities
+- **Missing access**: The HMM segment object is not passed to `enforce_sample()`, preventing access to `prob[]` (forward), `Alpha*` (backward), and emission probability calculations
+- **Enhancement opportunity**: Pass the `haplotype_segment_*` object to `enforce_sample()` and use the same Li-Stephens emission model as the `IMPUTE()` function
+
+This would replace the simple `het_bonus = 0.1` scoring in MICRO mode with true Li-Stephens emission probabilities: `P(assignment | donors) = Σ(donor_weight_k × forward_k × backward_k)`, providing more accurate multiallelic resolution using the same probability model as the core phasing algorithm. TRANSITION mode would remain unchanged as it uses only transition probabilities.
+
+**Implementation**: Modify `enforce_sample()` signature to include HMM segment, extract probability arrays during enforcement window, apply Li-Stephens emission scoring in `compute_emission_score()` for MICRO and MICRO_DONOR modes.
+
+**Memory Efficiency**: The HMM segment object can be passed by const reference (`const haplotype_segment_single& segment`) to avoid copying large probability arrays in memory. The arrays (`prob[]`, `Alpha[]`, `probSumK[]`) already exist in the segment object and can be accessed directly at their memory locations. This follows existing SHAPEIT5 patterns (e.g., `const variant_map& V`, `genotype& g`) and avoids memory overhead while providing read-only access to forward/backward probabilities for Li-Stephens emission calculations.

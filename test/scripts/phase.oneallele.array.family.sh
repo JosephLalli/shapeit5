@@ -19,7 +19,7 @@ region="${TEST_REGION:-1:5000000-6000000}"
   --pedigree info/target.family.fam \
   --region "$region" \
   --map info/chr1.gmap.gz \
-  --enforce-oneallele
+  --enforce-oneallele \
   --seed 15052011 \
   --output "$output_bcf"
 

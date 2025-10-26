@@ -4,5 +4,12 @@ test/scripts/expected/phase.wgs.haploid.vcf
 test/scripts/expected/phase.wgs.unrelated.vcf
 test/multiallelic_violation_complete.vcf
 
+*/bin/*
+
 AGENTS.md
 CLAUDE.md
+*.log
+*.bcf
+*.csi
+*.txt
+ligate/bin/ligate

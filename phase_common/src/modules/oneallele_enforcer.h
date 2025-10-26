@@ -23,11 +23,27 @@ struct OneAlleleStats {
   std::uint64_t positions_checked = 0;
   std::uint64_t violations_found = 0;
   std::uint64_t flips_applied = 0;
+  
+  // Micro-donor mode specific statistics
+  std::uint64_t emission_dominated_decisions = 0;    // Emission score > transition score
+  std::uint64_t transition_dominated_decisions = 0;  // Transition score > emission score
+  std::uint64_t donor_weighted_changes = 0;          // Different outcome vs simple emission
+  std::uint64_t genotype_changes = 0;                // REF<->ALT changes (not just phase)
+  std::uint64_t phase_only_changes = 0;              // Only haplotype assignment changes
+  std::uint64_t fallback_to_simple_emission = 0;     // No PBWT donors available
 };
 
 struct OneAlleleEpochStats {
   std::uint64_t violations_found = 0;
   std::uint64_t flips_applied = 0;
+  
+  // Micro-donor mode specific epoch statistics
+  std::uint64_t emission_dominated_decisions = 0;
+  std::uint64_t transition_dominated_decisions = 0;
+  std::uint64_t donor_weighted_changes = 0;
+  std::uint64_t genotype_changes = 0;
+  std::uint64_t phase_only_changes = 0;
+  std::uint64_t fallback_to_simple_emission = 0;
 };
 
 class OneAlleleEnforcer {
@@ -134,6 +150,16 @@ class OneAlleleEnforcer {
     std::vector<uint8_t> hap1_assignment;
     double score;
     bool is_valid;
+    
+    // For tracking decision components (micro-donor mode)
+    double transition_score = 0.0;
+    double emission_score = 0.0;
+  };
+  
+  struct GenotypeChangeAnalysis {
+    bool has_genotype_changes = false;     // REF<->ALT changes
+    bool has_phase_only_changes = false;   // Only haplotype assignment changes
+    std::vector<std::string> change_descriptions;  // For verbose logging
   };
 
   // Enforcement mode implementations
@@ -205,6 +231,12 @@ class OneAlleleEnforcer {
                                const std::vector<uint8_t>& hap0_assignment,
                                const std::vector<uint8_t>& hap1_assignment);
 
+  double compute_donor_weighted_emission_score(const std::vector<int>& group_indices,
+                                              const std::vector<uint8_t>& hap0_assignment,
+                                              const std::vector<uint8_t>& hap1_assignment,
+                                              const variant_map& V,
+                                              const std::vector<std::vector<unsigned int>>& Kstates);
+
   void apply_micro_candidate(genotype& g,
                             const MicroCandidate& candidate,
                             const std::vector<int>& position_group_indices,
@@ -227,6 +259,22 @@ class OneAlleleEnforcer {
                             int left_anchor,
                             int right_anchor,
                             bool is_hap0) const;
+
+  // Enhanced tracking and analysis methods
+  GenotypeChangeAnalysis analyze_genotype_changes(const MicroCandidate& candidate,
+                                                  const std::vector<int>& position_group_indices,
+                                                  const std::vector<uint8_t>& current_hap0,
+                                                  const std::vector<uint8_t>& current_hap1,
+                                                  const variant_map& V) const;
+
+  void log_genotype_changes(const GenotypeChangeAnalysis& analysis,
+                           const std::string& sample_name,
+                           const std::vector<int>& position_group_indices,
+                           const variant_map& V) const;
+
+  void update_micro_donor_stats(const MicroCandidate& best_candidate,
+                               const GenotypeChangeAnalysis& analysis,
+                               bool used_donor_weighting);
 };
 
 }  // namespace modules

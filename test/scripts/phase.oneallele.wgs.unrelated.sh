@@ -15,6 +15,8 @@ scaffold_region="${TEST_SCAFFOLD_REGION:-chrX:153929053-154248138}"
 comparison_region="${TEST_REGION:-chrX:153929053-154248138}"
 
 scaffold_bcf="$tmp_dir/target.scaffold.oneallele.wgs.unrelated.bcf"
+scaffold_stats="$tmp_dir/target.scaffold.oneallele.wgs.unrelated.stats"
+scaffold_debug="$tmp_dir/target.scaffold.oneallele.wgs.unrelated.debug"
 output_bcf="$tmp_dir/target.phased.oneallele.wgs.unrelated.bcf"
 
 # Phase common variants first
@@ -25,6 +27,8 @@ output_bcf="$tmp_dir/target.phased.oneallele.wgs.unrelated.bcf"
   --map info/par2.gmap.gz \
   --enforce-oneallele \
   --seed 15052011 \
+  --oneallele-debug "$scaffold_debug" \
+  --oneallele-stats "$scaffold_stats" \
   --output "$scaffold_bcf"
 
 
