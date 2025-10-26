@@ -29,7 +29,8 @@ output_bcf="$tmp_dir/target.phased.oneallele.wgs.family.bcf"
   --enforce-oneallele \
   --output "$scaffold_bcf"
 
-assert_same_md5 "$scaffold_bcf" "phase.wgs.family.one_allele.common"
+assert_no_oneallele_violations "$scaffold_bcf"
+assert_same_md5 "$scaffold_bcf" "phase.wgs.family.common"
 
 # Phase rare variants in one go (no chunking)
 log_file="$tmp_dir/phase_rare.log"
@@ -59,4 +60,5 @@ fi
 filtered_bcf="$tmp_dir/target.phased.wgs.family.one_allele.filtered.bcf"
 SSH_AUTH_SOCK= bcftools view -Ob -o "$filtered_bcf" -r "$comparison_region" "$output_bcf"
 
+assert_no_oneallele_violations "$filtered_bcf"
 assert_same_md5 "$filtered_bcf" "phase.wgs.family"

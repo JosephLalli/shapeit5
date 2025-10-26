@@ -84,6 +84,46 @@ void initialise_variant_map(variant_map& V,
   positions = {1000, 1000, 2000};
 }
 
+void initialise_variant_map_offset_group(variant_map& V,
+                                         std::vector<int32_t>& chrom_ids,
+                                         std::vector<int32_t>& positions) {
+  std::string chr = "chr1";
+  std::string id0 = "rs0500";
+  std::string id1 = "rs2000_A";
+  std::string id2 = "rs2000_G";
+  std::string ref = "A";
+  std::string altA = "A"; // alt allele label (not used in logic)
+  std::string altG = "G";
+
+  auto v0 = new variant(chr, 500, id0, ref, "C", 0);
+  auto v1 = new variant(chr, 2000, id1, ref, altA, 1);
+  auto v2 = new variant(chr, 2000, id2, ref, altG, 2);
+
+  v0->cm = 0.0;
+  v1->cm = 0.01;
+  v2->cm = 0.02;
+
+  V.push(v0);
+  V.push(v1);
+  V.push(v2);
+
+  chrom_ids = {0, 0, 0};
+  positions = {500, 2000, 2000};
+}
+
+static void extract_hap_bits(const genotype& g,
+                             std::vector<uint8_t>& h0,
+                             std::vector<uint8_t>& h1) {
+  h0.assign(g.n_variants, 0);
+  h1.assign(g.n_variants, 0);
+  for (unsigned int v = 0; v < g.n_variants; ++v) {
+    unsigned char byte = g.Variants[DIV2(v)];
+    int e = MOD2(v);
+    h0[v] = VAR_GET_HAP0(e, byte) ? 1U : 0U;
+    h1[v] = VAR_GET_HAP1(e, byte) ? 1U : 0U;
+  }
+}
+
 genotype* build_synthetic_genotype(genotype_set& G) {
   auto* g = new genotype(0);
   g->n_variants = 3;
@@ -166,12 +206,71 @@ void test_transition_scorer_prefers_stay_for_small_distance() {
   std::cout << "✓ Transition scorer favours stay for nearby sites" << std::endl;
 }
 
+void test_micro_indexing_offset_group_only_mutates_group() {
+  variant_map V;
+  std::vector<int32_t> chrom_ids;
+  std::vector<int32_t> positions;
+  initialise_variant_map_offset_group(V, chrom_ids, positions);
+
+  MultiallelicPositionMap position_map;
+  position_map.build(chrom_ids, positions);
+
+  genotype_set G;
+  auto* g = new genotype(0);
+  g->n_variants = 3;
+  g->Variants = std::vector<unsigned char>(DIV2(g->n_variants) + MOD2(g->n_variants), 0);
+  g->n_segments = 1;
+  g->Lengths = {static_cast<unsigned short>(g->n_variants)};
+  g->name = "TEST";
+
+  // v0: hap0=REF, hap1=ALT (known sentinel, must remain unchanged)
+  VAR_SET_HET(MOD2(0), g->Variants[DIV2(0)]);
+  VAR_CLR_HAP0(MOD2(0), g->Variants[DIV2(0)]);
+  VAR_SET_HAP1(MOD2(0), g->Variants[DIV2(0)]);
+
+  // v1 & v2 (group at pos=2000): both ALT on hap0 -> violation on hap0
+  VAR_SET_HET(MOD2(1), g->Variants[DIV2(1)]);
+  VAR_SET_HAP0(MOD2(1), g->Variants[DIV2(1)]);
+  VAR_CLR_HAP1(MOD2(1), g->Variants[DIV2(1)]);
+
+  VAR_SET_HET(MOD2(2), g->Variants[DIV2(2)]);
+  VAR_SET_HAP0(MOD2(2), g->Variants[DIV2(2)]);
+  VAR_CLR_HAP1(MOD2(2), g->Variants[DIV2(2)]);
+
+  G.vecG.push_back(g);
+
+  OneAlleleEnforcer enforcer;
+  enforcer.set_enabled(true);
+  enforcer.set_mode(OneAlleleMode::MICRO);
+
+  // Empty Kstates => donor-agnostic path
+  std::vector<std::vector<unsigned int>> Kstates;
+  enforcer.enforce_sample(position_map, *g, V, Kstates, "unit", 0);
+
+  // Extract states
+  std::vector<uint8_t> h0, h1;
+  extract_hap_bits(*g, h0, h1);
+
+  // Group indices are 1 and 2
+  int h0_alts = (h0[1] ? 1 : 0) + (h0[2] ? 1 : 0);
+  int h1_alts = (h1[1] ? 1 : 0) + (h1[2] ? 1 : 0);
+  assert(h0_alts <= 1);
+  assert(h1_alts <= 1);
+
+  // Sentinel at v0 unchanged (was 0|1)
+  assert(h0[0] == 0);
+  assert(h1[0] == 1);
+
+  std::cout << "✓ MICRO indexing affects only group sites" << std::endl;
+}
+
 }  // namespace
 
 int main() {
   std::cout << "Testing OneAlleleEnforcer..." << std::endl;
   test_transition_scorer_prefers_stay_for_small_distance();
   test_oneallele_enforcer_resolves_violation();
+  test_micro_indexing_offset_group_only_mutates_group();
   std::cout << "All tests passed!" << std::endl;
   return 0;
 }

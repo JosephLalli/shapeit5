@@ -14,26 +14,26 @@ mkdir -p "$tmp_dir"
 scaffold_region="${TEST_SCAFFOLD_REGION:-chrX:153929053-154248138}"
 comparison_region="${TEST_REGION:-chrX:153929053-154248138}"
 
-scaffold_bcf="$tmp_dir/target.scaffold.oneallele.wgs.unrelated.bcf"
-scaffold_stats="$tmp_dir/target.scaffold.oneallele.wgs.unrelated.stats"
-scaffold_debug="$tmp_dir/target.scaffold.oneallele.wgs.unrelated.debug"
-output_bcf="$tmp_dir/target.phased.oneallele.wgs.unrelated.bcf"
+scaffold_bcf="$tmp_dir/target.scaffold.oneallele.micro_donor.wgs.unrelated.bcf"
+scaffold_stats="$tmp_dir/target.scaffold.oneallele.micro_donor.wgs.unrelated.stats"
+scaffold_debug="$tmp_dir/target.scaffold.oneallele.micro_donor.wgs.unrelated.debug"
+output_bcf="$tmp_dir/target.phased.oneallele.micro_donor.wgs.unrelated.bcf"
 
-# Phase common variants first
+# Phase common variants with MICRO_DONOR mode
 ../phase_common/bin/phase_common \
   --input wgs/target.unrelated.1kgp_t2t.par2.bcf \
   --filter-maf 0.001 \
   --region "$scaffold_region" \
   --map info/par2.gmap.gz \
   --enforce-oneallele \
-  --seed 15052011 \
+  --oneallele-mode micro-donor \
   --oneallele-debug "$scaffold_debug" \
   --oneallele-stats "$scaffold_stats" \
+  --seed 15052011 \
   --output "$scaffold_bcf"
 
-
-# Phase rare variants in one go (no chunking)
-log_file="$tmp_dir/phase_rare.log"
+# Phase rare variants (sparse-micro enforcement)
+log_file="$tmp_dir/phase_rare.micro_donor.log"
 if ../phase_rare/bin/phase_rare \
     --input wgs/target.unrelated.1kgp_t2t.par2.bcf \
     --scaffold "$scaffold_bcf" \
@@ -41,9 +41,10 @@ if ../phase_rare/bin/phase_rare \
     --input-region "$scaffold_region" \
     --scaffold-region "$scaffold_region" \
     --enforce-oneallele-rare \
+    --oneallele-rare-mode sparse-micro \
     --output "$output_bcf" \
     --seed 15052011 >"$log_file" 2>&1; then
-  echo "Rare variant phasing completed successfully"
+  echo "Rare variant phasing (MICRO_DONOR) completed successfully"
 else
   if grep -q "No variants to be phased" "$log_file"; then
     echo "No rare variants found; using scaffold output only" >&2
@@ -56,10 +57,12 @@ else
   fi
 fi
 
-filtered_bcf="$tmp_dir/target.phased.oneallele.wgs.unrelated.filtered.bcf"
+filtered_bcf="$tmp_dir/target.phased.oneallele.micro_donor.wgs.unrelated.filtered.bcf"
 SSH_AUTH_SOCK= bcftools view -Ob -o "$filtered_bcf" -r "$comparison_region" "$output_bcf"
 
+# Validate one-allele constraint and MD5s
 assert_no_oneallele_violations "$scaffold_bcf"
 assert_no_oneallele_violations "$filtered_bcf"
-assert_same_md5 "$scaffold_bcf" "phase.wgs.unrelated.common"
-assert_same_md5 "$filtered_bcf" "phase.wgs.unrelated"
+assert_same_md5 "$scaffold_bcf" "phase.wgs.unrelated.micro_donor.common"
+assert_same_md5 "$filtered_bcf" "phase.wgs.unrelated.micro_donor"
+
