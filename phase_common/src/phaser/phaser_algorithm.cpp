@@ -191,9 +191,19 @@ void phaser::phase() {
 						case shapeit5::modules::OneAlleleMode::MICRO: mode_str = "micro"; break;
 						case shapeit5::modules::OneAlleleMode::MICRO_DONOR: mode_str = "micro-donor"; break;
 					}
-					vrb.bullet("Multiallelic correction (" + mode_str + ") [violations=" + 
-							  stb.str(epoch_stats.violations_found) + " / flipped=" + 
-							  stb.str(epoch_stats.flips_applied) + "]");
+					
+					std::string base_stats = "[violations=" + stb.str(epoch_stats.violations_found) + 
+											" / flipped=" + stb.str(epoch_stats.flips_applied) + "]";
+					
+					// Add micro-donor specific details if available
+					if (oneallele_enforcer.mode() == shapeit5::modules::OneAlleleMode::MICRO_DONOR && 
+						(epoch_stats.emission_dominated_decisions > 0 || epoch_stats.transition_dominated_decisions > 0)) {
+						base_stats += " [emission=" + stb.str(epoch_stats.emission_dominated_decisions) + 
+									 " / transition=" + stb.str(epoch_stats.transition_dominated_decisions) + 
+									 " / genotype-changes=" + stb.str(epoch_stats.genotype_changes) + "]";
+					}
+					
+					vrb.bullet("Multiallelic correction (" + mode_str + ") " + base_stats);
 				}
 			}
 			
