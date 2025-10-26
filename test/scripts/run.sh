@@ -40,6 +40,10 @@ SUITE=(
   "${SCRIPT_DIR}/phase.oneallele.wgs.unrelated.sh"
   "${SCRIPT_DIR}/phase.oneallele.wgs.unrelated.micro.sh"
   "${SCRIPT_DIR}/phase.oneallele.wgs.unrelated.micro_donor.sh"
+  "${SCRIPT_DIR}/phase.wgs.family.sh"
+  "${SCRIPT_DIR}/phase.oneallele.wgs.family.sh"
+  "${SCRIPT_DIR}/phase.oneallele.wgs.family.micro.sh"
+  "${SCRIPT_DIR}/phase.oneallele.wgs.family.micro_donor.sh"
 )
 
 if [[ $LIST_ONLY -eq 1 ]]; then
@@ -67,4 +71,3 @@ done
 
 echo "Summary: passed=$pass failed=$fail"
 exit $(( fail == 0 ? 0 : 1 ))
-
