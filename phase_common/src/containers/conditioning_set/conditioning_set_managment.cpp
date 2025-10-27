@@ -88,6 +88,13 @@ void conditioning_set::initialize(variant_map & V, float _modulo_selection, floa
 	sites_pbwt_grouping = vector < int > (V.size(), -1);
 	for (int l = 0 ; l < V.size() ; l ++) {
 		sites_pbwt_evaluation[l] = (V.vec_pos[l]->getMAC() >= _mac && V.vec_pos[l]->getMDR() <= _mdr);
+		// Skip PBWT evaluation at supersites (anchor and siblings) to keep PBWT binary-only
+		if (!V.supersites.empty()) {
+			uint32_t site_id = V.variant_to_site[l];
+			if (site_id < V.supersites.size() && V.supersites[site_id].is_super_site) {
+				sites_pbwt_evaluation[l] = false;
+			}
+		}
 		sites_pbwt_grouping[l] = (int)round(V.vec_pos[l]->cm / _modulo_selection);
 		n_evaluated += sites_pbwt_evaluation[l];
 	}

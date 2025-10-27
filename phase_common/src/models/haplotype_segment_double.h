@@ -114,6 +114,34 @@ private:
 	inline const uint8_t * loadSupersiteCodes(uint32_t site_idx) {
 		return supersite_codes.load(site_idx);
 	}
+	struct SupGen { uint8_t type; uint8_t alt; }; // type: 0=0/0, 1=0/k, 2=k/k, 3=missing
+	inline SupGen supersite_sample_genotype(uint32_t abs_locus) const {
+		SupGen g{3u, 0u};
+		if (!Vmap) return g;
+		uint32_t site = Vmap->variant_to_site[abs_locus];
+		if (site >= Vmap->supersites.size()) return g;
+		uint32_t off0 = Vmap->supersite_alt_variant_offset[site];
+		uint32_t off1 = Vmap->supersite_alt_variant_offset[site+1];
+		bool any_alt = false, any_het = false, any_homalt = false;
+		uint8_t seen_alt = 0u;
+		for (uint32_t o = off0; o < off1; ++o) {
+			uint32_t v = Vmap->supersite_alt_variant_index[o];
+			if (VAR_GET_MIS(MOD2(v), G->Variants[DIV2(v)])) { g.type = 3u; g.alt = 0u; return g; }
+			bool a0 = VAR_GET_HAP0(MOD2(v), G->Variants[DIV2(v)]);
+			bool a1 = VAR_GET_HAP1(MOD2(v), G->Variants[DIV2(v)]);
+			uint8_t code = Vmap->variant_alt_code[v];
+			if ((a0|a1) == 0) continue;
+			if (!any_alt) { any_alt = true; seen_alt = code; }
+			else if (code != seen_alt) { g.type = 3u; g.alt = 0u; return g; }
+			any_het |= (a0 ^ a1);
+			any_homalt |= (a0 & a1);
+			if (any_het && any_homalt) { g.type = 3u; g.alt = 0u; return g; }
+		}
+		if (!any_alt) { g.type = 0u; g.alt = 0u; return g; }
+		g.alt = seen_alt;
+		g.type = any_het ? 1u : 2u;
+		return g;
+	}
 
 public:
 	//CONSTRUCTOR/DESTRUCTOR
