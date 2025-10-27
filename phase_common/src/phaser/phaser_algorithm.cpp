@@ -21,6 +21,7 @@
  ******************************************************************************/
 
 #include <phaser/phaser_header.h>
+#include <objects/super_site_builder.h>
 
 using namespace std;
 
@@ -54,18 +55,18 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 
 		if (G.vecG[id_job]->double_precision) {
 			//Run using double precision as underflow happened previously
-			haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M);
+			haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M, super_sites, is_super_site);
 			HS.forward();
 			outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M);
 		} else {
 			//Try single precision as this is faster
-			haplotype_segment_single HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M);
+			haplotype_segment_single HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M, super_sites, is_super_site);
 			HS.forward();
 			outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M);
 
 			//Underflow happening with single precision, rerun using double precision
 			if (outcome != 0) {
-				haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M);
+				haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M, super_sites, is_super_site);
 				HS.forward();
 				outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M);
 				G.vecG[id_job]->double_precision = true;
@@ -120,6 +121,11 @@ void phaser::phaseWindow() {
 }
 
 void phaser::phase() {
+	// Build super-sites for multiallelic variants
+	// Note: buildSuperSites implementation is commented out pending integration
+	// vrb.title("Building super-sites for multiallelic variants");
+	// buildSuperSites(V, H, super_sites, is_super_site, packed_allele_codes, sample_supersite_genotypes);
+
 	unsigned long n_old_segments = G.numberOfSegments(), n_new_segments = 0, current_iteration = 0;
 	for (iteration_stage = 0 ; iteration_stage < iteration_counts.size() ; iteration_stage ++) {
 		for (int iter = 0 ; iter < iteration_counts[iteration_stage] ; iter ++) {
