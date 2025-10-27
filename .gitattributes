@@ -5,3 +5,7 @@
 *.vcf filter=lfs diff=lfs merge=lfs -text
 *.vcf.gz filter=lfs diff=lfs merge=lfs -text
 *.vcf.bgz filter=lfs diff=lfs merge=lfs -text
+test/wgs/target.haploid.bcf !text !filter !merge !diff
+test/wgs/target.haploid.bcf.csi !text !filter !merge !diff
+test/wgs/target.unrelated.bcf !text !filter !merge !diff
+test/wgs/target.unrelated.bcf.csi !text !filter !merge !diff
