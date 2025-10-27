@@ -26,12 +26,42 @@
 #include <utils/otools.h>
 #include <objects/variant.h>
 #include <io/gmap_reader.h>
+#include <containers/bitmatrix.h>
+
+#include <cstdint>
+
+struct supersite_summary {
+	uint32_t total_sites = 0;
+	uint32_t total_super_sites = 0;
+	uint32_t total_variants = 0;
+	uint32_t collapsed_variants = 0;
+	uint32_t haplotype_conflicts = 0;
+};
+
+struct supersite_desc {
+	uint32_t first_variant_index = 0;
+	uint16_t variant_span = 0;
+	uint16_t n_alt = 0;
+	uint8_t bitwidth = 0;
+	uint32_t panel_offset = 0;
+	uint32_t codes_count = 0;
+	uint32_t conflicting_haps = 0;
+	bool is_super_site = false;
+};
 
 class variant_map {
 public :
 	//DATA
 	std::vector < variant * > vec_pos;			//vector of variants ordered by position in bp
 	std::multimap < int, variant * > map_pos;	//associative container of variant with position in bp
+
+	//SUPERSITE DATA
+	std::vector<supersite_desc> supersites;
+	std::vector<uint32_t> variant_to_site;
+	std::vector<uint8_t> variant_alt_code;
+	std::vector<uint32_t> supersite_alt_variant_index;
+	std::vector<uint32_t> supersite_alt_variant_offset;
+	std::vector<uint8_t> supersite_codes;
 
 	//CONSTRUCTOR/DESTRUCTOR
 	variant_map();
@@ -49,6 +79,7 @@ public :
 	int interpolateCentiMorgan(std::vector < int > & pos_bp, std::vector < double > & pos_cM);
 	unsigned int length();
 	double lengthcM();
+	supersite_summary buildSupersites(const bitmatrix & hap_matrix, unsigned long n_hap);
 };
 
 #endif

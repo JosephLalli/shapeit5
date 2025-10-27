@@ -253,4 +253,10 @@ void genotype_reader::readGenotypes() {
 		str1 = "1=" + stb.str(n_alleles[1]*100.0/n_alleles_total, 3) + "%";
 		vrb.bullet2("Reference haplotypes ["+str0+", "+str1+"]");
 	}
+
+	supersite_summary supersite_stats = V.buildSupersites(H.H_opt_hap, H.n_hap);
+	vrb.bullet("Supersite preprocessing [#sites=" + stb.str(supersite_stats.total_sites) +
+		" / #super=" + stb.str(supersite_stats.total_super_sites) +
+		" / collapsed=" + stb.str(supersite_stats.collapsed_variants) +
+		" / hap-conflicts=" + stb.str(supersite_stats.haplotype_conflicts) + "]");
 }

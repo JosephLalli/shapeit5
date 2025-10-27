@@ -22,9 +22,24 @@
 
 #include <containers/variant_map.h>
 
+#include <algorithm>
+#include <limits>
+
 using std::vector;
 using std::pair;
 using std::multimap;
+using std::sort;
+
+namespace {
+
+inline uint8_t required_bitwidth(uint16_t n_alt) {
+	uint32_t states = static_cast<uint32_t>(n_alt) + 1u;
+	uint8_t bits = 0u;
+	while ((1u << bits) < states) ++bits;
+	return bits == 0u ? 1u : bits;
+}
+
+} // namespace
 
 variant_map::variant_map() {
 }
@@ -151,6 +166,110 @@ unsigned int variant_map::length() {
 
 double variant_map::lengthcM() {
 	return vec_pos.back()->cm - vec_pos[0]->cm;
+}
+
+supersite_summary variant_map::buildSupersites(const bitmatrix & hap_matrix, unsigned long n_hap) {
+	supersite_summary summary;
+	summary.total_variants = static_cast<uint32_t>(vec_pos.size());
+
+	variant_to_site.assign(vec_pos.size(), 0u);
+	variant_alt_code.assign(vec_pos.size(), 0u);
+	supersites.clear();
+	supersites.reserve(vec_pos.size());
+	supersite_alt_variant_index.clear();
+	supersite_alt_variant_index.reserve(vec_pos.size());
+	supersite_alt_variant_offset.clear();
+	supersite_alt_variant_offset.reserve(vec_pos.size() + 1);
+	supersite_codes.clear();
+
+	if (vec_pos.empty()) {
+		supersite_alt_variant_offset.push_back(0u);
+		return summary;
+	}
+
+	if (hap_matrix.n_cols != vec_pos.size()) vrb.error("Supersite build: haplotype matrix column count mismatch with variant set");
+	if (hap_matrix.n_rows != n_hap) vrb.error("Supersite build: haplotype matrix row count mismatch with supplied hap count");
+
+	for (size_t i = 0; i < vec_pos.size();) {
+		const std::string & chr = vec_pos[i]->chr;
+		const int bp = vec_pos[i]->bp;
+		size_t j = i + 1;
+		while (j < vec_pos.size() && vec_pos[j]->chr == chr && vec_pos[j]->bp == bp) ++j;
+		const size_t span = j - i;
+
+		supersite_alt_variant_offset.push_back(static_cast<uint32_t>(supersite_alt_variant_index.size()));
+
+		vector<uint32_t> block(span);
+		for (size_t k = 0; k < span; ++k) block[k] = static_cast<uint32_t>(i + k);
+
+		if (span > 1) {
+			auto cmp = [&](uint32_t lhs, uint32_t rhs) {
+				const std::string & alt_lhs = vec_pos[lhs]->alt;
+				const std::string & alt_rhs = vec_pos[rhs]->alt;
+				if (alt_lhs.size() != alt_rhs.size()) return alt_lhs.size() > alt_rhs.size();
+				if (alt_lhs != alt_rhs) return alt_lhs < alt_rhs;
+				return lhs < rhs;
+			};
+			sort(block.begin(), block.end(), cmp);
+		}
+
+		for (uint32_t idx : block) supersite_alt_variant_index.push_back(idx);
+
+		supersite_desc desc;
+		desc.first_variant_index = static_cast<uint32_t>(i);
+		desc.variant_span = static_cast<uint16_t>(span);
+		desc.n_alt = static_cast<uint16_t>(span);
+		desc.is_super_site = span > 1;
+		desc.bitwidth = desc.is_super_site ? required_bitwidth(desc.n_alt) : 1u;
+		desc.panel_offset = desc.is_super_site ? static_cast<uint32_t>(supersite_codes.size()) : std::numeric_limits<uint32_t>::max();
+		desc.codes_count = desc.is_super_site ? static_cast<uint32_t>(n_hap) : 0u;
+		desc.conflicting_haps = 0u;
+
+		const uint32_t site_index = static_cast<uint32_t>(supersites.size());
+		for (size_t k = 0; k < span; ++k) {
+			const uint32_t variant_idx = static_cast<uint32_t>(i + k);
+			variant_to_site[variant_idx] = site_index;
+		}
+
+		if (desc.is_super_site) {
+			size_t offset = supersite_codes.size();
+			supersite_codes.resize(offset + static_cast<size_t>(n_hap), 0u);
+			desc.panel_offset = static_cast<uint32_t>(offset);
+
+			for (size_t local = 0; local < span; ++local) {
+				variant_alt_code[block[local]] = static_cast<uint8_t>(local + 1);
+			}
+
+			for (unsigned long h = 0; h < n_hap; ++h) {
+				uint8_t code = 0u;
+				bool conflict = false;
+				for (size_t local = 0; local < span; ++local) {
+					uint32_t variant_idx = block[local];
+					if (hap_matrix.get(static_cast<unsigned int>(h), variant_idx)) {
+						uint8_t alt_code = static_cast<uint8_t>(local + 1);
+						if (code == 0u) code = alt_code;
+						else if (code != alt_code) conflict = true;
+					}
+				}
+				supersite_codes[desc.panel_offset + h] = code;
+				if (conflict) desc.conflicting_haps++;
+			}
+
+			summary.total_super_sites++;
+			summary.collapsed_variants += static_cast<uint32_t>(span - 1);
+			summary.haplotype_conflicts += desc.conflicting_haps;
+		} else {
+			variant_alt_code[i] = 1u;
+		}
+
+		supersites.push_back(desc);
+		summary.total_sites++;
+		i = j;
+	}
+
+	supersite_alt_variant_offset.push_back(static_cast<uint32_t>(supersite_alt_variant_index.size()));
+
+	return summary;
 }
 
 void variant_map::setGeneticMap(gmap_reader & readerGM) {
