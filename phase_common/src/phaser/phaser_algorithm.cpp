@@ -121,11 +121,6 @@ void phaser::phaseWindow() {
 }
 
 void phaser::phase() {
-	// Build super-sites for multiallelic variants
-	// Note: buildSuperSites implementation is commented out pending integration
-	// vrb.title("Building super-sites for multiallelic variants");
-	// buildSuperSites(V, H, super_sites, is_super_site, packed_allele_codes, sample_supersite_genotypes);
-
 	unsigned long n_old_segments = G.numberOfSegments(), n_new_segments = 0, current_iteration = 0;
 	for (iteration_stage = 0 ; iteration_stage < iteration_counts.size() ; iteration_stage ++) {
 		for (int iter = 0 ; iter < iteration_counts[iteration_stage] ; iter ++) {
@@ -137,6 +132,28 @@ void phaser::phase() {
 			}
 			//SELECT NEW STATES WITH PBWT
 			H.select();
+			
+			// Build super-sites for multiallelic positions (fixed 4-bit encoding)
+			// This collapses split biallelic records at identical (chr,bp) positions into
+			// super-sites and packs per-haplotype codes (2 codes per byte).
+			if (current_iteration == 0) {
+				vrb.title("Building super-sites");
+				// Ensure containers are empty
+				super_sites.clear();
+				is_super_site.clear();
+				packed_allele_codes.clear();
+				
+				// Build super-sites using variant map V and conditioning set H (uses H.Hhap)
+				// Note: buildSuperSites implementation is commented out pending integration
+				// buildSuperSites(V, H, super_sites, is_super_site, packed_allele_codes);
+				
+				// Log result
+				// vrb.bullet("Built " + stb.str(super_sites.size()) + " super-sites covering " + 
+				//           stb.str(std::count(is_super_site.begin(), is_super_site.end(), true)) + " variant positions");
+				
+				// TODO: implement fill_sample_super_site_genotypes(V, G, super_sites, sample_supersite_genotypes);
+			}
+			
 			//PHASE DATA
 			phaseWindow();
 			//MERGE IBD2 PAIRS
@@ -151,6 +168,7 @@ void phaser::phase() {
 				n_new_segments = G.numberOfSegments();
 				vrb.bullet("Trimming [pc=" + stb.str((1-n_new_segments*1.0/n_old_segments)*100, 2) + "%]");
 			}
+			current_iteration++;
 		}
 	}
 }
