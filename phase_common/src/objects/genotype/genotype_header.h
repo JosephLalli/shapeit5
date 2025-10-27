@@ -90,6 +90,7 @@ public:
 	std::vector < bool > ProbMask;
 	std::vector < float > ProbStored;
 	std::vector < float > ProbMissing;
+	std::vector < float > ProbMissingMulti; // v2: per-supersite per-code accumulators (flattened by V.supersite_posterior_offset)
 
 	//METHODS
 	genotype(unsigned int);
@@ -104,6 +105,7 @@ public:
 	void mapMerges(std::vector < double > &, double , std::vector < bool > &);
 	void performMerges(std::vector < double > &, std::vector < bool > &);
 	void store(std::vector < double > &, std::vector < float > &);
+	void store(std::vector < double > &, std::vector < float > &, std::vector < float > &);
 	void solve();
 	void scaffoldTrio(genotype *, genotype *, std::vector < unsigned int > &);
 	void scaffoldDuoFather(genotype *, std::vector < unsigned int > &);

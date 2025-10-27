@@ -64,6 +64,10 @@ public :
 	std::vector<uint32_t> supersite_alt_variant_offset;
 	std::vector<uint8_t> supersite_codes;
 
+	// SUPERSITE POSTERIOR OFFSETS (v2 multi-code impute)
+	std::vector<uint32_t> supersite_posterior_offset; // per supersite, start offset in ProbMissingMulti
+	uint32_t total_posterior_size = 0;               // sum_s ( (n_alt+1) * HAP_NUMBER )
+
 	//CONSTRUCTOR/DESTRUCTOR
 	variant_map();
 	~variant_map();
@@ -81,6 +85,9 @@ public :
 	unsigned int length();
 	double lengthcM();
 	supersite_summary buildSupersites(const bitmatrix & hap_matrix, unsigned long n_hap);
+ 
+ 	// compute posterior offsets for v2 per-code accumulators
+	void buildPosteriorOffsets();
 };
 
 #endif

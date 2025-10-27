@@ -41,6 +41,7 @@ public:
 	//Probabilities
 	std::vector < double > T;
 	std::vector < float > M;
+	std::vector < float > Mmulti; // v2: multi-code per-supersite accumulators (current pass)
 
 	//Windows
 	window_set Windows;

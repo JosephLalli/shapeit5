@@ -142,7 +142,7 @@ void haplotype_segment_double::forward() {
 	}
 }
 
-int haplotype_segment_double::backward(vector < double > & transition_probabilities, vector < float > & missing_probabilities) {
+int haplotype_segment_double::backward(vector < double > & transition_probabilities, vector < float > & missing_probabilities, vector < float > & missing_probabilities_multi) {
 	int n_underflow_recovered = 0;
 	curr_segment_index = segment_last;
 	curr_segment_locus = G->Lengths[segment_last] - 1;
@@ -155,10 +155,21 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
 		bool skip_supersite = false;
+		bool is_super = false;
+		SupGen sg{3u,0u};
+		uint32_t anchor_abs = curr_abs_locus;
 		if (Vmap) {
 			uint32_t site_id = Vmap->variant_to_site[curr_abs_locus];
-			if (Vmap->supersites.size() > site_id && Vmap->supersites[site_id].is_super_site) {
-				if (!Vmap->variant_is_anchor[curr_abs_locus]) skip_supersite = true;
+			if (site_id < Vmap->supersites.size() && Vmap->supersites[site_id].is_super_site) {
+				is_super = true;
+				sg = supersite_sample_genotype(curr_abs_locus);
+				uint32_t off0 = Vmap->supersite_alt_variant_offset[site_id];
+				if (sg.type == 1u || sg.type == 2u) {
+					anchor_abs = Vmap->supersite_alt_variant_index[off0 + (sg.alt? (sg.alt-1):0)];
+				} else {
+					anchor_abs = Vmap->supersite_alt_variant_index[off0];
+				}
+				skip_supersite = (curr_abs_locus != (int)anchor_abs);
 			}
 		}
 		char rare_allele = M.rare_allele[curr_abs_locus];
@@ -173,6 +184,20 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			// do nothing but avoid updating prev_abs_locus so transitions skip over
 			update_prev_locus = false;
 		} else if (curr_abs_locus == locus_last) {
+			if (is_super && sg.type == 0u) {
+				uint32_t site_id = Vmap->variant_to_site[curr_abs_locus];
+				uint32_t off0 = Vmap->supersite_alt_variant_offset[site_id];
+				uint32_t off1 = Vmap->supersite_alt_variant_offset[site_id+1];
+				for (int k = 0 ; k != (int)n_cond_haps ; ++k) {
+					unsigned char anyAlt = 0u;
+					for (uint32_t o = off0; o < off1; ++o) {
+						uint32_t v = Vmap->supersite_alt_variant_index[o];
+						int row = (int)(v - locus_first) + curr_rel_locus_offset;
+						anyAlt |= Hvar.get(row, k);
+					}
+					Hvar.set(curr_rel_locus+curr_rel_locus_offset, k, anyAlt);
+				}
+			}
 			if (hom) INIT_HOM();
 			else if (amb) INIT_AMB();
 			else INIT_MIS();
@@ -196,7 +221,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		}
 
 		if (mis && !skip_supersite) {
-			IMPUTE(missing_probabilities);
+			IMPUTE(missing_probabilities, missing_probabilities_multi);
 			curr_abs_missing--;
 		}
 

@@ -255,8 +255,14 @@ void genotype_reader::readGenotypes() {
 	}
 
 	supersite_summary supersite_stats = V.buildSupersites(H.H_opt_hap, H.n_hap);
+	V.buildPosteriorOffsets();
 	vrb.bullet("Supersite preprocessing [#sites=" + stb.str(supersite_stats.total_sites) +
 		" / #super=" + stb.str(supersite_stats.total_super_sites) +
 		" / collapsed=" + stb.str(supersite_stats.collapsed_variants) +
 		" / hap-conflicts=" + stb.str(supersite_stats.haplotype_conflicts) + "]");
+
+	// Allocate per-sample accumulators for multi-code posteriors (v2)
+	for (auto * g : G.vecG) {
+		g->ProbMissingMulti = std::vector<float>(V.total_posterior_size, 0.0f);
+	}
 }

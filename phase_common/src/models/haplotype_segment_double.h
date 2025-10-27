@@ -102,7 +102,7 @@ private:
 	void COLLAPSE_AMB();
 	void COLLAPSE_MIS();
 	void SUMK();
-	void IMPUTE(std::vector < float > & );
+	void IMPUTE(std::vector < float > & , std::vector < float > & );
 	bool TRANS_HAP();
 	bool TRANS_DIP_MULT();
 	bool TRANS_DIP_ADD();
@@ -150,7 +150,7 @@ public:
 
 	//void fetch();
 	void forward();
-	int backward(std::vector < double > &, std::vector < float > &);
+	int backward(std::vector < double > &, std::vector < float > &, std::vector < float > &);
 };
 
 /*******************************************************************************/
@@ -478,7 +478,7 @@ bool haplotype_segment_double::TRANS_DIP_ADD() {
 }
 
 inline
-void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilities) {
+void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilities, std::vector < float > & missing_multi) {
 	__m256d _sum0 = _mm256_set1_pd(0.0f);
 	__m256d _sum1 = _mm256_set1_pd(0.0f);
 
@@ -516,6 +516,39 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
 	prob0 = (double*)&_sumA1[0];
 	prob1 = (double*)&_sumA1[1];
 	for (int h = 4 ; h < HAP_NUMBER ; h ++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h]+prob1[h]);
+
+	// v2: multi-code per-hap posteriors at supersite anchors (scalar accumulation)
+	if (Vmap) {
+		uint32_t site = Vmap->variant_to_site[curr_abs_locus];
+		if (site < Vmap->supersites.size() && Vmap->supersites[site].is_super_site) {
+			const supersite_desc & desc = Vmap->supersites[site];
+			uint32_t base = Vmap->supersite_posterior_offset[site];
+			const uint8_t * codes = Vmap->supersite_codes.data() + desc.panel_offset;
+			float sumC[HAP_NUMBER];
+			for (int h = 0; h < HAP_NUMBER; ++h) sumC[h] = 0.0f;
+			int n_codes = (int)desc.n_alt + 1;
+			for (int c = 0; c < n_codes; ++c) {
+				for (int h = 0; h < HAP_NUMBER; ++h) missing_multi[base + c*HAP_NUMBER + h] = 0.0f;
+			}
+			for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+				unsigned int donor_h = (*cond_hap_indices)[k];
+				uint8_t code = codes[donor_h];
+				if (code > desc.n_alt) code = 0;
+				for (int h = 0; h < HAP_NUMBER; ++h) {
+					float a = (float)(AlphaMissing[curr_rel_missing][i+h] / AlphaSumMissing[curr_rel_missing][h]);
+					float w = a * (float)prob[i+h];
+					missing_multi[base + code*HAP_NUMBER + h] += w;
+					sumC[h] += w;
+				}
+			}
+			for (int c = 0; c < n_codes; ++c) {
+				for (int h = 0; h < HAP_NUMBER; ++h) {
+					float s = sumC[h];
+					if (s > 0.0f) missing_multi[base + c*HAP_NUMBER + h] /= s;
+				}
+			}
+		}
+	}
 }
 
 #endif

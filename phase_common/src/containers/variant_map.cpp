@@ -274,6 +274,18 @@ supersite_summary variant_map::buildSupersites(const bitmatrix & hap_matrix, uns
 	return summary;
 }
 
+void variant_map::buildPosteriorOffsets() {
+	supersite_posterior_offset.clear();
+	supersite_posterior_offset.reserve(supersites.size());
+	uint32_t acc = 0u;
+	for (size_t s = 0; s < supersites.size(); ++s) {
+		supersite_posterior_offset.push_back(acc);
+		uint32_t n_codes = static_cast<uint32_t>(supersites[s].n_alt) + 1u;
+		acc += n_codes * HAP_NUMBER;
+	}
+	total_posterior_size = acc;
+}
+
 void variant_map::setGeneticMap(gmap_reader & readerGM) {
 	tac.clock();
 	int n_set = setCentiMorgan(readerGM.pos_bp, readerGM.pos_cm);

@@ -140,3 +140,24 @@ void genotype::store(vector < double > & CurrentTransProbabilities, vector < flo
 	n_storage_events ++;
 }
 
+void genotype::store(vector < double > & CurrentTransProbabilities, vector < float > & CurrentMissingProbabilities, vector < float > & CurrentMissingProbabilitiesMulti) {
+	if (ProbMask.size() == 0) {
+		n_stored_transitionProbs = 0;
+		ProbMask = vector < bool > (n_transitions, false);
+		for (unsigned int t = 0 ; t < n_transitions ; t ++) if (CurrentTransProbabilities[t] >= 1e-6) {
+			n_stored_transitionProbs ++;
+			ProbMask[t] = true;
+		}
+		ProbStored = vector  < float > (n_stored_transitionProbs, 0.0);
+		ProbMissing = vector < float > (n_missing * HAP_NUMBER, 0.0);
+		// ProbMissingMulti is allocated after supersite build; if empty, ignore multi accumulation
+	}
+	for (unsigned int t = 0, trel = 0 ; t < n_transitions ; t ++) {
+		if (ProbMask[t]) ProbStored[trel++] += CurrentTransProbabilities[t];
+	}
+	for (unsigned int m = 0 ; m < (n_missing * HAP_NUMBER) ; m ++) ProbMissing[m] += CurrentMissingProbabilities[m];
+	if (ProbMissingMulti.size() == CurrentMissingProbabilitiesMulti.size() && ProbMissingMulti.size() > 0) {
+		for (size_t i = 0; i < ProbMissingMulti.size(); ++i) ProbMissingMulti[i] += CurrentMissingProbabilitiesMulti[i];
+	}
+	n_storage_events ++;
+}
