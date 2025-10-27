@@ -19,10 +19,11 @@ int main() {
 	
 	// Test 2: Test unpacking functions with sample data
 	// Create a packed buffer with some test data
-	// Example: 4 haplotypes with codes: 0, 1, 2, 3 (packed as 0x10, 0x32)
+	// Example: 4 haplotypes with codes: 0, 1, 2, 3
+	// Packing format: lower 4 bits = even hap, upper 4 bits = odd hap
 	uint8_t packed_buffer[2];
-	packed_buffer[0] = 0x10; // hap 0 = 0x0, hap 1 = 0x1
-	packed_buffer[1] = 0x32; // hap 2 = 0x2, hap 3 = 0x3
+	packed_buffer[0] = 0x10; // hap 0 = 0x0 (lower), hap 1 = 0x1 (upper)
+	packed_buffer[1] = 0x32; // hap 2 = 0x2 (lower), hap 3 = 0x3 (upper)
 	
 	// Test single unpacking
 	uint8_t code0 = unpackSuperSiteCode(packed_buffer, 0, 0);
