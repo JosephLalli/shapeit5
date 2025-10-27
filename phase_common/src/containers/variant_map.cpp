@@ -187,8 +187,8 @@ supersite_summary variant_map::buildSupersites(const bitmatrix & hap_matrix, uns
 		return summary;
 	}
 
-	if (hap_matrix.n_cols != vec_pos.size()) vrb.error("Supersite build: haplotype matrix column count mismatch with variant set");
-	if (hap_matrix.n_rows != n_hap) vrb.error("Supersite build: haplotype matrix row count mismatch with supplied hap count");
+	if (hap_matrix.n_cols < vec_pos.size()) vrb.error("Supersite build: haplotype matrix has fewer columns than variants");
+	if (hap_matrix.n_rows < n_hap) vrb.error("Supersite build: haplotype matrix has fewer rows than haplotypes");
 
 	for (size_t i = 0; i < vec_pos.size();) {
 		const std::string & chr = vec_pos[i]->chr;
