@@ -32,6 +32,7 @@
 #include <containers/genotype_set.h>
 #include <containers/conditioning_set/conditioning_set_header.h>
 #include <containers/variant_map.h>
+#include <models/super_site_accessor.h>
 
 #define STAGE_BURN	0
 #define STAGE_PRUN	1
@@ -48,6 +49,12 @@ public:
 	genotype_set G;
 	hmm_parameters M;
 	variant_map V;
+
+	//SUPER-SITE DATA
+	std::vector<SuperSite> super_sites;
+	std::vector<bool> is_super_site;
+	std::vector<uint8_t> packed_allele_codes;
+	std::vector<uint8_t> sample_supersite_genotypes;
 
 	//PBWT
 	bool pbwt_auto;
