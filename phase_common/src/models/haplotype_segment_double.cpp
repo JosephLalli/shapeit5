@@ -154,6 +154,13 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 	for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
+		bool skip_supersite = false;
+		if (Vmap) {
+			uint32_t site_id = Vmap->variant_to_site[curr_abs_locus];
+			if (Vmap->supersites.size() > site_id && Vmap->supersites[site_id].is_super_site) {
+				if (!Vmap->variant_is_anchor[curr_abs_locus]) skip_supersite = true;
+			}
+		}
 		char rare_allele = M.rare_allele[curr_abs_locus];
 		bool update_prev_locus = true;
 		bool amb = VAR_GET_AMB(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
@@ -162,7 +169,10 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		yt = (curr_abs_locus == locus_last)?0.0:M.getBackwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
 
-		if (curr_abs_locus == locus_last) {
+		if (skip_supersite) {
+			// do nothing but avoid updating prev_abs_locus so transitions skip over
+			update_prev_locus = false;
+		} else if (curr_abs_locus == locus_last) {
 			if (hom) INIT_HOM();
 			else if (amb) INIT_AMB();
 			else INIT_MIS();
@@ -185,14 +195,14 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			else n_underflow_recovered += ret;
 		}
 
-		if (mis) {
+		if (mis && !skip_supersite) {
 			IMPUTE(missing_probabilities);
 			curr_abs_missing--;
 		}
 
 
 		curr_segment_locus--;
-		curr_abs_ambiguous -= amb;
+		if (!skip_supersite) curr_abs_ambiguous -= amb;
 		if (curr_segment_locus < 0 && curr_segment_index > 0) {
 			curr_segment_index--;
 			curr_segment_locus = G->Lengths[curr_segment_index] - 1;

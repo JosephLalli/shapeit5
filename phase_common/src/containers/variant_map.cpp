@@ -174,6 +174,7 @@ supersite_summary variant_map::buildSupersites(const bitmatrix & hap_matrix, uns
 
 	variant_to_site.assign(vec_pos.size(), 0u);
 	variant_alt_code.assign(vec_pos.size(), 0u);
+	variant_is_anchor.assign(vec_pos.size(), 0u);
 	supersites.clear();
 	supersites.reserve(vec_pos.size());
 	supersite_alt_variant_index.clear();
@@ -214,6 +215,7 @@ supersite_summary variant_map::buildSupersites(const bitmatrix & hap_matrix, uns
 		}
 
 		for (uint32_t idx : block) supersite_alt_variant_index.push_back(idx);
+		if (span > 0) variant_is_anchor[block[0]] = 1u;
 
 		supersite_desc desc;
 		desc.first_variant_index = static_cast<uint32_t>(i);

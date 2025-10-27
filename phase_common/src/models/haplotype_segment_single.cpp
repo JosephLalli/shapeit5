@@ -97,6 +97,13 @@ void haplotype_segment_single::forward() {
 	for (curr_abs_locus = locus_first ; curr_abs_locus <= locus_last ; curr_abs_locus++) {
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
+		bool skip_supersite = false;
+		if (Vmap) {
+			uint32_t site_id = Vmap->variant_to_site[curr_abs_locus];
+			if (Vmap->supersites.size() > site_id && Vmap->supersites[site_id].is_super_site) {
+				if (!Vmap->variant_is_anchor[curr_abs_locus]) skip_supersite = true;
+			}
+		}
 		bool update_prev_locus = true;
 		char rare_allele = M.rare_allele[curr_abs_locus];
 		bool amb = VAR_GET_AMB(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
@@ -105,7 +112,9 @@ void haplotype_segment_single::forward() {
 		yt = (curr_abs_locus == locus_first)?0.0:M.getForwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
 
-		if (curr_rel_locus == 0) {
+		if (skip_supersite) {
+			update_prev_locus = false;
+		} else if (curr_rel_locus == 0) {
 			if (hom) INIT_HOM();
 			else if (amb) INIT_AMB();
 			else INIT_MIS();
@@ -127,14 +136,14 @@ void haplotype_segment_single::forward() {
 			AlphaSumSum[curr_segment_index - segment_first] = probSumT;
 			AlphaLocus[curr_segment_index - segment_first] = prev_abs_locus;
 		}
-		if (mis) {
+		if (mis && !skip_supersite) {
 			AlphaMissing[curr_rel_missing] = prob;
 			AlphaSumMissing[curr_rel_missing] = probSumH;
 			curr_abs_missing ++;
 		}
 
 		curr_segment_locus ++;
-		curr_abs_ambiguous += amb;
+		if (!skip_supersite) curr_abs_ambiguous += amb;
 		if (curr_segment_locus >= G->Lengths[curr_segment_index]) {
 			curr_segment_index++;
 			curr_segment_locus = 0;

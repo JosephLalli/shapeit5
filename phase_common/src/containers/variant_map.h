@@ -59,6 +59,7 @@ public :
 	std::vector<supersite_desc> supersites;
 	std::vector<uint32_t> variant_to_site;
 	std::vector<uint8_t> variant_alt_code;
+	std::vector<uint8_t> variant_is_anchor;
 	std::vector<uint32_t> supersite_alt_variant_index;
 	std::vector<uint32_t> supersite_alt_variant_offset;
 	std::vector<uint8_t> supersite_codes;
