@@ -34,6 +34,7 @@
 #include <containers/variant_map.h>
 #include <modules/multiallelic_position_map.h>
 #include <modules/oneallele_enforcer.h>
+#include <models/super_site_accessor.h>
 
 #define STAGE_BURN	0
 #define STAGE_PRUN	1
@@ -52,6 +53,12 @@ public:
 	variant_map V;
 	shapeit5::modules::MultiallelicPositionMap multiallelic_map;
 	shapeit5::modules::OneAlleleEnforcer oneallele_enforcer;
+
+	//SUPER-SITE DATA
+	std::vector<SuperSite> super_sites;
+	std::vector<bool> is_super_site;
+	std::vector<uint8_t> packed_allele_codes;
+	std::vector<uint8_t> sample_supersite_genotypes;
 
 	//PBWT
 	bool pbwt_auto;
