@@ -24,7 +24,7 @@
 
 using namespace std;
 
-haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M) : G(_G), M(_M){
+haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M, variant_map & V) : G(_G), M(_M) {
 	segment_first = W.start_segment;
 	segment_last = W.stop_segment;
 	locus_first = W.start_locus;
@@ -54,6 +54,9 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	curr_rel_locus_offset = Hhap.subset(H, idxH, locus_first, locus_last);
 	Hvar.allocateFast(Hhap.n_cols, Hhap.n_rows);
 	Hhap.transpose(Hvar);
+	Vmap = &V;
+	cond_hap_indices = &idxH;
+	supersite_codes.reset(Vmap, cond_hap_indices);
 }
 
 haplotype_segment_single::~haplotype_segment_single() {

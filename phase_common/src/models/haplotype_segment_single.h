@@ -26,6 +26,7 @@
 #include <utils/otools.h>
 #include <objects/compute_job.h>
 #include <objects/hmm_parameters.h>
+#include <utils/supersite_accessor.h>
 
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
@@ -39,6 +40,9 @@ private:
 	hmm_parameters & M;
 	genotype * G;
 	bitmatrix Hhap, Hvar;
+	const variant_map * Vmap;
+	const std::vector < unsigned int > * cond_hap_indices;
+	supersite_accessor supersite_codes;
 
 	//COORDINATES & CONSTANTS
 	int segment_first;
@@ -104,10 +108,16 @@ private:
 	bool TRANS_DIP_ADD();
 	void SET_FIRST_TRANS(std::vector < double > & );
 	int SET_OTHER_TRANS(std::vector < double > & );
+	inline bool isSuperSite(uint32_t site_idx) const {
+		return supersite_codes.ready() && supersite_codes.is_super_site(site_idx);
+	}
+	inline const uint8_t * loadSupersiteCodes(uint32_t site_idx) {
+		return supersite_codes.load(site_idx);
+	}
 
 public:
 	//CONSTRUCTOR/DESTRUCTOR
-	haplotype_segment_single(genotype *, bitmatrix &, std::vector < unsigned int > &, window &, hmm_parameters &);
+	haplotype_segment_single(genotype *, bitmatrix &, std::vector < unsigned int > &, window &, hmm_parameters &, variant_map &);
 	~haplotype_segment_single();
 
 	//void fetch();
