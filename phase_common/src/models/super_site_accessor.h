@@ -31,6 +31,14 @@ template <typename T>
 using aligned_vector32 = std::vector<T, boost::alignment::aligned_allocator<T, 32>>;
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+#define SUPERSITE_MAX_ALTS 15
+#define SUPERSITE_CODE_REF 0
+#define SUPERSITE_CODE_MISSING 255
+
+// ============================================================================
 // Data Structures
 // ============================================================================
 
