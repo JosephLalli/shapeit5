@@ -42,47 +42,47 @@ inline void precomputeSuperSiteEmissions_AVX2(
 	double mismatch_prob,         // Typically M.ed/M.ee
 	aligned_vector32<double>& emissions_out) {
 
-	// Process in batches of 8 for AVX2 (4 doubles per 256-bit register)
-	for (uint32_t k = 0; k < n_cond_haps; k += 8) {
-		uint32_t batch_size = std::min(8u, n_cond_haps - k);
-		
-		// Load up to 8 conditioning codes
-		uint8_t codes_batch[8] = {0};
-		for (uint32_t j = 0; j < batch_size; j++) {
-			codes_batch[j] = cond_codes[k + j];
-		}
-		
-		// Load 8 bytes into 128-bit register (will expand to 256-bit below)
-		__m128i _codes_128 = _mm_loadu_si128((__m128i*)codes_batch);
-		
-		// Expand uint8 to uint32 (so we can use cmpeq_epi32)
-		// Lower 4 codes: codes[0..3]
-		__m256i _codes_lo = _mm256_cvtepu8_epi32(_codes_128);
-		
-		// Upper 4 codes: codes[4..7]
-		__m256i _codes_hi = _mm256_cvtepu8_epi32(_mm_srli_si128(_codes_128, 4));
-		
-		// Broadcast sample code to 8 lanes (as uint32)
-		__m256i _sample_code_vec = _mm256_set1_epi32((uint32_t)sample_code);
-		
-		// Compare: produces 0xFFFFFFFF for match, 0x00000000 for mismatch
-		__m256i _cmp_lo = _mm256_cmpeq_epi32(_codes_lo, _sample_code_vec);
-		__m256i _cmp_hi = _mm256_cmpeq_epi32(_codes_hi, _sample_code_vec);
-		
-		// Convert int masks to double masks
-		// 0xFFFFFFFF (as int) becomes -1.0 (as double)
-		// 0x00000000 (as int) becomes 0.0 (as double)
-		__m256d _mask_lo = _mm256_cvtepi32_pd(_cmp_lo);
-		__m256d _mask_hi = _mm256_cvtepi32_pd(_cmp_hi);
-		
-		// Create probability vectors
-		__m256d _match_vec = _mm256_set1_pd(match_prob);
-		__m256d _mismatch_vec = _mm256_set1_pd(mismatch_prob);
-		
-		// Blend: where mask != 0 (i.e., -1.0), use match; else mismatch
-		// _mm256_blendv_pd uses sign bit of mask
-		__m256d _emit_lo = _mm256_blendv_pd(_mismatch_vec, _match_vec, _mask_lo);
-		__m256d _emit_hi = _mm256_blendv_pd(_mismatch_vec, _match_vec, _mask_hi);
+    // Process in batches of 8 for AVX2 (4 doubles per 256-bit register)
+    for (uint32_t k = 0; k < n_cond_haps; k += 8) {
+        uint32_t batch_size = std::min(8u, n_cond_haps - k);
+        
+        // Load up to 8 conditioning codes
+        uint8_t codes_batch[8] = {0};
+        for (uint32_t j = 0; j < batch_size; j++) {
+            codes_batch[j] = cond_codes[k + j];
+        }
+        
+        // Load 8 bytes into 128-bit register (will expand to 256-bit below)
+        __m128i _codes_128 = _mm_loadu_si128((__m128i*)codes_batch);
+        
+        // Expand uint8 to uint32 (so we can use cmpeq_epi32)
+        // Lower 8 codes: from bytes [0..7] of _codes_128
+        __m256i _codes_lo = _mm256_cvtepu8_epi32(_codes_128);                // lanes 0..7 from bytes 0..7
+        __m256i _codes_hi = _mm256_cvtepu8_epi32(_mm_srli_si128(_codes_128, 4)); // lanes 0..7 from bytes 4..11 (bytes 8..11 are zero)
+        
+        // Broadcast sample code to 8 lanes (as uint32)
+        __m256i _sample_code_vec = _mm256_set1_epi32((uint32_t)sample_code);
+        
+        // Compare: produces 0xFFFFFFFF for match, 0x00000000 for mismatch
+        __m256i _cmp_lo = _mm256_cmpeq_epi32(_codes_lo, _sample_code_vec);
+        __m256i _cmp_hi = _mm256_cmpeq_epi32(_codes_hi, _sample_code_vec);
+        
+        // Create per-lane double masks using widening to epi64 then cast to pd
+        // Take low 4 lanes from each compare result
+        __m128i _cmp_lo_128 = _mm256_castsi256_si128(_cmp_lo);             // lanes 0..3
+        __m128i _cmp_hi_128 = _mm256_castsi256_si128(_cmp_hi);             // lanes 0..3 correspond to codes 4..7
+        __m256i _mask_lo_i64 = _mm256_cvtepi32_epi64(_cmp_lo_128);         // 4 x 64-bit: all-ones or zero
+        __m256i _mask_hi_i64 = _mm256_cvtepi32_epi64(_cmp_hi_128);
+        __m256d _mask_lo = _mm256_castsi256_pd(_mask_lo_i64);
+        __m256d _mask_hi = _mm256_castsi256_pd(_mask_hi_i64);
+        
+        // Create probability vectors
+        __m256d _match_vec = _mm256_set1_pd(match_prob);
+        __m256d _mismatch_vec = _mm256_set1_pd(mismatch_prob);
+        
+        // Blend using bitwise masks: (mask & match) | (~mask & mismatch)
+        __m256d _emit_lo = _mm256_or_pd(_mm256_and_pd(_mask_lo, _match_vec), _mm256_andnot_pd(_mask_lo, _mismatch_vec));
+        __m256d _emit_hi = _mm256_or_pd(_mm256_and_pd(_mask_hi, _match_vec), _mm256_andnot_pd(_mask_hi, _mismatch_vec));
 		
 		// Store emissions
 		_mm256_store_pd(&emissions_out[k + 0], _emit_lo);

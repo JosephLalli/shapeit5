@@ -36,11 +36,13 @@ class conditioning_set;
 // ============================================================================
 
 void buildSuperSites(
-	variant_map& V,
-	conditioning_set& H,
-	std::vector<SuperSite>& super_sites_out,
-	std::vector<bool>& is_super_site_out,
-	std::vector<uint8_t>& packed_allele_codes_out,
-	std::vector<uint8_t>& sample_supersite_genotypes_out);
+    variant_map& V,
+    conditioning_set& H,
+    std::vector<SuperSite>& super_sites_out,
+    std::vector<bool>& is_super_site_out,
+    std::vector<uint8_t>& packed_allele_codes_out,
+    std::vector<int>& locus_to_super_idx_out,
+    std::vector<int>& super_site_var_index_out,
+    std::vector<uint8_t>& sample_supersite_genotypes_out);
 
 #endif // _SUPER_SITE_BUILDER_H
