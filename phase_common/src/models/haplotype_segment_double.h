@@ -26,6 +26,7 @@
 #include <utils/otools.h>
 #include <objects/compute_job.h>
 #include <objects/hmm_parameters.h>
+#include <models/super_site_macros.h>
 
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
@@ -87,6 +88,10 @@ private:
 	double g0[HAP_NUMBER], g1[HAP_NUMBER];
 	double nt, yt;
 
+	//SUPER-SITE SUPPORT
+	const std::vector<SuperSite>* super_sites;
+	const std::vector<bool>* is_super_site;
+
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
 	void INIT_AMB();
@@ -107,7 +112,7 @@ private:
 
 public:
 	//CONSTRUCTOR/DESTRUCTOR
-	haplotype_segment_double(genotype *, bitmatrix &, std::vector < unsigned int > &, window &, hmm_parameters &);
+	haplotype_segment_double(genotype *, bitmatrix &, std::vector < unsigned int > &, window &, hmm_parameters &, const std::vector<SuperSite>* _super_sites = nullptr, const std::vector<bool>* _is_super_site = nullptr);
 	~haplotype_segment_double();
 
 	//void fetch();
