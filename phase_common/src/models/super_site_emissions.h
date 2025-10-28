@@ -94,16 +94,30 @@ inline void precomputeSuperSiteEmissions_AVX2(
 
 // Fallback scalar version (for when AVX2 isn't worth the overhead)
 inline void precomputeSuperSiteEmissions_Scalar(
-	const uint8_t* cond_codes,
-	uint32_t n_cond_haps,
-	uint8_t sample_code,
-	double match_prob,
-	double mismatch_prob,
-	aligned_vector32<double>& emissions_out) {
+    const uint8_t* cond_codes,
+    uint32_t n_cond_haps,
+    uint8_t sample_code,
+    double match_prob,
+    double mismatch_prob,
+    aligned_vector32<double>& emissions_out) {
 
 	for (uint32_t k = 0; k < n_cond_haps; k++) {
 		emissions_out[k] = (cond_codes[k] == sample_code) ? match_prob : mismatch_prob;
 	}
+}
+
+// Float version (scalar) for single-precision path
+inline void precomputeSuperSiteEmissions_FloatScalar(
+    const uint8_t* cond_codes,
+    uint32_t n_cond_haps,
+    uint8_t sample_code,
+    float match_prob,
+    float mismatch_prob,
+    aligned_vector32<float>& emissions_out) {
+
+    for (uint32_t k = 0; k < n_cond_haps; k++) {
+        emissions_out[k] = (cond_codes[k] == sample_code) ? match_prob : mismatch_prob;
+    }
 }
 
 #endif // _SUPER_SITE_EMISSIONS_H

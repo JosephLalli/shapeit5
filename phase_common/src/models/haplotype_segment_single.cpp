@@ -60,7 +60,12 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	//Cache efficient data transfer for conditioning haplotypes
 	curr_rel_locus_offset = Hhap.subset(H, idxH, locus_first, locus_last);
 	Hvar.allocateFast(Hhap.n_cols, Hhap.n_rows);
-	Hhap.transpose(Hvar);
+    Hhap.transpose(Hvar);
+
+    if (super_sites && locus_to_super_idx && panel_codes && super_site_var_index) {
+        ss_cond_codes = aligned_vector32<uint8_t>(n_cond_haps, 0);
+        ss_emissions = aligned_vector32<float>(n_cond_haps, 1.0f);
+    }
 }
 
 haplotype_segment_single::~haplotype_segment_single() {
