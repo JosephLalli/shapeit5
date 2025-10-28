@@ -680,22 +680,61 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
 
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
+        // Identify target class for current missing variant within supersite
+        int target_class = 0; // 0 = REF, 1..n_alts = ALT index
+        for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+            if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
+                target_class = (int)ai + 1;
+                break;
+            }
+        }
         // Unpack conditioning hap codes
         for (int k = 0; k < (int)n_cond_haps; ++k) {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
+        // Initialize per-class accumulators (up to SUPERSITE_MAX_ALTS+1)
+        __m256d sum_lo_classes[SUPERSITE_MAX_ALTS + 1];
+        __m256d sum_hi_classes[SUPERSITE_MAX_ALTS + 1];
+        for (int c = 0; c <= (int)ss.var_count; ++c) {
+            sum_lo_classes[c] = _mm256_set1_pd(0.0f);
+            sum_hi_classes[c] = _mm256_set1_pd(0.0f);
+        }
+        __m256d denom_lo = _mm256_set1_pd(0.0f);
+        __m256d denom_hi = _mm256_set1_pd(0.0f);
+        // Accumulate per conditioning haplotype into class buckets
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            int allele = (ss_cond_codes[k] > 0) ? 1 : 0; // ALT if any non-zero code
+            int code = (int)ss_cond_codes[k]; // 0..n_alts
+            if (code > (int)ss.var_count) code = 0; // safety
             __m256d _prob0 = _mm256_load_pd(&prob[i]);
             __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
             __m256d _alpha0 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+0]);
             __m256d _alpha1 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+4]);
             _sum0 = _mm256_mul_pd(_mm256_mul_pd(_alpha0, _alphaSum0), _prob0);
             _sum1 = _mm256_mul_pd(_mm256_mul_pd(_alpha1, _alphaSum1), _prob1);
-            _sumA0[allele] = _mm256_add_pd(_sumA0[allele], _sum0);
-            _sumA1[allele] = _mm256_add_pd(_sumA1[allele], _sum1);
+            sum_lo_classes[code] = _mm256_add_pd(sum_lo_classes[code], _sum0);
+            sum_hi_classes[code] = _mm256_add_pd(sum_hi_classes[code], _sum1);
+            denom_lo = _mm256_add_pd(denom_lo, _sum0);
+            denom_hi = _mm256_add_pd(denom_hi, _sum1);
         }
+        // Compute per-lane posterior for target class = ALT for this specific split variant
+        __m256d p_lo = sum_lo_classes[target_class];
+        __m256d p_hi = sum_hi_classes[target_class];
+        // Store results
+        alignas(32) double plo[4], phi[4], dlo[4], dhi[4];
+        _mm256_store_pd(plo, p_lo);
+        _mm256_store_pd(phi, p_hi);
+        _mm256_store_pd(dlo, denom_lo);
+        _mm256_store_pd(dhi, denom_hi);
+        for (int h = 0; h < 4; ++h) {
+            double denom = dlo[h];
+            missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = (float)((denom > 0.0) ? (plo[h] / denom) : 0.0);
+        }
+        for (int h = 0; h < 4; ++h) {
+            double denom = dhi[h];
+            missing_probabilities[curr_abs_missing * HAP_NUMBER + (4 + h)] = (float)((denom > 0.0) ? (phi[h] / denom) : 0.0);
+        }
+        return;
     } else {
         // Biallelic path
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
