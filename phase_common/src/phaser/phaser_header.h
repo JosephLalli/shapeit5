@@ -51,6 +51,7 @@ public:
 	variant_map V;
 
 	//SUPER-SITE DATA
+	bool enable_supersites;
 	std::vector<SuperSite> super_sites;
 	std::vector<bool> is_super_site;
 	std::vector<uint8_t> packed_allele_codes;
