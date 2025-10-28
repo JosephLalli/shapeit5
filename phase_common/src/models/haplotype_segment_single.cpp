@@ -24,7 +24,7 @@
 
 using namespace std;
 
-haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M, const std::vector<SuperSite>* _super_sites, const std::vector<bool>* _is_super_site) : G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site) {
+haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M) : G(_G), M(_M){
 	segment_first = W.start_segment;
 	segment_last = W.stop_segment;
 	locus_first = W.start_locus;

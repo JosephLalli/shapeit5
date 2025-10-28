@@ -79,10 +79,6 @@ void phaser::declare_options() {
 		("enforce-oneallele", "Resolve multiallelic sites to enforce ≤1 ALT allele per haplotype")
 		("oneallele-stats", bpo::value< string >(), "Write one-allele enforcement statistics to this file");
 
-	bpo::options_description opt_supersites ("Super-site support (experimental)");
-	opt_supersites.add_options()
-		("enable-supersites", "Enable super-site support for multiallelic positions (STRs) with 4-bit encoding");
-
 	descriptions.add(opt_base)
 		.add(opt_input)
 		.add(opt_mcmc)
@@ -90,8 +86,7 @@ void phaser::declare_options() {
 		.add(opt_hmm)
 		.add(opt_filter)
 		.add(opt_output)
-		.add(opt_constraints)
-		.add(opt_supersites);
+		.add(opt_constraints);
 }
 
 void phaser::parse_command_line(vector < string > & args) {
@@ -153,9 +148,6 @@ void phaser::check_options() {
 	if (options.count("oneallele-stats")) {
 		oneallele_stats_path = options["oneallele-stats"].as < string > ();
 	}
-	
-	// Initialize super-site support flag
-	enable_supersites = options.count("enable-supersites") > 0;
 }
 
 void phaser::verbose_files() {
@@ -192,8 +184,5 @@ void phaser::verbose_options() {
 		vrb.bullet("Constraint : multiallelic one-allele enforcement enabled" + stats_info);
 	} else if (options.count("oneallele-stats")) {
 		vrb.warning("--oneallele-stats requested but enforcement disabled; enabling automatically");
-	}
-	if (enable_supersites) {
-		vrb.bullet("Super-sites : Enabled (4-bit encoding for multiallelic positions)");
 	}
 }

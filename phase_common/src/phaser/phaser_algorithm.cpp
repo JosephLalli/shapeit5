@@ -21,7 +21,6 @@
  ******************************************************************************/
 
 #include <phaser/phaser_header.h>
-#include <objects/super_site_builder.h>
 
 using namespace std;
 
@@ -55,24 +54,18 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 
 		if (G.vecG[id_job]->double_precision) {
 			//Run using double precision as underflow happened previously
-			haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M, 
-				enable_supersites ? &super_sites : nullptr, 
-				enable_supersites ? &is_super_site : nullptr);
+			haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M);
 			HS.forward();
 			outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M);
 		} else {
 			//Try single precision as this is faster
-			haplotype_segment_single HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M, 
-				enable_supersites ? &super_sites : nullptr, 
-				enable_supersites ? &is_super_site : nullptr);
+			haplotype_segment_single HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M);
 			HS.forward();
 			outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M);
 
 			//Underflow happening with single precision, rerun using double precision
 			if (outcome != 0) {
-				haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M, 
-					enable_supersites ? &super_sites : nullptr, 
-					enable_supersites ? &is_super_site : nullptr);
+				haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M);
 				HS.forward();
 				outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M);
 				G.vecG[id_job]->double_precision = true;
@@ -138,28 +131,6 @@ void phaser::phase() {
 			}
 			//SELECT NEW STATES WITH PBWT
 			H.select();
-			
-			// Build super-sites for multiallelic positions (fixed 4-bit encoding)
-			// This collapses split biallelic records at identical (chr,bp) positions into
-			// super-sites and packs per-haplotype codes (2 codes per byte).
-			if (enable_supersites && current_iteration == 0) {
-				vrb.title("Building super-sites");
-				// Ensure containers are empty
-				super_sites.clear();
-				is_super_site.clear();
-				packed_allele_codes.clear();
-				
-				// Build super-sites using variant map V and conditioning set H (uses H.Hhap)
-				// Note: buildSuperSites implementation is commented out pending integration
-				// buildSuperSites(V, H, super_sites, is_super_site, packed_allele_codes);
-				
-				// Log result
-				// vrb.bullet("Built " + stb.str(super_sites.size()) + " super-sites covering " + 
-				//           stb.str(std::count(is_super_site.begin(), is_super_site.end(), true)) + " variant positions");
-				
-				// TODO: implement fill_sample_super_site_genotypes(V, G, super_sites, sample_supersite_genotypes);
-			}
-			
 			//PHASE DATA
 			phaseWindow();
 		//MERGE IBD2 PAIRS
@@ -178,7 +149,6 @@ void phaser::phase() {
 				n_new_segments = G.numberOfSegments();
 				vrb.bullet("Trimming [pc=" + stb.str((1-n_new_segments*1.0/n_old_segments)*100, 2) + "%]");
 			}
-			current_iteration++;
 		}
 	}
 }
