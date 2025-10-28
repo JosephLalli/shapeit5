@@ -27,6 +27,7 @@
 #include <vector>
 #include <boost/align/aligned_allocator.hpp>
 #include <utils/otools.h>
+#include <objects/genotype/genotype_header.h>
 
 // ============================================================================
 // Constants
@@ -89,14 +90,39 @@ inline void unpackSuperSiteCodesBatch(
 // Vectorized unpacking using PEXT (BMI2, Intel Haswell+)
 // For maximum performance: requires -mbmi2 compiler flag
 inline void unpackSuperSiteCodesVectorized_PEXT(
-	const uint8_t* packed_buffer,
-	uint32_t panel_offset,
-	uint32_t n_haps,
-	uint8_t* codes_out) {
+    const uint8_t* packed_buffer,
+    uint32_t panel_offset,
+    uint32_t n_haps,
+    uint8_t* codes_out) {
 
 	// This is complex and system-dependent; for now, use scalar
 	// Can be optimized later if profiling shows it's a bottleneck
 	unpackSuperSiteCodesBatch(packed_buffer, panel_offset, 0, n_haps, codes_out);
+}
+
+// ============================================================================
+// Sample code accessor
+// ============================================================================
+
+// Returns 0 (REF) if no ALTs carried across member variants, ALT index+1 for first ALT seen,
+// or SUPERSITE_CODE_MISSING if all member records are missing for this sample at this locus.
+inline uint8_t getSampleSuperSiteAlleleCode(
+    const genotype* G,
+    const SuperSite& ss,
+    const std::vector<int>& super_site_var_index,
+    int hap // 0 or 1
+) {
+    bool any_non_missing = false;
+    for (uint32_t i = 0; i < ss.var_count; ++i) {
+        int v_idx = super_site_var_index[ss.var_start + i];
+        unsigned char v = G->Variants[DIV2(v_idx)];
+        if (VAR_GET_MIS(MOD2(v_idx), v)) continue; // missing at this component
+        any_non_missing = true;
+        bool carries = (hap == 0) ? VAR_GET_HAP0(MOD2(v_idx), v) : VAR_GET_HAP1(MOD2(v_idx), v);
+        if (carries) return static_cast<uint8_t>(i + 1);
+    }
+    if (!any_non_missing) return SUPERSITE_CODE_MISSING;
+    return SUPERSITE_CODE_REF;
 }
 
 #endif

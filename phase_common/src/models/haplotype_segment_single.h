@@ -88,6 +88,10 @@ private:
 	//SUPER-SITE SUPPORT
 	const std::vector<SuperSite>* super_sites;
 	const std::vector<bool>* is_super_site;
+	const std::vector<int>* locus_to_super_idx;
+	const uint8_t* panel_codes;
+	const std::vector<int>* super_site_var_index;
+	const std::vector<unsigned int>* cond_idx;
 
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
@@ -109,7 +113,12 @@ private:
 
 public:
 	//CONSTRUCTOR/DESTRUCTOR
-	haplotype_segment_single(genotype *, bitmatrix &, std::vector < unsigned int > &, window &, hmm_parameters &, const std::vector<SuperSite>* _super_sites = nullptr, const std::vector<bool>* _is_super_site = nullptr);
+	haplotype_segment_single(genotype *, bitmatrix &, std::vector < unsigned int > &, window &, hmm_parameters &,
+		const std::vector<SuperSite>* _super_sites = nullptr,
+		const std::vector<bool>* _is_super_site = nullptr,
+		const std::vector<int>* _locus_to_super_idx = nullptr,
+		const uint8_t* _panel_codes = nullptr,
+		const std::vector<int>* _super_site_var_index = nullptr);
 	~haplotype_segment_single();
 
 	//void fetch();

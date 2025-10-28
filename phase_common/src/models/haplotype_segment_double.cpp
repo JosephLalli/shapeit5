@@ -24,7 +24,14 @@
 
 using namespace std;
 
-haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M, const std::vector<SuperSite>* _super_sites, const std::vector<bool>* _is_super_site) : G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site) {
+haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M,
+    const std::vector<SuperSite>* _super_sites,
+    const std::vector<bool>* _is_super_site,
+    const std::vector<int>* _locus_to_super_idx,
+    const uint8_t* _panel_codes,
+    const std::vector<int>* _super_site_var_index) :
+    G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site),
+    locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), super_site_var_index(_super_site_var_index), cond_idx(&idxH) {
 	segment_first = W.start_segment;
 	segment_last = W.stop_segment;
 	locus_first = W.start_locus;
@@ -54,6 +61,12 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
 	curr_rel_locus_offset = Hhap.subset(H, idxH, locus_first, locus_last);
 	Hvar.allocateFast(Hhap.n_cols, Hhap.n_rows);
 	Hhap.transpose(Hvar);
+
+	// allocate scratch for supersites if enabled
+	if (super_sites && locus_to_super_idx && panel_codes && super_site_var_index) {
+		ss_cond_codes = aligned_vector32<uint8_t>(n_cond_haps, 0);
+		ss_emissions = aligned_vector32<double>(n_cond_haps, 1.0);
+	}
 }
 
 haplotype_segment_double::~haplotype_segment_double() {
