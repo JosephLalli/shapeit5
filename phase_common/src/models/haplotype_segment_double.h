@@ -659,43 +659,64 @@ bool haplotype_segment_double::TRANS_DIP_ADD() {
 
 inline
 void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilities) {
-	__m256d _sum0 = _mm256_set1_pd(0.0f);
-	__m256d _sum1 = _mm256_set1_pd(0.0f);
+    // Supersite-aware imputation: classify cond hap codes as REF(0) vs ALT(>0)
+    int ss_idx = -1;
+    if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
 
-	__m256d _sumA0[2], _sumA1[2];
-	_sumA0[0] = _mm256_set1_pd(0.0f);
-	_sumA0[1] = _mm256_set1_pd(0.0f);
-	_sumA1[0] = _mm256_set1_pd(0.0f);
-	_sumA1[1] = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0f);
+    __m256d _sum1 = _mm256_set1_pd(0.0f);
 
-	__m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][0]);
-	__m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][1]);
+    __m256d _sumA0[2], _sumA1[2];
+    _sumA0[0] = _mm256_set1_pd(0.0f);
+    _sumA0[1] = _mm256_set1_pd(0.0f);
+    _sumA1[0] = _mm256_set1_pd(0.0f);
+    _sumA1[1] = _mm256_set1_pd(0.0f);
 
-	__m256d _ones = _mm256_set1_pd(1.0f);
+    __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][0]);
+    __m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][1]);
+    __m256d _ones = _mm256_set1_pd(1.0f);
+    _alphaSum0 = _mm256_div_pd(_ones, _alphaSum0);
+    _alphaSum1 = _mm256_div_pd(_ones, _alphaSum1);
 
-	_alphaSum0 = _mm256_div_pd(_ones, _alphaSum0);
-	_alphaSum1 = _mm256_div_pd(_ones, _alphaSum1);
+    if (ss_idx >= 0) {
+        const SuperSite& ss = (*super_sites)[ss_idx];
+        // Unpack conditioning hap codes
+        for (int k = 0; k < (int)n_cond_haps; ++k) {
+            unsigned int gh = (*cond_idx)[k];
+            ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+        }
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            int allele = (ss_cond_codes[k] > 0) ? 1 : 0; // ALT if any non-zero code
+            __m256d _prob0 = _mm256_load_pd(&prob[i]);
+            __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
+            __m256d _alpha0 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+0]);
+            __m256d _alpha1 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+4]);
+            _sum0 = _mm256_mul_pd(_mm256_mul_pd(_alpha0, _alphaSum0), _prob0);
+            _sum1 = _mm256_mul_pd(_mm256_mul_pd(_alpha1, _alphaSum1), _prob1);
+            _sumA0[allele] = _mm256_add_pd(_sumA0[allele], _sum0);
+            _sumA1[allele] = _mm256_add_pd(_sumA1[allele], _sum1);
+        }
+    } else {
+        // Biallelic path
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
+            __m256d _prob0 = _mm256_load_pd(&prob[i]);
+            __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
+            __m256d _alpha0 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+0]);
+            __m256d _alpha1 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+4]);
+            _sum0 = _mm256_mul_pd(_mm256_mul_pd(_alpha0, _alphaSum0), _prob0);
+            _sum1 = _mm256_mul_pd(_mm256_mul_pd(_alpha1, _alphaSum1), _prob1);
+            _sumA0[ah] = _mm256_add_pd(_sumA0[ah], _sum0);
+            _sumA1[ah] = _mm256_add_pd(_sumA1[ah], _sum1);
+        }
+    }
 
-	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-		bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-		__m256d _prob0 = _mm256_load_pd(&prob[i]);
-		__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
-
-		__m256d _alpha0 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+0]);
-		__m256d _alpha1 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+4]);
-
-		_sum0 = _mm256_mul_pd(_mm256_mul_pd(_alpha0, _alphaSum0), _prob0);
-		_sum1 = _mm256_mul_pd(_mm256_mul_pd(_alpha1, _alphaSum1), _prob1);
-
-		_sumA0[ah] = _mm256_add_pd(_sumA0[ah], _sum0);
-		_sumA1[ah] = _mm256_add_pd(_sumA1[ah], _sum1);
-	}
-	double * prob0 = (double*)&_sumA0[0];
-	double * prob1 = (double*)&_sumA0[1];
-	for (int h = 0 ; h < 4 ; h ++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h]+prob1[h]);
-	prob0 = (double*)&_sumA1[0];
-	prob1 = (double*)&_sumA1[1];
-	for (int h = 4 ; h < HAP_NUMBER ; h ++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h]+prob1[h]);
+    double * prob0 = (double*)&_sumA0[0];
+    double * prob1 = (double*)&_sumA0[1];
+    for (int h = 0 ; h < 4 ; h ++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h]+prob1[h]);
+    prob0 = (double*)&_sumA1[0];
+    prob1 = (double*)&_sumA1[1];
+    for (int h = 4 ; h < HAP_NUMBER ; h ++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h]+prob1[h]);
 }
 
 #endif
