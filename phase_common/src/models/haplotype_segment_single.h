@@ -89,8 +89,8 @@ private:
 	float nt, yt;
 
 	//SUPER-SITE SUPPORT
-	const std::vector<SuperSite>& super_sites;
-	const std::vector<bool>& is_super_site;
+	const std::vector<SuperSite>* super_sites;
+	const std::vector<bool>* is_super_site;
 
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
@@ -112,7 +112,7 @@ private:
 
 public:
 	//CONSTRUCTOR/DESTRUCTOR
-	haplotype_segment_single(genotype *, bitmatrix &, std::vector < unsigned int > &, window &, hmm_parameters &, const std::vector<SuperSite>& _super_sites, const std::vector<bool>& _is_super_site);
+	haplotype_segment_single(genotype *, bitmatrix &, std::vector < unsigned int > &, window &, hmm_parameters &, const std::vector<SuperSite>* _super_sites = nullptr, const std::vector<bool>* _is_super_site = nullptr);
 	~haplotype_segment_single();
 
 	//void fetch();

@@ -74,7 +74,18 @@ void phaser::declare_options() {
 			("output-format", bpo::value< string >()->default_value("bcf"), "Output file format")
 			("log", bpo::value< string >(), "Log file");
 
-	descriptions.add(opt_base).add(opt_input).add(opt_mcmc).add(opt_pbwt).add(opt_hmm).add(opt_filter).add(opt_output);
+	bpo::options_description opt_supersites ("Super-site support (experimental)");
+	opt_supersites.add_options()
+		("enable-supersites", "Enable super-site support for multiallelic positions (STRs) with 4-bit encoding");
+
+	descriptions.add(opt_base)
+		.add(opt_input)
+		.add(opt_mcmc)
+		.add(opt_pbwt)
+		.add(opt_hmm)
+		.add(opt_filter)
+		.add(opt_output)
+		.add(opt_supersites);
 }
 
 void phaser::parse_command_line(vector < string > & args) {
@@ -130,6 +141,18 @@ void phaser::check_options() {
 		vrb.error("Output format[" + oformat + "] unsupported, use [graph, bcf or bh] instead");
 
 	parse_iteration_scheme(options["mcmc-iterations"].as < string > ());
+<<<<<<< HEAD
+=======
+
+	enforce_oneallele = options.count("enforce-oneallele") || options.count("oneallele-stats");
+	oneallele_enforcer.set_enabled(enforce_oneallele);
+	if (options.count("oneallele-stats")) {
+		oneallele_stats_path = options["oneallele-stats"].as < string > ();
+	}
+	
+	// Initialize super-site support flag
+	enable_supersites = options.count("enable-supersites") > 0;
+>>>>>>> f5b4259 (Make super-site support optional via --enable-supersites flag)
 }
 
 void phaser::verbose_files() {
@@ -161,4 +184,16 @@ void phaser::verbose_options() {
 	else vrb.bullet("HMM     : [window = " + stb.str(options["hmm-window"].as < double > ()) + "cM / Ne = " + stb.str(options["hmm-ne"].as < int > ()) + " / Constant recombination rate of 1cM per Mb]");
 	if (options.count("filter-snp") || (!options["filter-maf"].defaulted()))
 		vrb.bullet("FILTERS : [snp only = " + stb.str(options.count("filter-snp")) + " / MAF = " + stb.str(options["filter-maf"].as < double > ()) + "]");
+<<<<<<< HEAD
+=======
+	if (enforce_oneallele) {
+		std::string stats_info = oneallele_stats_path.empty() ? "" : (" / stats = " + oneallele_stats_path);
+		vrb.bullet("Constraint : multiallelic one-allele enforcement enabled" + stats_info);
+	} else if (options.count("oneallele-stats")) {
+		vrb.warning("--oneallele-stats requested but enforcement disabled; enabling automatically");
+	}
+	if (enable_supersites) {
+		vrb.bullet("Super-sites : Enabled (4-bit encoding for multiallelic positions)");
+	}
+>>>>>>> f5b4259 (Make super-site support optional via --enable-supersites flag)
 }
