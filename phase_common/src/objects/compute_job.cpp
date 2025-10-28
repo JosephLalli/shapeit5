@@ -30,6 +30,7 @@ using namespace std;
 compute_job::compute_job(variant_map & _V, genotype_set & _G, conditioning_set & _H, unsigned int n_max_transitions, unsigned int n_max_missing) : V(_V), G(_G), H(_H) {
 	T = vector < double > (n_max_transitions, 0.0);
 	M = vector < float > (n_max_missing , 0.0);
+	if (_V.total_posterior_size) Mmulti = vector < float > (_V.total_posterior_size, 0.0f);
 	Ordering = vector < unsigned int > (H.n_hap);
 	iota(Ordering.begin(), Ordering.end(), 0);
 	Oiterator = 0;
@@ -42,6 +43,7 @@ compute_job::~compute_job() {
 void compute_job::free () {
 	vector < double > ().swap(T);
 	vector < float > ().swap(M);
+	vector < float > ().swap(Mmulti);
 	vector < vector < unsigned int > > ().swap(Kstates);
 	Kbanned.clear();
 	Windows.clear();
@@ -50,6 +52,8 @@ void compute_job::free () {
 void compute_job::make(unsigned int ind, double min_window_size) {
 	//1. Mapping coordinates of each segment
 	int n_windows = Windows.build (V, G.vecG[ind], min_window_size);
+	if (V.total_posterior_size) Mmulti.assign(V.total_posterior_size, 0.0f);
+	else Mmulti.clear();
 
 	//2. Update conditional haps
 	unsigned long addr_offset = H.sites_pbwt_ngroups * H.n_ind * 2UL;

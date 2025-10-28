@@ -24,6 +24,7 @@
 #define _GENOTYPE_H
 
 #include <utils/otools.h>
+#include <containers/variant_map.h>
 
 //Macros for packing/unpacking diplotypes
 #define DIP_GET(dip,idx)	(((dip)>>(idx))&1UL)
@@ -91,6 +92,8 @@ public:
 	std::vector < float > ProbStored;
 	std::vector < float > ProbMissing;
 	std::vector < float > ProbMissingMulti; // v2: per-supersite per-code accumulators (flattened by V.supersite_posterior_offset)
+	variant_map * supersite_map;
+	bool use_supersite_argmax;
 
 	//METHODS
 	genotype(unsigned int);

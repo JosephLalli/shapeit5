@@ -25,6 +25,12 @@
 using namespace std;
 
 phaser::phaser() {
+	pbwt_auto = false;
+	pbwt_depth = 0;
+	pbwt_modulo = 0.0;
+	supersite_enabled = false;
+	supersite_anchor_mode = "pbwt";
+	supersite_impute_mode = "argmax";
 }
 
 phaser::~phaser() {
@@ -78,4 +84,3 @@ string phaser::get_iteration_scheme() {
 	str += "]";
 	return str;
 }
-

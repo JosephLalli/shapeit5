@@ -262,7 +262,7 @@ void genotype_reader::readGenotypes() {
 		" / hap-conflicts=" + stb.str(supersite_stats.haplotype_conflicts) + "]");
 
 	// Allocate per-sample accumulators for multi-code posteriors (v2)
-	for (auto * g : G.vecG) {
-		g->ProbMissingMulti = std::vector<float>(V.total_posterior_size, 0.0f);
+	if (V.total_posterior_size > 0) {
+		for (auto * g : G.vecG) g->ProbMissingMulti.assign(V.total_posterior_size, 0.0f);
 	}
 }

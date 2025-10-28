@@ -55,6 +55,11 @@ void phaser::read_files_and_initialise() {
 	readerG.scanGenotypes();
 	readerG.allocateGenotypes();
 	readerG.readGenotypes();
+	for (auto * g : G.vecG) {
+		g->supersite_map = &V;
+		g->use_supersite_argmax = supersite_enabled && supersite_impute_mode == "argmax" && V.total_posterior_size > 0;
+		if (!g->use_supersite_argmax) g->ProbMissingMulti.clear();
+	}
 
 	//step3: Read haploid samples
 	if (options.count("haploids")) {

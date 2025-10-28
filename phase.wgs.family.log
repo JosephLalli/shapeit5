@@ -1,0 +1,30 @@
+
+[SHAPEIT5] phase_common (jointly phase multiple common markers)
+  * Author        : Olivier DELANEAU, University of Lausanne
+  * Contact       : olivier.delaneau@gmail.com
+  * Version       : 5.1.1 / commit = b932002 / release = 2025-10-26
+  * Run date      : 26/10/2025 - 23:15:13
+
+Files:
+  * Input         : [wgs/target.family.bcf]
+  * Pedigree      : [info/target.family.fam]
+  * Genetic Map   : [info/chr1.gmap.gz]
+  * Output        : [/tmp/tmp.m97wiVU6xk/target.scaffold.bcf]
+  * Output format : [bcf]
+
+Parameters:
+  * Seed    : 15052011
+  * Threads : 8 threads
+  * MCMC    : 15 iterations [5b + 1p + 1b + 1p + 1b + 1p + 5m]
+  * PBWT    : [window = 4cM / depth = auto / modulo = auto / mac = 5 / missing = 0.1]
+  * HMM     : [window = 4cM / Ne = 15000 / Recombination rates given by genetic map]
+  * FILTERS : [snp only = 0 / MAF = 0.001]
+
+Reading genotype data:
+  * VCF/BCF scanning done (1.01s)
+      + Variants [#sites=6523 / region=1:4500000-8000000]
+         - 93939 sites removed in main panel [below MAF threshold]
+      + Samples [#target=20210 / #reference=0]
+  * VCF/BCF parsing done (2.35s)
+      + Genotypes [0/0=75.120%, 0/1=14.404%, 1/1=10.476%, ./.=0.000%, 0|1=0.000%]
+  * Supersite preprocessing [#sites=6523 / #super=0 / collapsed=0 / hap-conflicts=0]

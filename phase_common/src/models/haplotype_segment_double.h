@@ -518,7 +518,7 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
 	for (int h = 4 ; h < HAP_NUMBER ; h ++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h]+prob1[h]);
 
 	// v2: multi-code per-hap posteriors at supersite anchors (scalar accumulation)
-	if (Vmap) {
+	if (Vmap && missing_multi.size() == Vmap->total_posterior_size && missing_multi.size() > 0) {
 		uint32_t site = Vmap->variant_to_site[curr_abs_locus];
 		if (site < Vmap->supersites.size() && Vmap->supersites[site].is_super_site) {
 			const supersite_desc & desc = Vmap->supersites[site];

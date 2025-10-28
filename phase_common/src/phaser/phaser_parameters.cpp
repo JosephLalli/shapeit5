@@ -22,6 +22,7 @@
 
 #include "../../versions/versions.h"
 
+#include <algorithm>
 #include <phaser/phaser_header.h>
 
 using namespace std;
@@ -70,11 +71,17 @@ void phaser::declare_options() {
 
 	bpo::options_description opt_output ("Output files");
 	opt_output.add_options()
-			("output,O", bpo::value< string >(), "Phased haplotypes output file")
-			("output-format", bpo::value< string >()->default_value("bcf"), "Output file format")
-			("log", bpo::value< string >(), "Log file");
+		("output,O", bpo::value< string >(), "Phased haplotypes output file")
+		("output-format", bpo::value< string >()->default_value("bcf"), "Output file format")
+		("log", bpo::value< string >(), "Log file");
 
-	descriptions.add(opt_base).add(opt_input).add(opt_mcmc).add(opt_pbwt).add(opt_hmm).add(opt_filter).add(opt_output);
+	bpo::options_description opt_supersite ("Supersite options");
+	opt_supersite.add_options()
+		("enforce-oneallele-supersite", "Enforce one-allele-per-haplotype at grouped supersites")
+		("supersite-anchor", bpo::value< string >()->default_value("pbwt"), "Supersite anchor scorer (pbwt|hmm)")
+		("supersite-impute", bpo::value< string >()->default_value("argmax"), "Supersite imputation mode (binary|argmax)");
+
+	descriptions.add(opt_base).add(opt_input).add(opt_mcmc).add(opt_pbwt).add(opt_hmm).add(opt_filter).add(opt_output).add(opt_supersite);
 }
 
 void phaser::parse_command_line(vector < string > & args) {
@@ -128,6 +135,16 @@ void phaser::check_options() {
 	string oformat = options["output-format"].as < string > ();
 	if (oformat != "graph" && oformat != "bcf" && oformat != "bh")
 		vrb.error("Output format[" + oformat + "] unsupported, use [graph, bcf or bh] instead");
+
+	supersite_enabled = options.count("enforce-oneallele-supersite");
+	supersite_anchor_mode = options["supersite-anchor"].as < string > ();
+	supersite_impute_mode = options["supersite-impute"].as < string > ();
+	transform(supersite_anchor_mode.begin(), supersite_anchor_mode.end(), supersite_anchor_mode.begin(), ::tolower);
+	transform(supersite_impute_mode.begin(), supersite_impute_mode.end(), supersite_impute_mode.begin(), ::tolower);
+	if (supersite_anchor_mode != "pbwt" && supersite_anchor_mode != "hmm")
+		vrb.error("Unsupported --supersite-anchor value [" + supersite_anchor_mode + "], expected pbwt or hmm");
+	if (supersite_impute_mode != "binary" && supersite_impute_mode != "argmax")
+		vrb.error("Unsupported --supersite-impute value [" + supersite_impute_mode + "], expected binary or argmax");
 
 	parse_iteration_scheme(options["mcmc-iterations"].as < string > ());
 }

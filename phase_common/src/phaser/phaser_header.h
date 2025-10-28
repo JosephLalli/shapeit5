@@ -54,6 +54,11 @@ public:
 	int pbwt_depth;
 	double pbwt_modulo;
 
+	// SUPERSITE
+	bool supersite_enabled;
+	std::string supersite_anchor_mode;
+	std::string supersite_impute_mode;
+
 	//MULTI-THREADING
 	int i_workers, i_jobs;
 	std::vector < pthread_t > id_workers;
@@ -97,5 +102,4 @@ public:
 
 
 #endif
-
 

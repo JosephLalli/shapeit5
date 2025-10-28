@@ -467,7 +467,7 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
 	}
 
 	// v2: multi-code per-hap posteriors at supersite anchors
-	if (Vmap) {
+	if (Vmap && missing_multi.size() == Vmap->total_posterior_size && missing_multi.size() > 0) {
 		uint32_t site = Vmap->variant_to_site[curr_abs_locus];
 		if (site < Vmap->supersites.size() && Vmap->supersites[site].is_super_site) {
 			// compute scalar weights per hap lane and bucket by donor code
