@@ -26,9 +26,7 @@
 #include <cstdint>
 #include <vector>
 #include <boost/align/aligned_allocator.hpp>
-
-template <typename T>
-using aligned_vector32 = std::vector<T, boost::alignment::aligned_allocator<T, 32>>;
+#include <utils/otools.h>
 
 // ============================================================================
 // Constants
@@ -48,6 +46,9 @@ struct SuperSite {
 	uint32_t bp;
 	uint8_t n_alts;            // Number of ALTs (1-15, since code 0 is REF)
 	uint32_t panel_offset;     // Byte offset in packed_allele_codes buffer
+	// Member variants span in super_site_var_index (start offset and count)
+	uint32_t var_start;        // Start index into flattened super_site_var_index
+	uint16_t var_count;        // Number of constituent variant indices
 	// Note: bitwidth is always 4 bits (fixed), so codes are 4 bits each
 };
 

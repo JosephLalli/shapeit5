@@ -140,16 +140,10 @@ void phaser::check_options() {
 	if (oformat != "graph" && oformat != "bcf" && oformat != "bh")
 		vrb.error("Output format[" + oformat + "] unsupported, use [graph, bcf or bh] instead");
 
-	parse_iteration_scheme(options["mcmc-iterations"].as < string > ());
+    parse_iteration_scheme(options["mcmc-iterations"].as < string > ());
 
-	enforce_oneallele = options.count("enforce-oneallele") || options.count("oneallele-stats");
-	oneallele_enforcer.set_enabled(enforce_oneallele);
-	if (options.count("oneallele-stats")) {
-		oneallele_stats_path = options["oneallele-stats"].as < string > ();
-	}
-	
-	// Initialize super-site support flag
-	enable_supersites = options.count("enable-supersites") > 0;
+    // Initialize super-site support flag
+    enable_supersites = options.count("enable-supersites") > 0;
 }
 
 void phaser::verbose_files() {

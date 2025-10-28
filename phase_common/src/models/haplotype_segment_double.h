@@ -31,9 +31,6 @@
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
 
-template <typename T>
-using aligned_vector32 = std::vector<T, boost::alignment::aligned_allocator < T, 32 > >;
-
 class haplotype_segment_double {
 private:
 	//EXTERNAL DATA

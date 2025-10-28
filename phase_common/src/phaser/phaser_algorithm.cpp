@@ -144,10 +144,12 @@ void phaser::phase() {
 			// super-sites and packs per-haplotype codes (2 codes per byte).
 			if (enable_supersites && current_iteration == 0) {
 				vrb.title("Building super-sites");
-				// Ensure containers are empty
-				super_sites.clear();
-				is_super_site.clear();
-				packed_allele_codes.clear();
+            // Ensure containers are empty
+            super_sites.clear();
+            is_super_site.clear();
+            packed_allele_codes.clear();
+            locus_to_super_idx.clear();
+            super_site_var_index.clear();
 				
 				// Build super-sites using variant map V and conditioning set H (uses H.Hhap)
 				// Note: buildSuperSites implementation is commented out pending integration
