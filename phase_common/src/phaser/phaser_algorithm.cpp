@@ -151,9 +151,14 @@ void phaser::phase() {
             locus_to_super_idx.clear();
             super_site_var_index.clear();
 				
-				// Build super-sites using variant map V and conditioning set H (uses H.Hhap)
-				// Note: buildSuperSites implementation is commented out pending integration
-				// buildSuperSites(V, H, super_sites, is_super_site, packed_allele_codes);
+            // Build super-sites using variant map V and conditioning set H (uses H.H_opt_var)
+            buildSuperSites(V, H,
+                            super_sites,
+                            is_super_site,
+                            packed_allele_codes,
+                            locus_to_super_idx,
+                            super_site_var_index,
+                            sample_supersite_genotypes);
 				
 				// Log result
 				// vrb.bullet("Built " + stb.str(super_sites.size()) + " super-sites covering " + 
