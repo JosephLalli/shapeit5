@@ -325,25 +325,28 @@ void haplotype_segment_double::COLLAPSE_HOM() {
 
 inline
 void haplotype_segment_double::INIT_AMB() {
-    // Supersite gating
+    // Supersite gating with per-hap sample codes
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        if (sample_code == SUPERSITE_CODE_MISSING) { INIT_MIS(); return; }
-        // Unpack conditioning haplotype codes for this supersite
+        uint8_t sample_code_h0 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
+        uint8_t sample_code_h1 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 1);
+        if (sample_code_h0 == SUPERSITE_CODE_MISSING || sample_code_h1 == SUPERSITE_CODE_MISSING) { INIT_MIS(); return; }
         for (int k = 0; k < (int)n_cond_haps; ++k) {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
-        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
+        aligned_vector32<double> ss_emissions_h1(n_cond_haps, 1.0);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0, M.ed / M.ee, ss_emissions);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0, M.ed / M.ee, ss_emissions_h1);
         __m256d _sum0 = _mm256_set1_pd(0.0);
         __m256d _sum1 = _mm256_set1_pd(0.0);
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
-            __m256d _prob0 = _emit;
-            __m256d _prob1 = _emit;
+            __m256d _emit0 = _mm256_set1_pd(ss_emissions[k]);
+            __m256d _emit1 = _mm256_set1_pd(ss_emissions_h1[k]);
+            __m256d _prob0 = _emit0;
+            __m256d _prob1 = _emit1;
             _sum0 = _mm256_add_pd(_sum0, _prob0);
             _sum1 = _mm256_add_pd(_sum1, _prob1);
             _mm256_store_pd(&prob[i], _prob0);
@@ -382,18 +385,21 @@ void haplotype_segment_double::INIT_AMB() {
 
 inline
 void haplotype_segment_double::RUN_AMB() {
-    // Supersite gating
+    // Supersite gating with per-hap emissions
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        if (sample_code == SUPERSITE_CODE_MISSING) { RUN_MIS(); return; }
+        uint8_t sample_code_h0 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
+        uint8_t sample_code_h1 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 1);
+        if (sample_code_h0 == SUPERSITE_CODE_MISSING || sample_code_h1 == SUPERSITE_CODE_MISSING) { RUN_MIS(); return; }
         for (int k = 0; k < (int)n_cond_haps; ++k) {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
-        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
+        aligned_vector32<double> ss_emissions_h1(n_cond_haps, 1.0);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0, M.ed / M.ee, ss_emissions);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0, M.ed / M.ee, ss_emissions_h1);
         __m256d _sum0 = _mm256_set1_pd(0.0f);
         __m256d _sum1 = _mm256_set1_pd(0.0f);
         __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
@@ -403,13 +409,14 @@ void haplotype_segment_double::RUN_AMB() {
         _tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
         __m256d _nt = _mm256_set1_pd(nt / probSumT);
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
+            __m256d _emit0 = _mm256_set1_pd(ss_emissions[k]);
+            __m256d _emit1 = _mm256_set1_pd(ss_emissions_h1[k]);
             __m256d _prob0 = _mm256_load_pd(&prob[i]);
             __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
             _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
             _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
-            _prob0 = _mm256_mul_pd(_prob0, _emit);
-            _prob1 = _mm256_mul_pd(_prob1, _emit);
+            _prob0 = _mm256_mul_pd(_prob0, _emit0);
+            _prob1 = _mm256_mul_pd(_prob1, _emit1);
             _sum0 = _mm256_add_pd(_sum0, _prob0);
             _sum1 = _mm256_add_pd(_sum1, _prob1);
             _mm256_store_pd(&prob[i], _prob0);
@@ -458,30 +465,34 @@ void haplotype_segment_double::RUN_AMB() {
 
 inline
 void haplotype_segment_double::COLLAPSE_AMB() {
-    // Supersite gating
+    // Supersite gating with per-hap emissions
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        if (sample_code == SUPERSITE_CODE_MISSING) { COLLAPSE_MIS(); return; }
+        uint8_t sample_code_h0 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
+        uint8_t sample_code_h1 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 1);
+        if (sample_code_h0 == SUPERSITE_CODE_MISSING || sample_code_h1 == SUPERSITE_CODE_MISSING) { COLLAPSE_MIS(); return; }
         for (int k = 0; k < (int)n_cond_haps; ++k) {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
-        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
+        aligned_vector32<double> ss_emissions_h1(n_cond_haps, 1.0);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0, M.ed / M.ee, ss_emissions);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0, M.ed / M.ee, ss_emissions_h1);
         __m256d _sum0 = _mm256_set1_pd(0.0f);
         __m256d _sum1 = _mm256_set1_pd(0.0f);
         __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
         __m256d _nt = _mm256_set1_pd(nt / probSumT);
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
+            __m256d _emit0 = _mm256_set1_pd(ss_emissions[k]);
+            __m256d _emit1 = _mm256_set1_pd(ss_emissions_h1[k]);
             __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
             __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
             _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
             _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
-            _prob0 = _mm256_mul_pd(_prob0, _emit);
-            _prob1 = _mm256_mul_pd(_prob1, _emit);
+            _prob0 = _mm256_mul_pd(_prob0, _emit0);
+            _prob1 = _mm256_mul_pd(_prob1, _emit1);
             _sum0 = _mm256_add_pd(_sum0, _prob0);
             _sum1 = _mm256_add_pd(_sum1, _prob1);
             _mm256_store_pd(&prob[i], _prob0);
