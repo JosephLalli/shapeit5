@@ -66,6 +66,7 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
 	if (super_sites && locus_to_super_idx && panel_codes && super_site_var_index) {
 		ss_cond_codes = aligned_vector32<uint8_t>(n_cond_haps, 0);
 		ss_emissions = aligned_vector32<double>(n_cond_haps, 1.0);
+		ss_emissions_h1 = aligned_vector32<double>(n_cond_haps, 1.0);
 	}
 }
 

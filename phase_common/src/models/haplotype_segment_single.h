@@ -94,6 +94,7 @@ private:
 	const std::vector<unsigned int>* cond_idx;
 	aligned_vector32<uint8_t> ss_cond_codes;
 	aligned_vector32<float> ss_emissions;
+	aligned_vector32<float> ss_emissions_h1;
 
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
@@ -284,7 +285,7 @@ void haplotype_segment_single::INIT_AMB() {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
-        aligned_vector32<float> ss_emissions_h1(n_cond_haps, 1.0f);
+        ss_emissions_h1.resize(n_cond_haps, 1.0f);
         precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
         precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
         __m256 _sum = _mm256_set1_ps(0.0f);
@@ -331,7 +332,7 @@ void haplotype_segment_single::RUN_AMB() {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
-        aligned_vector32<float> ss_emissions_h1(n_cond_haps, 1.0f);
+        ss_emissions_h1.resize(n_cond_haps, 1.0f);
         precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
         precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
         __m256 _sum = _mm256_set1_ps(0.0f);
@@ -340,18 +341,18 @@ void haplotype_segment_single::RUN_AMB() {
         _tFreq = _mm256_mul_ps(_tFreq, _factor);
         __m256 _nt = _mm256_set1_ps(nt / probSumT);
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256 _emit0 = _mm256_set1_ps(ss_emissions[k]);
-            __m256 _emit1 = _mm256_set1_ps(ss_emissions_h1[k]);
             __m256 _prob = _mm256_load_ps(&prob[i]);
             _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-            // prob layout is 8 lanes; lower 4 correspond to hap0 group, upper 4 to hap1 group
-            __m256 mask_low = _mm256_castsi256_ps(_mm256_set_epi32(0,0,0,0, -1,-1,-1,-1));
-            // Multiply lower 4 by emit0 and upper 4 by emit1
-            __m256 _prob_low = _mm256_mul_ps(_mm256_blend_ps(_prob, _prob, 0x0F), _emit0);
-            __m256 _prob_hi  = _mm256_mul_ps(_mm256_blend_ps(_prob, _prob, 0xF0), _emit1);
-            _prob = _mm256_add_ps(_prob_low, _prob_hi);
-            _sum = _mm256_add_ps(_sum, _prob);
-            _mm256_store_ps(&prob[i], _prob);
+            __m128 _prob_low = _mm256_castps256_ps128(_prob);
+            __m128 _prob_hi  = _mm256_extractf128_ps(_prob, 1);
+            __m128 _emit0 = _mm_set1_ps(ss_emissions[k]);
+            __m128 _emit1 = _mm_set1_ps(ss_emissions_h1[k]);
+            _prob_low = _mm_mul_ps(_prob_low, _emit0);
+            _prob_hi  = _mm_mul_ps(_prob_hi,  _emit1);
+            __m256 _combined = _mm256_castps128_ps256(_prob_low);
+            _combined = _mm256_insertf128_ps(_combined, _prob_hi, 1);
+            _sum = _mm256_add_ps(_sum, _combined);
+            _mm256_store_ps(&prob[i], _combined);
         }
         _mm256_store_ps(&probSumH[0], _sum);
         probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
@@ -433,23 +434,25 @@ void haplotype_segment_single::COLLAPSE_AMB() {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
-        aligned_vector32<float> ss_emissions_h1(n_cond_haps, 1.0f);
+        ss_emissions_h1.resize(n_cond_haps, 1.0f);
         precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
         precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
         __m256 _sum = _mm256_set1_ps(0.0f);
         __m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
         __m256 _nt = _mm256_set1_ps(nt / probSumT);
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256 _emit0 = _mm256_set1_ps(ss_emissions[k]);
-            __m256 _emit1 = _mm256_set1_ps(ss_emissions_h1[k]);
             __m256 _prob = _mm256_set1_ps(probSumK[k]);
             _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-            // Split into lower/upper halves and apply different emits
-            __m256 _prob_low = _mm256_mul_ps(_mm256_blend_ps(_prob, _prob, 0x0F), _emit0);
-            __m256 _prob_hi  = _mm256_mul_ps(_mm256_blend_ps(_prob, _prob, 0xF0), _emit1);
-            _prob = _mm256_add_ps(_prob_low, _prob_hi);
-            _sum = _mm256_add_ps(_sum, _prob);
-            _mm256_store_ps(&prob[i], _prob);
+            __m128 _prob_low = _mm256_castps256_ps128(_prob);
+            __m128 _prob_hi  = _mm256_extractf128_ps(_prob, 1);
+            __m128 _emit0 = _mm_set1_ps(ss_emissions[k]);
+            __m128 _emit1 = _mm_set1_ps(ss_emissions_h1[k]);
+            _prob_low = _mm_mul_ps(_prob_low, _emit0);
+            _prob_hi  = _mm_mul_ps(_prob_hi,  _emit1);
+            __m256 _combined = _mm256_castps128_ps256(_prob_low);
+            _combined = _mm256_insertf128_ps(_combined, _prob_hi, 1);
+            _sum = _mm256_add_ps(_sum, _combined);
+            _mm256_store_ps(&prob[i], _combined);
         }
         _mm256_store_ps(&probSumH[0], _sum);
         probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
