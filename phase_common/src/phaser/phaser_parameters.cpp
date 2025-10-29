@@ -61,7 +61,9 @@ void phaser::declare_options() {
 	bpo::options_description opt_hmm ("HMM parameters");
 	opt_hmm.add_options()
 			("hmm-window", bpo::value < double >()->default_value(4), "Minimal size of the phasing window in cM (default 4cM)")
-			("hmm-ne", bpo::value < int >()->default_value(15000), "Effective size of the population (default 15,000)");
+			("hmm-ne", bpo::value < int >()->default_value(15000), "Effective size of the population (default 15,000)")
+			("epsilon-snp", bpo::value < double >(), "Genotype error epsilon for SNPs (default: same as global)")
+			("epsilon-indel", bpo::value < double >(), "Genotype error epsilon for indels (default: same as global)");
 
 	bpo::options_description opt_filter ("FILTER parameters");
 	opt_filter.add_options()

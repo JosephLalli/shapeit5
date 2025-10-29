@@ -77,6 +77,13 @@ void phaser::read_files_and_initialise() {
 		readerGM.readGeneticMapFile(options["map"].as < string > ());
 		V.setGeneticMap(readerGM);
 	} else V.setGeneticMap();
+
+	// Set per-type epsilon overrides (default to global 'ed') before initialising
+	if (options.count("epsilon-snp")) M.eps_snp = options["epsilon-snp"].as < double > ();
+	else M.eps_snp = M.ed;
+	if (options.count("epsilon-indel")) M.eps_indel = options["epsilon-indel"].as < double > ();
+	else M.eps_indel = M.ed;
+
 	M.initialise(V, options["hmm-ne"].as < int > (), (readerG.n_main_samples+readerG.n_ref_samples)*2);
 
 	//step6: Initialize haplotype set

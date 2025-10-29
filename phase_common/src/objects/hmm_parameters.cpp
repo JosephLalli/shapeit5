@@ -27,6 +27,9 @@ using namespace std;
 hmm_parameters::hmm_parameters() {
 	ed = 0.0001f;
 	ee = 0.9999f;
+	// Defaults: per-type epsilons equal to global epsilon
+	eps_snp = ed;
+	eps_indel = ed;
 }
 
 hmm_parameters::~hmm_parameters() {
@@ -52,6 +55,18 @@ void hmm_parameters::initialise(variant_map & V, int _Neff, int _Nhap) {
 		rare_allele[l] = (V.vec_pos[l]->getAF() > 0.5f);
 		count_rare ++;
 	}
+
+	// Precompute biallelic mismatch ratios per locus: eps/(1-eps)
+	biallelic_mismatch_ratio = std::vector<double>(V.size(), ed/ee);
+	for (int l = 0 ; l < V.size() ; l ++) {
+		const std::string &ref = V.vec_pos[l]->ref;
+		const std::string &alt = V.vec_pos[l]->alt;
+		bool is_snp = (ref.size() == 1 && alt.size() == 1);
+		double eps = is_snp ? eps_snp : eps_indel;
+		if (eps <= 0.0) eps = 0.0; // clamp
+		if (eps >= 1.0) eps = 0.999999; // avoid div by zero
+		biallelic_mismatch_ratio[l] = eps / (1.0 - eps);
+	}
 	vrb.bullet("HMM parameters [Ne=" + stb.str(Neff) + " / Error=" + stb.str(ed) + " / #rare=" + stb.str(count_rare) + "]");
 }
 
@@ -74,5 +89,4 @@ float hmm_parameters::getBackwardTransProb(int prev_idx, int curr_idx) {
 		return -1.0f * expm1f(-0.04 * Neff * dist_cm / Nhap);
 	}
 }
-
 

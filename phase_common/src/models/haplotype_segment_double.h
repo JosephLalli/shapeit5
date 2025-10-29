@@ -121,18 +121,19 @@ public:
 
 inline
 void haplotype_segment_double::INIT_HOM() {
-	bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-	__m256d _sum0 = _mm256_set1_pd(0.0f);
-	__m256d _sum1 = _mm256_set1_pd(0.0f);
-	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-		bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-		__m256d _prob0 = _mm256_set1_pd((ag==ah)?1.0f:M.ed/M.ee);
-		__m256d _prob1 = _mm256_set1_pd((ag==ah)?1.0f:M.ed/M.ee);
-		_sum0 = _mm256_add_pd(_sum0, _prob0);
-		_sum1 = _mm256_add_pd(_sum1, _prob1);
-		_mm256_store_pd(&prob[i+0], _prob0);
-		_mm256_store_pd(&prob[i+4], _prob1);
-	}
+    bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
+    __m256d _sum0 = _mm256_set1_pd(0.0f);
+    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+        bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
+        const double mismatch_scalar_INIT = (M.biallelic_mismatch_ratio.size() ? M.biallelic_mismatch_ratio[curr_abs_locus] : (M.ed/M.ee));
+        __m256d _prob0 = _mm256_set1_pd((ag==ah)?1.0f:mismatch_scalar_INIT);
+        __m256d _prob1 = _mm256_set1_pd((ag==ah)?1.0f:mismatch_scalar_INIT);
+        _sum0 = _mm256_add_pd(_sum0, _prob0);
+        _sum1 = _mm256_add_pd(_sum1, _prob1);
+        _mm256_store_pd(&prob[i+0], _prob0);
+        _mm256_store_pd(&prob[i+4], _prob1);
+    }
 	_mm256_store_pd(&probSumH[0], _sum0);
 	_mm256_store_pd(&probSumH[4], _sum1);
 	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
@@ -140,17 +141,18 @@ void haplotype_segment_double::INIT_HOM() {
 
 inline
 bool haplotype_segment_double::RUN_HOM(char rare_allele) {
-	bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-	if (rare_allele < 0 || ag == rare_allele) {
-		__m256d _sum0 = _mm256_set1_pd(0.0f);
-		__m256d _sum1 = _mm256_set1_pd(0.0f);
-		__m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
-		__m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
-		__m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
+    bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
+    if (rare_allele < 0 || ag == rare_allele) {
+        __m256d _sum0 = _mm256_set1_pd(0.0f);
+        __m256d _sum1 = _mm256_set1_pd(0.0f);
+        __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
+        __m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
+        __m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
 		_tFreq0 = _mm256_mul_pd(_tFreq0, _factor);
 		_tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
 		__m256d _nt = _mm256_set1_pd(nt / probSumT);
-		__m256d _mismatch = _mm256_set1_pd(M.ed/M.ee);
+		const double mismatch_scalar_RUN = (M.biallelic_mismatch_ratio.size() ? M.biallelic_mismatch_ratio[curr_abs_locus] : (M.ed/M.ee));
+		__m256d _mismatch = _mm256_set1_pd(mismatch_scalar_RUN);
 		for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
 			bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
 			__m256d _prob0 = _mm256_load_pd(&prob[i]);
@@ -176,27 +178,28 @@ bool haplotype_segment_double::RUN_HOM(char rare_allele) {
 
 inline
 void haplotype_segment_double::COLLAPSE_HOM() {
-	bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-	__m256d _sum0 = _mm256_set1_pd(0.0f);
-	__m256d _sum1 = _mm256_set1_pd(0.0f);
-	__m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);					//Check divide by probSumT here!
-	__m256d _nt = _mm256_set1_pd(nt / probSumT);
-	__m256d _mismatch = _mm256_set1_pd(M.ed/M.ee);
-	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-		bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-		__m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-		__m256d _prob1 = _mm256_set1_pd(probSumK[k]);
-		_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
-		_prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
-		if (ag!=ah) {
-			_prob0 = _mm256_mul_pd(_prob0, _mismatch);
-			_prob1 = _mm256_mul_pd(_prob1, _mismatch);
-		}
-		_sum0 = _mm256_add_pd(_sum0, _prob0);
-		_sum1 = _mm256_add_pd(_sum1, _prob1);
-		_mm256_store_pd(&prob[i], _prob0);
-		_mm256_store_pd(&prob[i+4], _prob1);
-	}
+    bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
+    __m256d _sum0 = _mm256_set1_pd(0.0f);
+    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);					//Check divide by probSumT here!
+    __m256d _nt = _mm256_set1_pd(nt / probSumT);
+    const double mismatch_scalar_COLLAPSE = (M.biallelic_mismatch_ratio.size() ? M.biallelic_mismatch_ratio[curr_abs_locus] : (M.ed/M.ee));
+    __m256d _mismatch = _mm256_set1_pd(mismatch_scalar_COLLAPSE);
+    for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+        bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
+        __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
+        __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
+        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
+        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
+        if (ag!=ah) {
+            _prob0 = _mm256_mul_pd(_prob0, _mismatch);
+            _prob1 = _mm256_mul_pd(_prob1, _mismatch);
+        }
+        _sum0 = _mm256_add_pd(_sum0, _prob0);
+        _sum1 = _mm256_add_pd(_sum1, _prob1);
+        _mm256_store_pd(&prob[i], _prob0);
+        _mm256_store_pd(&prob[i+4], _prob1);
+    }
 	_mm256_store_pd(&probSumH[0], _sum0);
 	_mm256_store_pd(&probSumH[4], _sum1);
 	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];

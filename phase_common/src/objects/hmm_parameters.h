@@ -37,6 +37,12 @@ public :
 	double ee;
 	double ed;
 
+	// Per-variant-type genotype error (epsilon)
+	double eps_snp;    // default = ed
+	double eps_indel;  // default = ed
+	// Precomputed biallelic mismatch multiplier per locus: eps/(1-eps)
+	std::vector<double> biallelic_mismatch_ratio;
+
 	//CONSTRUCTOR/DESTRUCTOR
 	hmm_parameters();
 	~hmm_parameters();
