@@ -27,6 +27,7 @@ OFILE=$(shell for file in `find src -name *.cpp`; do echo obj/$$(basename $$file
 VPATH=$(shell for file in `find src -name *.cpp`; do echo $$(dirname $$file); done)
 
 NAME=$(shell basename $(CURDIR))
+HOME=$(shell echo $$HOME)
 BFILE=bin/$(NAME)
 EXEFILE=bin/$(NAME)_static
 
@@ -37,17 +38,17 @@ ifeq (,$(filter clean,$(MAKECMDGOALS)))
 # HTSLIB for static compilation #
 #################################
 # These are the default paths when installing htslib from source
-HTSSRC=$HOME/.linuxbrew
+HTSSRC=$(HOME)/.linuxbrew
 HTSLIB_INC=$(HTSSRC)/include/htslib
 HTSLIB_LIB=$(HTSSRC)/lib/libhts.a
 
 ##########################################
 # Boost libraries for static compilation #
 ##########################################
-BOOST_INC=$HOME/.linuxbrew/include
-BOOST_LIB_IO=$HOME/.linuxbrew/lib/libboost_iostreams.a
-BOOST_LIB_PO=$HOME/.linuxbrew/lib/libboost_program_options.a
-BOOST_LIB_SE=$HOME/.linuxbrew/lib/libboost_serialization.a
+BOOST_INC=$(HOME)/.linuxbrew/include
+BOOST_LIB_IO=$(HOME)/.linuxbrew/lib/libboost_iostreams.a
+BOOST_LIB_PO=$(HOME)/.linuxbrew/lib/libboost_program_options.a
+BOOST_LIB_SE=$(HOME)/.linuxbrew/lib/libboost_serialization.a
 
 # If not set by user command, search for it
 BOOST_LIB_IO?=$(shell whereis libboost_iostreams | grep -o '\S*\.a\b')
