@@ -47,7 +47,7 @@ inline void precomputeSuperSiteEmissions_AVX2(
         uint32_t batch_size = std::min(8u, n_cond_haps - k);
         
         // Load up to 8 conditioning codes
-        uint8_t codes_batch[8] = {0};
+        uint8_t codes_batch[16] = {0};
         for (uint32_t j = 0; j < batch_size; j++) {
             codes_batch[j] = cond_codes[k + j];
         }
@@ -83,12 +83,21 @@ inline void precomputeSuperSiteEmissions_AVX2(
         // Blend using bitwise masks: (mask & match) | (~mask & mismatch)
         __m256d _emit_lo = _mm256_or_pd(_mm256_and_pd(_mask_lo, _match_vec), _mm256_andnot_pd(_mask_lo, _mismatch_vec));
         __m256d _emit_hi = _mm256_or_pd(_mm256_and_pd(_mask_hi, _match_vec), _mm256_andnot_pd(_mask_hi, _mismatch_vec));
-		
-		// Store emissions
-		_mm256_store_pd(&emissions_out[k + 0], _emit_lo);
-		if (batch_size > 4) {
-			_mm256_store_pd(&emissions_out[k + 4], _emit_hi);
-		}
+
+        // Store emissions without overrunning the buffer
+        alignas(32) double emit_lo_buf[4];
+        alignas(32) double emit_hi_buf[4];
+        _mm256_storeu_pd(emit_lo_buf, _emit_lo);
+        for (uint32_t j = 0; j < std::min<uint32_t>(batch_size, 4u); ++j) {
+            emissions_out[k + j] = emit_lo_buf[j];
+        }
+        if (batch_size > 4) {
+            _mm256_storeu_pd(emit_hi_buf, _emit_hi);
+            uint32_t hi_count = batch_size - 4;
+            for (uint32_t j = 0; j < hi_count; ++j) {
+                emissions_out[k + 4 + j] = emit_hi_buf[j];
+            }
+        }
 	}
 }
 
