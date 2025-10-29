@@ -94,6 +94,7 @@ private:
 	const std::vector<unsigned int>* cond_idx;
 	aligned_vector32<uint8_t> ss_cond_codes;
 	aligned_vector32<double> ss_emissions;
+	aligned_vector32<double> ss_emissions_h1;
 
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
@@ -337,7 +338,7 @@ void haplotype_segment_double::INIT_AMB() {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
-        aligned_vector32<double> ss_emissions_h1(n_cond_haps, 1.0);
+        ss_emissions_h1.resize(n_cond_haps, 1.0);
         precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0, M.ed / M.ee, ss_emissions);
         precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0, M.ed / M.ee, ss_emissions_h1);
         __m256d _sum0 = _mm256_set1_pd(0.0);
@@ -397,7 +398,7 @@ void haplotype_segment_double::RUN_AMB() {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
-        aligned_vector32<double> ss_emissions_h1(n_cond_haps, 1.0);
+        ss_emissions_h1.resize(n_cond_haps, 1.0);
         precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0, M.ed / M.ee, ss_emissions);
         precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0, M.ed / M.ee, ss_emissions_h1);
         __m256d _sum0 = _mm256_set1_pd(0.0f);
@@ -477,7 +478,7 @@ void haplotype_segment_double::COLLAPSE_AMB() {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
-        aligned_vector32<double> ss_emissions_h1(n_cond_haps, 1.0);
+        ss_emissions_h1.resize(n_cond_haps, 1.0);
         precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0, M.ed / M.ee, ss_emissions);
         precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0, M.ed / M.ee, ss_emissions_h1);
         __m256d _sum0 = _mm256_set1_pd(0.0f);

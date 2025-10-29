@@ -2,6 +2,7 @@
 #include <cmath>
 #include <iostream>
 #include <vector>
+#include <array>
 #include <string>
 #include <limits>
 
@@ -232,6 +233,24 @@ int main() {
     for (float v : HS.prob) assert(std::isfinite(v));
     for (float v : HS.probSumH) assert(std::isfinite(v));
     assert(std::isfinite(HS.probSumT));
+
+    std::vector<double> trans_single;
+    std::vector<float> missing_single(G.n_missing, 0.0f);
+    int recover_single = HS.backward(trans_single, missing_single);
+
+    std::vector<double> trans_double;
+    std::vector<float> missing_double(G.n_missing, 0.0f);
+    int recover_double = HD.backward(trans_double, missing_double);
+
+    assert(recover_single == recover_double);
+    assert(trans_single.size() == trans_double.size());
+    for (size_t i = 0; i < trans_single.size(); ++i) {
+        assert_close(trans_single[i], trans_double[i], tol, "transition_prob");
+    }
+    assert(missing_single.size() == missing_double.size());
+    for (size_t i = 0; i < missing_single.size(); ++i) {
+        assert_close(static_cast<double>(missing_single[i]), static_cast<double>(missing_double[i]), tol, "missing_prob");
+    }
 
     std::cout << "  OK" << std::endl;
     return 0;
