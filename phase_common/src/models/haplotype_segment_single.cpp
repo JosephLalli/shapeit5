@@ -66,6 +66,10 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
         ss_cond_codes = aligned_vector32<uint8_t>(n_cond_haps, 0);
         ss_emissions = aligned_vector32<float>(n_cond_haps, 1.0f);
         ss_emissions_h1 = aligned_vector32<float>(n_cond_haps, 1.0f);
+        // Initialize cache tracking - size it to number of supersites
+        if (super_sites) {
+            ss_cached.resize(super_sites->size(), false);
+        }
     }
 }
 

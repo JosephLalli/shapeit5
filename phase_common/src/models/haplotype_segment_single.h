@@ -95,6 +95,7 @@ private:
 	aligned_vector32<uint8_t> ss_cond_codes;
 	aligned_vector32<float> ss_emissions;
 	aligned_vector32<float> ss_emissions_h1;
+	std::vector<bool> ss_cached; // Track which supersites have cached donor codes
 
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
@@ -106,6 +107,20 @@ private:
 	void COLLAPSE_HOM();
 	void COLLAPSE_AMB();
 	void COLLAPSE_MIS();
+	
+	//SUPERSITE HELPER ROUTINES
+	void SS_INIT_HOM(const SuperSite& ss, int ss_idx, uint8_t sample_code);
+	void SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1);
+	void SS_INIT_MIS();
+	bool SS_RUN_HOM(const SuperSite& ss, int ss_idx, uint8_t sample_code);
+	bool SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1);
+	bool SS_RUN_MIS();
+	void SS_COLLAPSE_HOM(const SuperSite& ss, int ss_idx, uint8_t sample_code);
+	void SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1);
+	void SS_COLLAPSE_MIS();
+	
+	void ss_load_cond_codes(const SuperSite& ss, int ss_idx); // Cache helper
+	
 	void SUMK();
 	void IMPUTE(std::vector < float > & );
 	bool TRANS_HAP();
@@ -130,6 +145,242 @@ public:
 };
 
 /*******************************************************************************/
+/*****************         SUPERSITE HELPER FUNCTIONS      ********************/
+/*******************************************************************************/
+
+// Cache donor codes for a supersite to avoid repeated unpacking
+inline
+void haplotype_segment_single::ss_load_cond_codes(const SuperSite& ss, int ss_idx) {
+	// Check cache
+	if (ss_idx >= 0 && ss_idx < (int)ss_cached.size() && ss_cached[ss_idx]) {
+		return; // Already cached
+	}
+	
+	// Unpack and cache all donor codes for this supersite
+	ss_cond_codes.resize(n_cond_haps);
+	for (int k = 0; k < (int)n_cond_haps; ++k) {
+		unsigned int gh = (*cond_idx)[k];
+		ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+	}
+	
+	// Mark as cached
+	if (ss_idx >= 0 && ss_idx < (int)ss_cached.size()) {
+		ss_cached[ss_idx] = true;
+	}
+}
+
+inline
+void haplotype_segment_single::SS_INIT_HOM(const SuperSite& ss, int ss_idx, uint8_t sample_code) {
+	// Load cached conditioning haplotype codes
+	ss_load_cond_codes(ss, ss_idx);
+	
+	// Precompute emissions
+	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0f, (float)(M.ed/M.ee), ss_emissions);
+	
+	// Initialize probabilities
+	__m256 _sum = _mm256_set1_ps(0.0f);
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		__m256 _emit = _mm256_set1_ps(ss_emissions[k]);
+		__m256 _prob = _emit;
+		_sum = _mm256_add_ps(_sum, _prob);
+		_mm256_store_ps(&prob[i], _prob);
+	}
+	_mm256_store_ps(&probSumH[0], _sum);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+}
+
+inline
+void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
+	// Load cached conditioning haplotype codes
+	ss_load_cond_codes(ss, ss_idx);
+	
+	// Precompute emissions for both haplotypes
+	ss_emissions_h1.resize(n_cond_haps, 1.0f);
+	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
+	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
+	
+	// Initialize probabilities (low half = h0, high half = h1)
+	__m256 _sum = _mm256_set1_ps(0.0f);
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		__m128 _emit0 = _mm_set1_ps(ss_emissions[k]);
+		__m128 _emit1 = _mm_set1_ps(ss_emissions_h1[k]);
+		__m256 _combined = _mm256_castps128_ps256(_emit0);
+		_combined = _mm256_insertf128_ps(_combined, _emit1, 1);
+		_sum = _mm256_add_ps(_sum, _combined);
+		_mm256_store_ps(&prob[i], _combined);
+	}
+	_mm256_store_ps(&probSumH[0], _sum);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+}
+
+inline
+void haplotype_segment_single::SS_INIT_MIS() {
+	// Missing data: uniform probabilities
+	fill(prob.begin(), prob.end(), 1.0f/(HAP_NUMBER * n_cond_haps));
+	fill(probSumH.begin(), probSumH.end(), 1.0f/HAP_NUMBER);
+	probSumT = 1.0f;
+}
+
+inline
+bool haplotype_segment_single::SS_RUN_HOM(const SuperSite& ss, int ss_idx, uint8_t sample_code) {
+	// Load cached conditioning haplotype codes
+	ss_load_cond_codes(ss, ss_idx);
+	
+	// Precompute emissions
+	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0f, (float)(M.ed/M.ee), ss_emissions);
+	
+	// Update probabilities with transitions
+	__m256 _sum = _mm256_set1_ps(0.0f);
+	__m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
+	__m256 _tFreq = _mm256_load_ps(&probSumH[0]);
+	_tFreq = _mm256_mul_ps(_tFreq, _factor);
+	__m256 _nt = _mm256_set1_ps(nt / probSumT);
+	
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		__m256 _emit = _mm256_set1_ps(ss_emissions[k]);
+		__m256 _prob = _mm256_load_ps(&prob[i]);
+		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+		_prob = _mm256_mul_ps(_prob, _emit);
+		_sum = _mm256_add_ps(_sum, _prob);
+		_mm256_store_ps(&prob[i], _prob);
+	}
+	_mm256_store_ps(&probSumH[0], _sum);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+	return true;
+}
+
+inline
+bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
+	// Load cached conditioning haplotype codes
+	ss_load_cond_codes(ss, ss_idx);
+	
+	// Precompute emissions for both haplotypes
+	ss_emissions_h1.resize(n_cond_haps, 1.0f);
+	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
+	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
+	
+	// Update probabilities with transitions
+	__m256 _sum = _mm256_set1_ps(0.0f);
+	__m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
+	__m256 _tFreq = _mm256_load_ps(&probSumH[0]);
+	_tFreq = _mm256_mul_ps(_tFreq, _factor);
+	__m256 _nt = _mm256_set1_ps(nt / probSumT);
+	
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		__m256 _prob = _mm256_load_ps(&prob[i]);
+		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+		__m128 _prob_low = _mm256_castps256_ps128(_prob);
+		__m128 _prob_hi  = _mm256_extractf128_ps(_prob, 1);
+		__m128 _emit0 = _mm_set1_ps(ss_emissions[k]);
+		__m128 _emit1 = _mm_set1_ps(ss_emissions_h1[k]);
+		_prob_low = _mm_mul_ps(_prob_low, _emit0);
+		_prob_hi  = _mm_mul_ps(_prob_hi,  _emit1);
+		__m256 _combined = _mm256_castps128_ps256(_prob_low);
+		_combined = _mm256_insertf128_ps(_combined, _prob_hi, 1);
+		_sum = _mm256_add_ps(_sum, _combined);
+		_mm256_store_ps(&prob[i], _combined);
+	}
+	_mm256_store_ps(&probSumH[0], _sum);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+	return true;
+}
+
+inline
+bool haplotype_segment_single::SS_RUN_MIS() {
+	// Missing data: only apply transitions, no emissions
+	__m256 _sum = _mm256_set1_ps(0.0f);
+	__m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
+	__m256 _tFreq = _mm256_load_ps(&probSumH[0]);
+	_tFreq = _mm256_mul_ps(_tFreq, _factor);
+	__m256 _nt = _mm256_set1_ps(nt / probSumT);
+	
+	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+		__m256 _prob = _mm256_load_ps(&prob[i]);
+		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+		_sum = _mm256_add_ps(_sum, _prob);
+		_mm256_store_ps(&prob[i], _prob);
+	}
+	_mm256_store_ps(&probSumH[0], _sum);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+	return true;
+}
+
+inline
+void haplotype_segment_single::SS_COLLAPSE_HOM(const SuperSite& ss, int ss_idx, uint8_t sample_code) {
+	// Load cached conditioning haplotype codes
+	ss_load_cond_codes(ss, ss_idx);
+	
+	// Precompute emissions
+	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0f, (float)(M.ed/M.ee), ss_emissions);
+	
+	// Collapse from probSumK
+	__m256 _sum = _mm256_set1_ps(0.0f);
+	__m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
+	__m256 _nt = _mm256_set1_ps(nt / probSumT);
+	
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		__m256 _emit = _mm256_set1_ps(ss_emissions[k]);
+		__m256 _prob = _mm256_set1_ps(probSumK[k]);
+		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+		_prob = _mm256_mul_ps(_prob, _emit);
+		_sum = _mm256_add_ps(_sum, _prob);
+		_mm256_store_ps(&prob[i], _prob);
+	}
+	_mm256_store_ps(&probSumH[0], _sum);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+}
+
+inline
+void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
+	// Load cached conditioning haplotype codes
+	ss_load_cond_codes(ss, ss_idx);
+	
+	// Precompute emissions for both haplotypes
+	ss_emissions_h1.resize(n_cond_haps, 1.0f);
+	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
+	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
+	
+	// Collapse from probSumK
+	__m256 _sum = _mm256_set1_ps(0.0f);
+	__m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
+	__m256 _nt = _mm256_set1_ps(nt / probSumT);
+	
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		__m256 _prob = _mm256_set1_ps(probSumK[k]);
+		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+		__m128 _prob_low = _mm256_castps256_ps128(_prob);
+		__m128 _prob_hi  = _mm256_extractf128_ps(_prob, 1);
+		__m128 _emit0 = _mm_set1_ps(ss_emissions[k]);
+		__m128 _emit1 = _mm_set1_ps(ss_emissions_h1[k]);
+		_prob_low = _mm_mul_ps(_prob_low, _emit0);
+		_prob_hi  = _mm_mul_ps(_prob_hi,  _emit1);
+		__m256 _combined = _mm256_castps128_ps256(_prob_low);
+		_combined = _mm256_insertf128_ps(_combined, _prob_hi, 1);
+		_sum = _mm256_add_ps(_sum, _combined);
+		_mm256_store_ps(&prob[i], _combined);
+	}
+	_mm256_store_ps(&probSumH[0], _sum);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+}
+
+inline
+void haplotype_segment_single::SS_COLLAPSE_MIS() {
+	// Missing data: only apply transitions, no emissions
+	__m256 _sum = _mm256_set1_ps(0.0f);
+	__m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
+	__m256 _nt = _mm256_set1_ps(nt / probSumT);
+	
+	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+		__m256 _prob = _mm256_set1_ps(probSumK[k]);
+		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+		_sum = _mm256_add_ps(_sum, _prob);
+		_mm256_store_ps(&prob[i], _prob);
+	}
+	_mm256_store_ps(&probSumH[0], _sum);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+}
+
+/*******************************************************************************/
 /*****************			HOMOZYGOUS GENOTYPE			************************/
 /*******************************************************************************/
 
@@ -140,24 +391,23 @@ void haplotype_segment_single::INIT_HOM() {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        if (sample_code == SUPERSITE_CODE_MISSING) { INIT_MIS(); return; }
-        for (int k = 0; k < (int)n_cond_haps; ++k) {
-            unsigned int gh = (*cond_idx)[k];
-            ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return; // Sibling: no-op
         }
-        precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0f, (float)(M.ed/M.ee), ss_emissions);
-        __m256 _sum = _mm256_set1_ps(0.0f);
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256 _emit = _mm256_set1_ps(ss_emissions[k]);
-            __m256 _prob = _emit;
-            _sum = _mm256_add_ps(_sum, _prob);
-            _mm256_store_ps(&prob[i], _prob);
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: SS_INIT_MIS(); return;
+            case SSClass::HOM: SS_INIT_HOM(ss, ss_idx, c0); return;
+            case SSClass::AMB: SS_INIT_AMB(ss, ss_idx, c0, c1); return;
         }
-        _mm256_store_ps(&probSumH[0], _sum);
-        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-        return;
     }
+    
+    // Biallelic path
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
     __m256 _sum = _mm256_set1_ps(0.0f);
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
@@ -176,30 +426,23 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        if (sample_code == SUPERSITE_CODE_MISSING) { RUN_MIS(); return true; }
-        for (int k = 0; k < (int)n_cond_haps; ++k) {
-            unsigned int gh = (*cond_idx)[k];
-            ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return true; // Sibling: no-op, continue segment
         }
-        precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0f, (float)(M.ed/M.ee), ss_emissions);
-        __m256 _sum = _mm256_set1_ps(0.0f);
-        __m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
-        __m256 _tFreq = _mm256_load_ps(&probSumH[0]);
-        _tFreq = _mm256_mul_ps(_tFreq, _factor);
-        __m256 _nt = _mm256_set1_ps(nt / probSumT);
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256 _emit = _mm256_set1_ps(ss_emissions[k]);
-            __m256 _prob = _mm256_load_ps(&prob[i]);
-            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-            _prob = _mm256_mul_ps(_prob, _emit);
-            _sum = _mm256_add_ps(_sum, _prob);
-            _mm256_store_ps(&prob[i], _prob);
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: return SS_RUN_MIS();
+            case SSClass::HOM: return SS_RUN_HOM(ss, ss_idx, c0);
+            case SSClass::AMB: return SS_RUN_AMB(ss, ss_idx, c0, c1);
         }
-        _mm256_store_ps(&probSumH[0], _sum);
-        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-        return true;
     }
+    
+    // Biallelic path
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
     if (rare_allele < 0 || ag == rare_allele) {
         __m256 _sum = _mm256_set1_ps(0.0f);
@@ -229,28 +472,23 @@ void haplotype_segment_single::COLLAPSE_HOM() {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        if (sample_code == SUPERSITE_CODE_MISSING) { COLLAPSE_MIS(); return; }
-        for (int k = 0; k < (int)n_cond_haps; ++k) {
-            unsigned int gh = (*cond_idx)[k];
-            ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return; // Sibling: no-op
         }
-        precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0f, (float)(M.ed/M.ee), ss_emissions);
-        __m256 _sum = _mm256_set1_ps(0.0f);
-        __m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
-        __m256 _nt = _mm256_set1_ps(nt / probSumT);
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256 _emit = _mm256_set1_ps(ss_emissions[k]);
-            __m256 _prob = _mm256_set1_ps(probSumK[k]);
-            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-            _prob = _mm256_mul_ps(_prob, _emit);
-            _sum = _mm256_add_ps(_sum, _prob);
-            _mm256_store_ps(&prob[i], _prob);
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: SS_COLLAPSE_MIS(); return;
+            case SSClass::HOM: SS_COLLAPSE_HOM(ss, ss_idx, c0); return;
+            case SSClass::AMB: SS_COLLAPSE_AMB(ss, ss_idx, c0, c1); return;
         }
-        _mm256_store_ps(&probSumH[0], _sum);
-        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-        return;
     }
+    
+    // Biallelic path
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
     __m256 _sum = _mm256_set1_ps(0.0f);
     __m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);					//Check divide by probSumT here!
@@ -278,30 +516,23 @@ void haplotype_segment_single::INIT_AMB() {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code_h0 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        uint8_t sample_code_h1 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 1);
-        if (sample_code_h0 == SUPERSITE_CODE_MISSING || sample_code_h1 == SUPERSITE_CODE_MISSING) { INIT_MIS(); return; }
-        for (int k = 0; k < (int)n_cond_haps; ++k) {
-            unsigned int gh = (*cond_idx)[k];
-            ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return; // Sibling: no-op
         }
-        ss_emissions_h1.resize(n_cond_haps, 1.0f);
-        precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
-        precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
-        __m256 _sum = _mm256_set1_ps(0.0f);
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256 _emit0 = _mm256_set1_ps(ss_emissions[k]);
-            __m256 _emit1 = _mm256_set1_ps(ss_emissions_h1[k]);
-            __m256 _prob0 = _emit0;
-            __m256 _prob1 = _emit1;
-            _sum = _mm256_add_ps(_sum, _prob0);
-            _mm256_store_ps(&prob[i], _prob0);
-            _mm256_store_ps(&prob[i+4], _prob1);
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: SS_INIT_MIS(); return;
+            case SSClass::HOM: SS_INIT_HOM(ss, ss_idx, c0); return;
+            case SSClass::AMB: SS_INIT_AMB(ss, ss_idx, c0, c1); return;
         }
-        _mm256_store_ps(&probSumH[0], _sum);
-        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-        return;
     }
+    
+    // Biallelic path
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
         g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0f;
@@ -325,39 +556,23 @@ void haplotype_segment_single::RUN_AMB() {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code_h0 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        uint8_t sample_code_h1 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 1);
-        if (sample_code_h0 == SUPERSITE_CODE_MISSING || sample_code_h1 == SUPERSITE_CODE_MISSING) { RUN_MIS(); return; }
-        for (int k = 0; k < (int)n_cond_haps; ++k) {
-            unsigned int gh = (*cond_idx)[k];
-            ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return; // Sibling: no-op
         }
-        ss_emissions_h1.resize(n_cond_haps, 1.0f);
-        precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
-        precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
-        __m256 _sum = _mm256_set1_ps(0.0f);
-        __m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
-        __m256 _tFreq = _mm256_load_ps(&probSumH[0]);
-        _tFreq = _mm256_mul_ps(_tFreq, _factor);
-        __m256 _nt = _mm256_set1_ps(nt / probSumT);
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256 _prob = _mm256_load_ps(&prob[i]);
-            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-            __m128 _prob_low = _mm256_castps256_ps128(_prob);
-            __m128 _prob_hi  = _mm256_extractf128_ps(_prob, 1);
-            __m128 _emit0 = _mm_set1_ps(ss_emissions[k]);
-            __m128 _emit1 = _mm_set1_ps(ss_emissions_h1[k]);
-            _prob_low = _mm_mul_ps(_prob_low, _emit0);
-            _prob_hi  = _mm_mul_ps(_prob_hi,  _emit1);
-            __m256 _combined = _mm256_castps128_ps256(_prob_low);
-            _combined = _mm256_insertf128_ps(_combined, _prob_hi, 1);
-            _sum = _mm256_add_ps(_sum, _combined);
-            _mm256_store_ps(&prob[i], _combined);
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: SS_RUN_MIS(); return;
+            case SSClass::HOM: SS_RUN_HOM(ss, ss_idx, c0); return;
+            case SSClass::AMB: SS_RUN_AMB(ss, ss_idx, c0, c1); return;
         }
-        _mm256_store_ps(&probSumH[0], _sum);
-        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-        return;
     }
+    
+    // Biallelic path
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
         g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0f;
@@ -427,37 +642,23 @@ void haplotype_segment_single::COLLAPSE_AMB() {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code_h0 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        uint8_t sample_code_h1 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 1);
-        if (sample_code_h0 == SUPERSITE_CODE_MISSING || sample_code_h1 == SUPERSITE_CODE_MISSING) { COLLAPSE_MIS(); return; }
-        for (int k = 0; k < (int)n_cond_haps; ++k) {
-            unsigned int gh = (*cond_idx)[k];
-            ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return; // Sibling: no-op
         }
-        ss_emissions_h1.resize(n_cond_haps, 1.0f);
-        precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
-        precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
-        __m256 _sum = _mm256_set1_ps(0.0f);
-        __m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
-        __m256 _nt = _mm256_set1_ps(nt / probSumT);
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256 _prob = _mm256_set1_ps(probSumK[k]);
-            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-            __m128 _prob_low = _mm256_castps256_ps128(_prob);
-            __m128 _prob_hi  = _mm256_extractf128_ps(_prob, 1);
-            __m128 _emit0 = _mm_set1_ps(ss_emissions[k]);
-            __m128 _emit1 = _mm_set1_ps(ss_emissions_h1[k]);
-            _prob_low = _mm_mul_ps(_prob_low, _emit0);
-            _prob_hi  = _mm_mul_ps(_prob_hi,  _emit1);
-            __m256 _combined = _mm256_castps128_ps256(_prob_low);
-            _combined = _mm256_insertf128_ps(_combined, _prob_hi, 1);
-            _sum = _mm256_add_ps(_sum, _combined);
-            _mm256_store_ps(&prob[i], _combined);
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: SS_COLLAPSE_MIS(); return;
+            case SSClass::HOM: SS_COLLAPSE_HOM(ss, ss_idx, c0); return;
+            case SSClass::AMB: SS_COLLAPSE_AMB(ss, ss_idx, c0, c1); return;
         }
-        _mm256_store_ps(&probSumH[0], _sum);
-        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-        return;
     }
+    
+    // Biallelic path
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
         g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0f;
