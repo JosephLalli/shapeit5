@@ -123,6 +123,7 @@ private:
 	
 	void SUMK();
 	void IMPUTE(std::vector < float > & );
+	void IMPUTE_SUPERSITE_MULTINOMIAL(std::vector<float>& SC, const SuperSite& ss, int ss_idx);
 	bool TRANS_HAP();
 	bool TRANS_DIP_MULT();
 	bool TRANS_DIP_ADD();
@@ -141,7 +142,9 @@ public:
 
 	//void fetch();
 	void forward();
-	int backward(std::vector < double > &, std::vector < float > &);
+	int backward(std::vector < double > &, std::vector < float > &, 
+	             std::vector<float>* SC = nullptr, 
+	             const std::vector<bool>* anchor_has_missing = nullptr);
 	
 	// Supersite cache management (for future use if segments become reusable)
 	// Note: Currently not needed as segments are created fresh per window,
@@ -861,4 +864,79 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
     }
 }
 
+// Phase 3: Impute multinomial posteriors for missing supersite
+// Computes P(class_c | Alpha, Beta) for each class c ∈ {REF, ALT1, ..., ALTn}
+// Storage: SC[offset + h*C + c] where h=lane, C=num_classes, c=class_index
+inline
+void haplotype_segment_single::IMPUTE_SUPERSITE_MULTINOMIAL(
+    std::vector<float>& SC, 
+    const SuperSite& ss, 
+    int ss_idx) 
+{
+    // Unpack conditioning haplotype allele codes for this supersite
+    // (same as in forward: 0=REF, 1..n_alts=ALT1..ALTn)
+    for (int k = 0; k < (int)n_cond_haps; ++k) {
+        unsigned int gh = (*cond_idx)[k];
+        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+    }
+    
+    int C = (int)ss.n_classes;  // 1 + n_alts
+    uint32_t offset = ss.class_prob_offset;
+    
+    // Initialize per-class accumulators (8 lanes = 8 samples)
+    // sum[c] = Σ_k [Alpha_k × Beta_k × 1{donor_k carries class_c}]
+    __m256 sum[SUPERSITE_MAX_ALTS + 1];
+    for (int c = 0; c < C; ++c) {
+        sum[c] = _mm256_set1_ps(0.0f);
+    }
+    __m256 denom = _mm256_set1_ps(0.0f);
+    
+    // Load AlphaSumInv for normalization
+    __m256 _alphaSum = _mm256_load_ps(&AlphaSumMissing[curr_rel_missing][0]);
+    __m256 _ones = _mm256_set1_ps(1.0f);
+    __m256 _alphaSum_inv = _mm256_div_ps(_ones, _alphaSum);
+    
+    // Accumulate: for each conditioning donor haplotype k
+    for (int k = 0, i = 0; k < (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+        uint8_t code = ss_cond_codes[k];  // 0=REF, 1..n_alts
+        if (code >= C) code = 0;  // Safety: invalid code → REF
+        
+        // term = Alpha[k] × Beta[k] / AlphaSum (8 lanes)
+        __m256 _alpha = _mm256_load_ps(&AlphaMissing[curr_rel_missing][i]);
+        __m256 _beta  = _mm256_load_ps(&prob[i]);  // prob=Beta in backward pass
+        __m256 term = _mm256_mul_ps(_mm256_mul_ps(_alpha, _alphaSum_inv), _beta);
+        
+        // Add to class bucket
+        sum[code] = _mm256_add_ps(sum[code], term);
+        denom = _mm256_add_ps(denom, term);
+    }
+    
+    // Normalize: SC[offset + h*C + c] = sum[c][h] / denom[h]
+    // Extract 8 lanes and write to SC buffer
+    float sum_lanes[SUPERSITE_MAX_ALTS + 1][HAP_NUMBER];
+    float denom_lanes[HAP_NUMBER];
+    
+    for (int c = 0; c < C; ++c) {
+        _mm256_storeu_ps(sum_lanes[c], sum[c]);
+    }
+    _mm256_storeu_ps(denom_lanes, denom);
+    
+    // Write normalized posteriors to SC
+    for (int h = 0; h < HAP_NUMBER; ++h) {
+        float d = denom_lanes[h];
+        if (d > 0.0f) {
+            for (int c = 0; c < C; ++c) {
+                SC[offset + h * C + c] = sum_lanes[c][h] / d;
+            }
+        } else {
+            // Fallback: uniform distribution if denominator is zero
+            float uniform = 1.0f / (float)C;
+            for (int c = 0; c < C; ++c) {
+                SC[offset + h * C + c] = uniform;
+            }
+        }
+    }
+}
+
 #endif
+

@@ -154,7 +154,8 @@ void haplotype_segment_double::forward() {
 	}
 }
 
-int haplotype_segment_double::backward(vector < double > & transition_probabilities, vector < float > & missing_probabilities) {
+int haplotype_segment_double::backward(vector < double > & transition_probabilities, vector < float > & missing_probabilities,
+                                       vector < float > * SC, const vector < bool > * anchor_has_missing) {
 	int n_underflow_recovered = 0;
 	curr_segment_index = segment_last;
 	curr_segment_locus = G->Lengths[segment_last] - 1;
@@ -198,8 +199,25 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		}
 
 		if (mis) {
-			IMPUTE(missing_probabilities);
-			curr_abs_missing--;
+			// Phase 3: Check if this is a supersite with all members missing
+			int ss_idx_here = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[curr_abs_locus] : -1;
+			
+			if (ss_idx_here >= 0 && anchor_has_missing && (*anchor_has_missing)[ss_idx_here] && SC) {
+				// Part of a missing supersite
+				const SuperSite& ss = (*super_sites)[ss_idx_here];
+				
+				if (curr_abs_locus == (int)ss.global_site_id) {
+					// Anchor: compute multinomial for entire supersite
+					IMPUTE_SUPERSITE_MULTINOMIAL(*SC, ss, ss_idx_here);
+				}
+				// Else: sibling, skip (no IMPUTE call)
+				
+				curr_abs_missing--;  // Still decrement counter
+			} else {
+				// Normal biallelic missing site
+				IMPUTE(missing_probabilities);
+				curr_abs_missing--;
+			}
 		}
 
 

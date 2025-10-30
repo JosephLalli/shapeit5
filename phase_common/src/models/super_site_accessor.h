@@ -51,6 +51,10 @@ struct SuperSite {
 	uint32_t var_start;        // Start index into flattened super_site_var_index
 	uint16_t var_count;        // Number of constituent variant indices
 	// Note: bitwidth is always 4 bits (fixed), so codes are 4 bits each
+	
+	// Phase 3: Multi-class posterior indexing (per-sample, set during window setup)
+	uint32_t class_prob_offset; // Offset into CurrentSuperClassPosteriors (HAP_NUMBER * C floats)
+	uint8_t n_classes;          // C = 1 + n_alts (REF + ALT1..ALTn), cached for convenience
 };
 
 // ============================================================================
