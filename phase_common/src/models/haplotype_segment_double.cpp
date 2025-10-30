@@ -67,6 +67,7 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
 		ss_cond_codes = aligned_vector32<uint8_t>(n_cond_haps, 0);
 		ss_emissions = aligned_vector32<double>(n_cond_haps, 1.0);
 		ss_emissions_h1 = aligned_vector32<double>(n_cond_haps, 1.0);
+		ss_cached.resize(super_sites->size(), false);  // Phase 3: initialize cache flags
 	}
 }
 

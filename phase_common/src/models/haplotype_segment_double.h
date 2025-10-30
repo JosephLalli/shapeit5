@@ -95,6 +95,7 @@ private:
 	aligned_vector32<uint8_t> ss_cond_codes;
 	aligned_vector32<double> ss_emissions;
 	aligned_vector32<double> ss_emissions_h1;
+	std::vector<bool> ss_cached;  // Phase 3: cache flags per supersite
 
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
@@ -118,6 +119,9 @@ private:
 	void SS_COLLAPSE_AMB();
 	void SS_COLLAPSE_MIS();
 	
+	// Phase 3: caching helper
+	void ss_load_cond_codes(const SuperSite& ss, int ss_idx);
+	
 	void SUMK();
 	void IMPUTE(std::vector < float > & );
 	bool TRANS_HAP();
@@ -140,18 +144,37 @@ public:
 	void forward();
 	int backward(std::vector < double > &, std::vector < float > &);
 	
-	// Supersite cache management (for future use if segments become reusable)
-	// Note: Currently not needed as segments are created fresh per window,
-	// but provided for completeness and future-proofing
+	// Supersite cache management (Phase 3)
+	// Cache is per-segment and automatically reset when new segment created.
+	// Segments are local variables in phaser_algorithm.cpp phaseWindow(),
+	// so cache resets automatically between windows.
 	void clear_supersite_cache() {
-		// Double precision implementation doesn't currently use caching,
-		// but method provided for API consistency with haplotype_segment_single
+		std::fill(ss_cached.begin(), ss_cached.end(), false);
 	}
 };
 
 /*******************************************************************************/
 /*****************     SUPERSITE HELPER FUNCTIONS (Phase 2)     ***************/
 /*******************************************************************************/
+/*****************     SUPERSITE HELPER FUNCTIONS (Phase 2)     ***************/
+/*******************************************************************************/
+
+// Phase 3: Caching helper to load conditioning haplotype codes once per supersite
+inline
+void haplotype_segment_double::ss_load_cond_codes(const SuperSite& ss, int ss_idx) {
+    // Return if already cached
+    if (ss_cached[ss_idx]) return;
+    
+    // Unpack and cache conditioning haplotype codes
+    ss_cond_codes.resize(n_cond_haps);
+    for (int k = 0; k < (int)n_cond_haps; ++k) {
+        unsigned int gh = (*cond_idx)[k];
+        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+    }
+    
+    // Mark as cached
+    ss_cached[ss_idx] = true;
+}
 
 inline
 void haplotype_segment_double::SS_INIT_HOM() {
@@ -163,11 +186,9 @@ void haplotype_segment_double::SS_INIT_HOM() {
     SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
     uint8_t sample_code = c0;  // For HOM, c0==c1
     
-    // Unpack cond hap codes
-    for (int k = 0; k < (int)n_cond_haps; ++k) {
-        unsigned int gh = (*cond_idx)[k];
-        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-    }
+    // Load conditioning haplotype codes (cached after first call)
+    ss_load_cond_codes(ss, ss_idx);
+    
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
     __m256d _sum0 = _mm256_set1_pd(0.0);
     __m256d _sum1 = _mm256_set1_pd(0.0);
@@ -193,11 +214,9 @@ void haplotype_segment_double::SS_INIT_AMB() {
     uint8_t c0, c1;
     SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
     
-    // Unpack cond hap codes
-    for (int k = 0; k < (int)n_cond_haps; ++k) {
-        unsigned int gh = (*cond_idx)[k];
-        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-    }
+    // Load conditioning haplotype codes (cached after first call)
+    ss_load_cond_codes(ss, ss_idx);
+    
     ss_emissions_h1.resize(n_cond_haps, 1.0);
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
@@ -235,10 +254,9 @@ bool haplotype_segment_double::SS_RUN_HOM() {
     SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
     uint8_t sample_code = c0;
     
-    for (int k = 0; k < (int)n_cond_haps; ++k) {
-        unsigned int gh = (*cond_idx)[k];
-        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-    }
+    // Load conditioning haplotype codes (cached after first call)
+    ss_load_cond_codes(ss, ss_idx);
+    
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
     __m256d _sum0 = _mm256_set1_pd(0.0f);
     __m256d _sum1 = _mm256_set1_pd(0.0f);
@@ -275,10 +293,9 @@ void haplotype_segment_double::SS_RUN_AMB() {
     uint8_t c0, c1;
     SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
     
-    for (int k = 0; k < (int)n_cond_haps; ++k) {
-        unsigned int gh = (*cond_idx)[k];
-        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-    }
+    // Load conditioning haplotype codes (cached after first call)
+    ss_load_cond_codes(ss, ss_idx);
+    
     ss_emissions_h1.resize(n_cond_haps, 1.0);
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
@@ -344,10 +361,9 @@ void haplotype_segment_double::SS_COLLAPSE_HOM() {
     SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
     uint8_t sample_code = c0;
     
-    for (int k = 0; k < (int)n_cond_haps; ++k) {
-        unsigned int gh = (*cond_idx)[k];
-        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-    }
+    // Load conditioning haplotype codes (cached after first call)
+    ss_load_cond_codes(ss, ss_idx);
+    
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
     __m256d _sum0 = _mm256_set1_pd(0.0f);
     __m256d _sum1 = _mm256_set1_pd(0.0f);
@@ -379,10 +395,9 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
     uint8_t c0, c1;
     SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
     
-    for (int k = 0; k < (int)n_cond_haps; ++k) {
-        unsigned int gh = (*cond_idx)[k];
-        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-    }
+    // Load conditioning haplotype codes (cached after first call)
+    ss_load_cond_codes(ss, ss_idx);
+    
     ss_emissions_h1.resize(n_cond_haps, 1.0);
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
