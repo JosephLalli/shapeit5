@@ -148,12 +148,25 @@ void haplotype_segment_double::INIT_HOM() {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        // Sample hap choice doesn't matter for hom; both equal
-        uint8_t sample_code = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        if (sample_code == SUPERSITE_CODE_MISSING) { // fall back to missing
-            INIT_MIS();
-            return;
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return; // Sibling: no-op
         }
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: INIT_MIS(); return;
+            case SSClass::HOM: 
+            case SSClass::AMB: // For HOM path, c0==c1, so treat AMB as HOM
+                break; // Continue with HOM logic below
+        }
+        
+        // Use c0 as the sample code (for HOM, c0==c1)
+        uint8_t sample_code = c0;
+        
         // Unpack cond hap codes using global hap indices
         for (int k = 0; k < (int)n_cond_haps; ++k) {
             unsigned int gh = (*cond_idx)[k];
@@ -200,8 +213,25 @@ bool haplotype_segment_double::RUN_HOM(char rare_allele) {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        if (sample_code == SUPERSITE_CODE_MISSING) { RUN_MIS(); return true; }
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return true; // Sibling: no-op but continue segment
+        }
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: RUN_MIS(); return true;
+            case SSClass::HOM: 
+            case SSClass::AMB: // For HOM path, c0==c1
+                break; // Continue with HOM logic below
+        }
+        
+        // Use c0 as the sample code
+        uint8_t sample_code = c0;
+        
         for (int k = 0; k < (int)n_cond_haps; ++k) {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
@@ -273,8 +303,25 @@ void haplotype_segment_double::COLLAPSE_HOM() {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        if (sample_code == SUPERSITE_CODE_MISSING) { COLLAPSE_MIS(); return; }
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return; // Sibling: no-op
+        }
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: COLLAPSE_MIS(); return;
+            case SSClass::HOM: 
+            case SSClass::AMB: // For HOM path, c0==c1
+                break; // Continue with HOM logic below
+        }
+        
+        // Use c0 as the sample code
+        uint8_t sample_code = c0;
+        
         for (int k = 0; k < (int)n_cond_haps; ++k) {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
@@ -339,16 +386,29 @@ void haplotype_segment_double::INIT_AMB() {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code_h0 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        uint8_t sample_code_h1 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 1);
-        if (sample_code_h0 == SUPERSITE_CODE_MISSING || sample_code_h1 == SUPERSITE_CODE_MISSING) { INIT_MIS(); return; }
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return; // Sibling: no-op
+        }
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: INIT_MIS(); return;
+            case SSClass::HOM: INIT_HOM(); return;
+            case SSClass::AMB: break; // Continue with AMB logic below
+        }
+        
+        // AMB-specific logic: c0 != c1
         for (int k = 0; k < (int)n_cond_haps; ++k) {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
         ss_emissions_h1.resize(n_cond_haps, 1.0);
-        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0, M.ed / M.ee, ss_emissions);
-        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0, M.ed / M.ee, ss_emissions_h1);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
         __m256d _sum0 = _mm256_set1_pd(0.0);
         __m256d _sum1 = _mm256_set1_pd(0.0);
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
@@ -399,16 +459,29 @@ void haplotype_segment_double::RUN_AMB() {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code_h0 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        uint8_t sample_code_h1 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 1);
-        if (sample_code_h0 == SUPERSITE_CODE_MISSING || sample_code_h1 == SUPERSITE_CODE_MISSING) { RUN_MIS(); return; }
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return; // Sibling: no-op
+        }
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: RUN_MIS(); return;
+            case SSClass::HOM: RUN_HOM(-1); return;
+            case SSClass::AMB: break; // Continue with AMB logic below
+        }
+        
+        // AMB-specific logic: c0 != c1
         for (int k = 0; k < (int)n_cond_haps; ++k) {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
         ss_emissions_h1.resize(n_cond_haps, 1.0);
-        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0, M.ed / M.ee, ss_emissions);
-        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0, M.ed / M.ee, ss_emissions_h1);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
         __m256d _sum0 = _mm256_set1_pd(0.0f);
         __m256d _sum1 = _mm256_set1_pd(0.0f);
         __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
@@ -479,16 +552,29 @@ void haplotype_segment_double::COLLAPSE_AMB() {
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        uint8_t sample_code_h0 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 0);
-        uint8_t sample_code_h1 = getSampleSuperSiteAlleleCode(G, ss, *super_site_var_index, 1);
-        if (sample_code_h0 == SUPERSITE_CODE_MISSING || sample_code_h1 == SUPERSITE_CODE_MISSING) { COLLAPSE_MIS(); return; }
+        
+        // Anchor gate: only run DP at global_site_id
+        if (curr_abs_locus != (int)ss.global_site_id) {
+            return; // Sibling: no-op
+        }
+        
+        // Classify and dispatch
+        uint8_t c0, c1;
+        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        switch (cls) {
+            case SSClass::MIS: COLLAPSE_MIS(); return;
+            case SSClass::HOM: COLLAPSE_HOM(); return;
+            case SSClass::AMB: break; // Continue with AMB logic below
+        }
+        
+        // AMB-specific logic: c0 != c1
         for (int k = 0; k < (int)n_cond_haps; ++k) {
             unsigned int gh = (*cond_idx)[k];
             ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
         }
         ss_emissions_h1.resize(n_cond_haps, 1.0);
-        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h0, 1.0, M.ed / M.ee, ss_emissions);
-        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code_h1, 1.0, M.ed / M.ee, ss_emissions_h1);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
+        precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
         __m256d _sum0 = _mm256_set1_pd(0.0f);
         __m256d _sum1 = _mm256_set1_pd(0.0f);
         __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
