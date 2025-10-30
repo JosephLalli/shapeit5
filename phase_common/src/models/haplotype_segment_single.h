@@ -142,6 +142,15 @@ public:
 	//void fetch();
 	void forward();
 	int backward(std::vector < double > &, std::vector < float > &);
+	
+	// Supersite cache management (for future use if segments become reusable)
+	// Note: Currently not needed as segments are created fresh per window,
+	// but provided for completeness and future-proofing
+	void clear_supersite_cache() {
+		if (!ss_cached.empty()) {
+			ss_cached.assign(ss_cached.size(), false);
+		}
+	}
 };
 
 /*******************************************************************************/
