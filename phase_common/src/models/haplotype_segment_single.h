@@ -399,17 +399,15 @@ void haplotype_segment_single::SS_COLLAPSE_MIS() {
 
 inline
 void haplotype_segment_single::INIT_HOM() {
+    // Supersite anchor check
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
+        // Note: Siblings are marked in M.rare_allele and skipped by HMM loop
+        // This code only runs for anchors
         
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
-        }
-        
-        // Classify and dispatch
+        // Classify and dispatch to supersite logic
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
@@ -434,17 +432,15 @@ void haplotype_segment_single::INIT_HOM() {
 
 inline
 bool haplotype_segment_single::RUN_HOM(char rare_allele) {
+    // Supersite anchor check
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
+        // Note: Siblings are marked in M.rare_allele=2 and skipped by HMM loop
+        // This code only runs for anchors
         
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            return true; // Sibling: no-op, continue segment
-        }
-        
-        // Classify and dispatch
+        // Classify and dispatch to supersite logic
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
@@ -480,17 +476,15 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
 
 inline
 void haplotype_segment_single::COLLAPSE_HOM() {
+    // Supersite anchor check
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
+        // Note: Siblings are marked in M.rare_allele=2 and skipped by HMM loop
+        // This code only runs for anchors
         
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
-        }
-        
-        // Classify and dispatch
+        // Classify and dispatch to supersite logic
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
@@ -524,17 +518,15 @@ void haplotype_segment_single::COLLAPSE_HOM() {
 
 inline
 void haplotype_segment_single::INIT_AMB() {
+    // Supersite anchor check
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
+        // Note: Siblings are marked in M.rare_allele=2 and skipped by HMM loop
+        // This code only runs for anchors
         
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
-        }
-        
-        // Classify and dispatch
+        // Classify and dispatch to supersite logic
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
@@ -564,17 +556,15 @@ void haplotype_segment_single::INIT_AMB() {
 
 inline
 void haplotype_segment_single::RUN_AMB() {
+    // Supersite anchor check
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
+        // Note: Siblings are marked in M.rare_allele=2 and skipped by HMM loop
+        // This code only runs for anchors
         
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
-        }
-        
-        // Classify and dispatch
+        // Classify and dispatch to supersite logic
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
@@ -650,17 +640,15 @@ void haplotype_segment_single::RUN_AMB() {
 
 inline
 void haplotype_segment_single::COLLAPSE_AMB() {
+    // Supersite anchor check
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
+        // Note: Siblings are marked in M.rare_allele=2 and skipped by HMM loop
+        // This code only runs for anchors
         
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
-        }
-        
-        // Classify and dispatch
+        // Classify and dispatch to supersite logic
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {

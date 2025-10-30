@@ -186,6 +186,9 @@ void phaser::phase() {
                             super_site_var_index,
                             sample_supersite_genotypes);
 				
+				// Mark sibling loci in HMM parameters so they're skipped like rare variants
+				M.markSuperSiteSiblings(super_sites, locus_to_super_idx);
+				
 				// Log result
 				// vrb.bullet("Built " + stb.str(super_sites.size()) + " super-sites covering " + 
 				//           stb.str(std::count(is_super_site.begin(), is_super_site.end(), true)) + " variant positions");

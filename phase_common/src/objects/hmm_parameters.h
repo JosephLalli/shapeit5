@@ -45,6 +45,7 @@ public :
 	void initialise(variant_map &, int, int);
 	float getForwardTransProb(int prev_idx, int curr_idx);
 	float getBackwardTransProb(int prev_idx, int curr_idx);
+	void markSuperSiteSiblings(const std::vector<class SuperSite>&, const std::vector<int>&);
 };
 
 #endif
