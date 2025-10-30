@@ -127,6 +127,14 @@ public:
 	//void fetch();
 	void forward();
 	int backward(std::vector < double > &, std::vector < float > &);
+	
+	// Supersite cache management (for future use if segments become reusable)
+	// Note: Currently not needed as segments are created fresh per window,
+	// but provided for completeness and future-proofing
+	void clear_supersite_cache() {
+		// Double precision implementation doesn't currently use caching,
+		// but method provided for API consistency with haplotype_segment_single
+	}
 };
 
 /*******************************************************************************/
