@@ -125,4 +125,28 @@ inline uint8_t getSampleSuperSiteAlleleCode(
     return SUPERSITE_CODE_REF;
 }
 
+// ============================================================================
+// Supersite Classification
+// ============================================================================
+
+enum class SSClass { MIS, HOM, AMB };
+
+// Classify a supersite genotype based on both haplotype codes
+inline SSClass classify_supersite(
+    const genotype* G,
+    const SuperSite& ss,
+    const std::vector<int>& super_site_var_index,
+    uint8_t& c0,
+    uint8_t& c1
+) {
+    c0 = getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, 0);
+    c1 = getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, 1);
+    
+    if (c0 == SUPERSITE_CODE_MISSING && c1 == SUPERSITE_CODE_MISSING) 
+        return SSClass::MIS;
+    if (c0 == c1) 
+        return SSClass::HOM;
+    return SSClass::AMB;
+}
+
 #endif
