@@ -111,5 +111,9 @@ void phaser::read_files_and_initialise() {
 	//step9: Allocate data structures for computations
 	unsigned int max_number_transitions = G.largestNumberOfTransitions();
 	unsigned int max_number_missing = G.largestNumberOfMissings();
-	threadData = vector < compute_job >(options["thread"].as < int > (), compute_job(V, G, H, max_number_transitions, max_number_missing));
+	threadData = vector < compute_job >(options["thread"].as < int > (), 
+	                                     compute_job(V, G, H, max_number_transitions, max_number_missing,
+	                                                enable_supersites ? &super_sites : nullptr,
+	                                                enable_supersites ? &locus_to_super_idx : nullptr,
+	                                                enable_supersites ? &super_site_var_index : nullptr));
 }

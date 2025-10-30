@@ -124,6 +124,7 @@ private:
 	
 	void SUMK();
 	void IMPUTE(std::vector < float > & );
+	void IMPUTE_SUPERSITE_MULTINOMIAL(std::vector < float > & SC, const SuperSite& ss, int ss_idx);  // Phase 3
 	bool TRANS_HAP();
 	bool TRANS_DIP_MULT();
 	bool TRANS_DIP_ADD();
@@ -142,7 +143,9 @@ public:
 
 	//void fetch();
 	void forward();
-	int backward(std::vector < double > &, std::vector < float > &);
+	int backward(std::vector < double > &, std::vector < float > &, 
+	            std::vector < float > * SC = nullptr,
+	            const std::vector < bool > * anchor_has_missing = nullptr);  // Phase 3: optional supersite posteriors
 	
 	// Supersite cache management (Phase 3)
 	// Cache is per-segment and automatically reset when new segment created.
@@ -1002,6 +1005,87 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
     prob0 = (double*)&_sumA1[0];
     prob1 = (double*)&_sumA1[1];
     for (int h = 4 ; h < HAP_NUMBER ; h ++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h]+prob1[h]);
+}
+
+// Phase 3: Multinomial imputation for supersites
+// Computes P(class_c | Alpha, Beta) for each class c in {0=REF, 1=ALT1, ..., n_alts}
+// Writes to SC buffer at ss.class_prob_offset
+inline
+void haplotype_segment_double::IMPUTE_SUPERSITE_MULTINOMIAL(std::vector < float > & SC, const SuperSite& ss, int ss_idx) {
+    // Unpack conditioning haplotype codes once
+    for (int k = 0; k < (int)n_cond_haps; ++k) {
+        unsigned int gh = (*cond_idx)[k];
+        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+    }
+    
+    const int C = ss.n_classes;  // 1 + n_alts
+    const uint32_t offset = ss.class_prob_offset;
+    
+    // Compute 1 / AlphaSum for normalization
+    __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][0]);
+    __m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][4]);
+    __m256d _ones = _mm256_set1_pd(1.0);
+    _alphaSum0 = _mm256_div_pd(_ones, _alphaSum0);
+    _alphaSum1 = _mm256_div_pd(_ones, _alphaSum1);
+    
+    // Accumulators: per-class, per-lane (lo=lanes 0-3, hi=lanes 4-7)
+    __m256d sum_lo[SUPERSITE_MAX_ALTS + 1];
+    __m256d sum_hi[SUPERSITE_MAX_ALTS + 1];
+    for (int c = 0; c < C; ++c) {
+        sum_lo[c] = _mm256_set1_pd(0.0);
+        sum_hi[c] = _mm256_set1_pd(0.0);
+    }
+    
+    __m256d denom_lo = _mm256_set1_pd(0.0);
+    __m256d denom_hi = _mm256_set1_pd(0.0);
+    
+    // Accumulate: for each conditioning haplotype k, add its contribution to class bucket
+    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+        int code = (int)ss_cond_codes[k];  // 0=REF, 1..n_alts
+        if (code >= C) code = 0;  // Safety: invalid code -> REF
+        
+        // Load Alpha (forward) and Beta (backward prob)
+        __m256d _alpha0 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i]);
+        __m256d _alpha1 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+4]);
+        __m256d _beta0  = _mm256_load_pd(&prob[i]);
+        __m256d _beta1  = _mm256_load_pd(&prob[i+4]);
+        
+        // Posterior contribution: Alpha * Beta / AlphaSum
+        __m256d _term0 = _mm256_mul_pd(_mm256_mul_pd(_alpha0, _alphaSum0), _beta0);
+        __m256d _term1 = _mm256_mul_pd(_mm256_mul_pd(_alpha1, _alphaSum1), _beta1);
+        
+        // Add to class bucket
+        sum_lo[code] = _mm256_add_pd(sum_lo[code], _term0);
+        sum_hi[code] = _mm256_add_pd(sum_hi[code], _term1);
+        
+        // Accumulate denominator (total across all classes)
+        denom_lo = _mm256_add_pd(denom_lo, _term0);
+        denom_hi = _mm256_add_pd(denom_hi, _term1);
+    }
+    
+    // Normalize and write to SC buffer
+    // Layout: SC[offset + h*C + c] = P(class c | lane h)
+    alignas(32) double lo_buf[4], hi_buf[4], dlo[4], dhi[4];
+    _mm256_store_pd(dlo, denom_lo);
+    _mm256_store_pd(dhi, denom_hi);
+    
+    for (int c = 0; c < C; ++c) {
+        _mm256_store_pd(lo_buf, sum_lo[c]);
+        _mm256_store_pd(hi_buf, sum_hi[c]);
+        
+        // Lanes 0-3 (lo)
+        for (int h = 0; h < 4; ++h) {
+            float p = (dlo[h] > 0.0) ? (float)(lo_buf[h] / dlo[h]) : (1.0f / C);  // Fallback to uniform
+            SC[offset + h * C + c] = p;
+        }
+        
+        // Lanes 4-7 (hi)
+        for (int h = 4; h < HAP_NUMBER; ++h) {
+            int hidx = h - 4;
+            float p = (dhi[hidx] > 0.0) ? (float)(hi_buf[hidx] / dhi[hidx]) : (1.0f / C);
+            SC[offset + h * C + c] = p;
+        }
+    }
 }
 
 #endif

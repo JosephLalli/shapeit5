@@ -27,7 +27,11 @@ using namespace std;
 #define MAX_OVERLAP_HETS 0.75f
 #define N_RANDOM_HAPS 100
 
-compute_job::compute_job(variant_map & _V, genotype_set & _G, conditioning_set & _H, unsigned int n_max_transitions, unsigned int n_max_missing) : V(_V), G(_G), H(_H) {
+compute_job::compute_job(variant_map & _V, genotype_set & _G, conditioning_set & _H, unsigned int n_max_transitions, unsigned int n_max_missing,
+                         const std::vector<SuperSite>* ss,
+                         const std::vector<int>* locus_ss_idx,
+                         const std::vector<int>* ss_var_idx) 
+    : V(_V), G(_G), H(_H), super_sites(ss), locus_to_super_idx(locus_ss_idx), super_site_var_index(ss_var_idx) {
 	T = vector < double > (n_max_transitions, 0.0);
 	M = vector < float > (n_max_missing , 0.0);
 	Ordering = vector < unsigned int > (H.n_hap);
@@ -118,5 +122,43 @@ void compute_job::make(unsigned int ind, double min_window_size) {
 			Kstates[w].erase(unique(Kstates[w].begin(), Kstates[w].end()), Kstates[w].end());
 			vrb.warning("No PBWT states found [" + G.vecG[ind]->name  + " / w=" + stb.str(w) + "] / Using " + stb.str(Kstates[w].size()) + " random states");
 		}
+	}
+	
+	//5. Phase 3: Populate anchor_has_missing and allocate SC
+	if (super_sites && locus_to_super_idx && super_site_var_index) {
+		anchor_has_missing.assign(super_sites->size(), false);
+		
+		// Check each supersite: if ALL members are missing for this sample, set flag
+		for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
+			const SuperSite& ss = (*super_sites)[ss_idx];
+			bool all_missing = true;
+			
+			for (uint32_t i = 0; i < ss.var_count; ++i) {
+				int v_idx = (*super_site_var_index)[ss.var_start + i];
+				unsigned char v = G.vecG[ind]->Variants[DIV2(v_idx)];
+				if (!VAR_GET_MIS(MOD2(v_idx), v)) {
+					all_missing = false;
+					break;
+				}
+			}
+			
+			anchor_has_missing[ss_idx] = all_missing;
+		}
+		
+		// Allocate SC: compute total size and set class_prob_offset for each supersite
+		uint32_t total_size = 0;
+		for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
+			SuperSite& ss = const_cast<SuperSite&>((*super_sites)[ss_idx]);
+			ss.n_classes = 1 + ss.n_alts;  // REF + ALT1..ALTn
+			
+			if (anchor_has_missing[ss_idx]) {
+				ss.class_prob_offset = total_size;
+				total_size += HAP_NUMBER * ss.n_classes;  // 8 lanes × C classes
+			} else {
+				ss.class_prob_offset = 0;  // Not used
+			}
+		}
+		
+		SC.assign(total_size, 0.0f);
 	}
 }
