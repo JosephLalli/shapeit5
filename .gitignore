@@ -10,3 +10,5 @@ test/wgs/*.bcf*
 *txt
 tests/bin/
 tests/obj/
+simulate/bin/simulate
+ligate/bin/ligate

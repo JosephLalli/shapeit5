@@ -21,6 +21,7 @@
  ******************************************************************************/
 
 #include <objects/genotype/genotype_header.h>
+#include <models/super_site_accessor.h>
 
 using namespace std;
 
@@ -35,6 +36,12 @@ genotype::genotype(unsigned int _index) {
 	this->name = "";
 	double_precision = false;
 	haploid = false;
+	// Initialize supersite context pointers to nullptr
+	super_sites = nullptr;
+	locus_to_super_idx = nullptr;
+	super_site_var_index = nullptr;
+	SC = nullptr;
+	anchor_has_missing = nullptr;
 }
 
 genotype::~genotype() {
@@ -55,6 +62,77 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 		unsigned char hap0 = DIP_HAP0(DipSampled[s]);
 		unsigned char hap1 = DIP_HAP1(DipSampled[s]);
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel++, vabs++) {
+			// Phase 3: Check if this is a missing supersite anchor
+			int ss_idx = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
+			
+			if (ss_idx >= 0 && anchor_has_missing && (*anchor_has_missing)[ss_idx] && SC) {
+				// This is a supersite with missing data
+				const SuperSite& ss = (*super_sites)[ss_idx];
+				
+				if (vabs == ss.global_site_id) {
+					// Anchor: sample multinomial and project to all splits
+					int C = (int)ss.n_classes;
+					uint32_t offset = ss.class_prob_offset;
+					
+					// Sample one class per haplotype from multinomial
+					// SC[offset + hap*C + c] = P(class_c | hap)
+					uint8_t class0 = 0, class1 = 0;
+					
+					// Sample class for hap0
+					float r0 = rng.getDouble();
+					float cumsum0 = 0.0f;
+					for (int c = 0; c < C; ++c) {
+						cumsum0 += (*SC)[offset + hap0 * C + c];
+						if (r0 <= cumsum0) {
+							class0 = c;
+							break;
+						}
+					}
+					
+					// Sample class for hap1
+					float r1 = rng.getDouble();
+					float cumsum1 = 0.0f;
+					for (int c = 0; c < C; ++c) {
+						cumsum1 += (*SC)[offset + hap1 * C + c];
+						if (r1 <= cumsum1) {
+							class1 = c;
+							break;
+						}
+					}
+					
+					// Project to splits: class 0=REF, 1..n_alts=ALT1..ALTn
+					// Iterate over all member variants and set based on sampled class
+					for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+						unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
+						uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
+						
+						// Set hap0
+						if (class0 == alt_class) {
+							VAR_SET_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+						} else {
+							VAR_CLR_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+						}
+						
+						// Set hap1
+						if (class1 == alt_class) {
+							VAR_SET_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+						} else {
+							VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+						}
+					}
+					
+					// Skip to end of supersite
+					// vabs will be incremented by loop, so set to last member
+					vabs = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
+					vrel = vabs - (vabs - vrel);  // Adjust vrel to match
+					m++;  // One missing event per supersite
+					continue;
+				}
+				// Sibling: skip, already handled by anchor
+				continue;
+			}
+			
+			// Normal biallelic missing site
 			if (VAR_GET_MIS(MOD2(vabs), Variants[DIV2(vabs)])) {
 				if (haploid) {
 					float p00 = (1.0f - CurrentMissingProbabilities[m*HAP_NUMBER+hap0]) * (1.0f - CurrentMissingProbabilities[m*HAP_NUMBER+hap1]);
@@ -110,4 +188,19 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 			}
 		}
 	}
+}
+
+// Phase 3: Set supersite context for multinomial imputation
+void genotype::setSuperSiteContext(
+const std::vector<SuperSite>* _super_sites,
+const std::vector<int>* _locus_to_super_idx,
+const std::vector<int>* _super_site_var_index,
+const std::vector<float>* _SC,
+const std::vector<bool>* _anchor_has_missing)
+{
+super_sites = _super_sites;
+locus_to_super_idx = _locus_to_super_idx;
+super_site_var_index = _super_site_var_index;
+SC = _SC;
+anchor_has_missing = _anchor_has_missing;
 }

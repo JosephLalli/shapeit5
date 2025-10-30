@@ -25,6 +25,9 @@
 
 #include <utils/otools.h>
 
+// Forward declaration to avoid circular dependency
+struct SuperSite;
+
 //Macros for packing/unpacking diplotypes
 #define DIP_GET(dip,idx)	(((dip)>>(idx))&1UL)
 #define DIP_SET(dip,idx)	((dip)|=(1UL<<(idx)))
@@ -91,12 +94,24 @@ public:
 	std::vector < float > ProbStored;
 	std::vector < float > ProbMissing;
 
+	// SUPERSITE CONTEXT (Phase 3: multinomial imputation)
+	const std::vector<SuperSite>* super_sites;
+	const std::vector<int>* locus_to_super_idx;
+	const std::vector<int>* super_site_var_index;
+	const std::vector<float>* SC;  // CurrentSuperClassPosteriors from compute_job
+	const std::vector<bool>* anchor_has_missing;
+
 	//METHODS
 	genotype(unsigned int);
 	~genotype();
 	void free();
 	void make(std::vector < unsigned char > &, std::vector < float > &);
 	void make(std::vector < unsigned char > &);
+	void setSuperSiteContext(const std::vector<SuperSite>* _super_sites,
+	                          const std::vector<int>* _locus_to_super_idx,
+	                          const std::vector<int>* _super_site_var_index,
+	                          const std::vector<float>* _SC,
+	                          const std::vector<bool>* _anchor_has_missing);
 	void build();
 	void sample(std::vector < double > &, std::vector < float > &);
 	void sampleForward(std::vector < double > &, std::vector < float > &);

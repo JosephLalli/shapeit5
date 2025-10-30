@@ -108,6 +108,17 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 	H.Kbanned.pushIBD2(id_job, threadData[id_worker].Kbanned);
 	if (options["thread"].as < int > () > 1) pthread_mutex_unlock(&mutex_workers);
 
+	// Phase 3: Set supersite context for multinomial imputation
+	if (enable_supersites) {
+		G.vecG[id_job]->setSuperSiteContext(
+			&super_sites,
+			&locus_to_super_idx,
+			&super_site_var_index,
+			&threadData[id_worker].SC,
+			&threadData[id_worker].anchor_has_missing
+		);
+	}
+
 	//Sampling / Merging / Storing
 	vector < bool > flagMerges;
 	switch (iteration_types[iteration_stage]) {
