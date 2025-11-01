@@ -924,7 +924,7 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
     _sumA1[1] = _mm256_set1_pd(0.0);
 
     __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][0]);
-    __m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][1]);
+    __m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][4]);
     __m256d _ones = _mm256_set1_pd(1.0);
     _alphaSum0 = _mm256_div_pd(_ones, _alphaSum0);
     _alphaSum1 = _mm256_div_pd(_ones, _alphaSum1);
