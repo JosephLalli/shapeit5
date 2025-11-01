@@ -243,9 +243,9 @@ void haplotype_segment_double::SS_INIT_AMB() {
 inline
 void haplotype_segment_double::SS_INIT_MIS() {
     // Missing data initialization - same as biallelic
-    fill(prob.begin(), prob.end(), 1.0f/(HAP_NUMBER * n_cond_haps));
-    fill(probSumH.begin(), probSumH.end(), 1.0f/HAP_NUMBER);
-    probSumT = 1.0f;
+    fill(prob.begin(), prob.end(), 1.0/(HAP_NUMBER * n_cond_haps));
+    fill(probSumH.begin(), probSumH.end(), 1.0/HAP_NUMBER);
+    probSumT = 1.0;
 }
 
 inline
@@ -261,8 +261,8 @@ bool haplotype_segment_double::SS_RUN_HOM() {
     ss_load_cond_codes(ss, ss_idx);
     
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
-    __m256d _sum0 = _mm256_set1_pd(0.0f);
-    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0);
+    __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
     __m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
     __m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
@@ -302,8 +302,8 @@ void haplotype_segment_double::SS_RUN_AMB() {
     ss_emissions_h1.resize(n_cond_haps, 1.0);
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
-    __m256d _sum0 = _mm256_set1_pd(0.0f);
-    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0);
+    __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
     __m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
     __m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
@@ -332,8 +332,8 @@ void haplotype_segment_double::SS_RUN_AMB() {
 inline
 void haplotype_segment_double::SS_RUN_MIS() {
     // Missing data run - same as biallelic
-    __m256d _sum0 = _mm256_set1_pd(0.0f);
-    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0);
+    __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
     __m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
     __m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
@@ -368,8 +368,8 @@ void haplotype_segment_double::SS_COLLAPSE_HOM() {
     ss_load_cond_codes(ss, ss_idx);
     
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
-    __m256d _sum0 = _mm256_set1_pd(0.0f);
-    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0);
+    __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
     for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
@@ -404,8 +404,8 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
     ss_emissions_h1.resize(n_cond_haps, 1.0);
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
-    __m256d _sum0 = _mm256_set1_pd(0.0f);
-    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0);
+    __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
     for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
@@ -430,8 +430,8 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
 inline
 void haplotype_segment_double::SS_COLLAPSE_MIS() {
     // Missing data collapse - same as biallelic
-    __m256d _sum0 = _mm256_set1_pd(0.0f);
-    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0);
+    __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
@@ -482,12 +482,12 @@ void haplotype_segment_double::INIT_HOM() {
     }
     // Default biallelic path
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-    __m256d _sum0 = _mm256_set1_pd(0.0f);
-    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0);
+    __m256d _sum1 = _mm256_set1_pd(0.0);
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
         bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256d _prob0 = _mm256_set1_pd((ag==ah)?1.0f:M.ed/M.ee);
-        __m256d _prob1 = _mm256_set1_pd((ag==ah)?1.0f:M.ed/M.ee);
+        __m256d _prob0 = _mm256_set1_pd((ag==ah)?1.0:M.ed/M.ee);
+        __m256d _prob1 = _mm256_set1_pd((ag==ah)?1.0:M.ed/M.ee);
         _sum0 = _mm256_add_pd(_sum0, _prob0);
         _sum1 = _mm256_add_pd(_sum1, _prob1);
         _mm256_store_pd(&prob[i+0], _prob0);
@@ -525,8 +525,8 @@ bool haplotype_segment_double::RUN_HOM(char rare_allele) {
     // Biallelic path
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
     if (rare_allele < 0 || ag == rare_allele) {
-        __m256d _sum0 = _mm256_set1_pd(0.0f);
-        __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0);
+    __m256d _sum1 = _mm256_set1_pd(0.0);
         __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
         __m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
         __m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
@@ -583,8 +583,8 @@ void haplotype_segment_double::COLLAPSE_HOM() {
     }
     // Biallelic path
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-    __m256d _sum0 = _mm256_set1_pd(0.0f);
-    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0);
+    __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);					//Check divide by probSumT here!
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
     __m256d _mismatch = _mm256_set1_pd(M.ed/M.ee);
@@ -637,8 +637,8 @@ void haplotype_segment_double::INIT_AMB() {
     // Biallelic path
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0f;
-        g1[h] = HAP_GET(amb_code,h)?1.0f:M.ed/M.ee;
+        g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0;
+        g1[h] = HAP_GET(amb_code,h)?1.0:M.ed/M.ee;
     }
 	__m256d _sum0 = _mm256_set1_pd(0.0f);
 	__m256d _sum1 = _mm256_set1_pd(0.0f);
@@ -686,8 +686,8 @@ void haplotype_segment_double::RUN_AMB() {
     // Biallelic path
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0f;
-        g1[h] = HAP_GET(amb_code,h)?1.0f:M.ed/M.ee;
+        g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0;
+        g1[h] = HAP_GET(amb_code,h)?1.0:M.ed/M.ee;
     }
 	__m256d _sum0 = _mm256_set1_pd(0.0f);
 	__m256d _sum1 = _mm256_set1_pd(0.0f);
@@ -745,8 +745,8 @@ void haplotype_segment_double::COLLAPSE_AMB() {
     // Biallelic path
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0f;
-        g1[h] = HAP_GET(amb_code,h)?1.0f:M.ed/M.ee;
+        g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0;
+        g1[h] = HAP_GET(amb_code,h)?1.0:M.ed/M.ee;
     }
 	__m256d _sum0 = _mm256_set1_pd(0.0f);
 	__m256d _sum1 = _mm256_set1_pd(0.0f);
@@ -781,15 +781,15 @@ void haplotype_segment_double::COLLAPSE_AMB() {
 
 inline
 void haplotype_segment_double::INIT_MIS() {
-	fill(prob.begin(), prob.end(), 1.0f/(HAP_NUMBER * n_cond_haps));
-	fill(probSumH.begin(), probSumH.end(), 1.0f/HAP_NUMBER);
-	probSumT = 1.0f;
+	fill(prob.begin(), prob.end(), 1.0/(HAP_NUMBER * n_cond_haps));
+	fill(probSumH.begin(), probSumH.end(), 1.0/HAP_NUMBER);
+	probSumT = 1.0;
 }
 
 inline
 void haplotype_segment_double::RUN_MIS() {
-	__m256d _sum0 = _mm256_set1_pd(0.0f);
-	__m256d _sum1 = _mm256_set1_pd(0.0f);
+	__m256d _sum0 = _mm256_set1_pd(0.0);
+	__m256d _sum1 = _mm256_set1_pd(0.0);
 	__m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
 	__m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
 	__m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
@@ -813,8 +813,8 @@ void haplotype_segment_double::RUN_MIS() {
 
 inline
 void haplotype_segment_double::COLLAPSE_MIS() {
-	__m256d _sum0 = _mm256_set1_pd(0.0f);
-	__m256d _sum1 = _mm256_set1_pd(0.0f);
+	__m256d _sum0 = _mm256_set1_pd(0.0);
+	__m256d _sum1 = _mm256_set1_pd(0.0);
 	__m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
 	__m256d _nt = _mm256_set1_pd(nt / probSumT);
 	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
@@ -849,14 +849,14 @@ void haplotype_segment_double::SUMK() {
 
 inline
 bool haplotype_segment_double::TRANS_HAP() {
-	sumHProbs = 0.0f;
+	sumHProbs = 0.0;
 	unsigned int  curr_rel_segment_index = curr_segment_index-segment_first;
 	yt = M.getForwardTransProb(AlphaLocus[curr_rel_segment_index - 1], prev_abs_locus);
-	nt = 1.0f - yt;
+	nt = 1.0 - yt;
 	double fact1 = nt / AlphaSumSum[curr_rel_segment_index - 1];
 	for (int h1 = 0 ; h1 < HAP_NUMBER ; h1++) {
-		__m256d _sum0 = _mm256_set1_pd(0.0f);
-		__m256d _sum1 = _mm256_set1_pd(0.0f);
+		__m256d _sum0 = _mm256_set1_pd(0.0);
+		__m256d _sum1 = _mm256_set1_pd(0.0);
 		double fact2 = (AlphaSum[curr_rel_segment_index-1][h1]/AlphaSumSum[curr_rel_segment_index-1]) * yt / n_cond_haps;
 		for (int k = 0 ; k < n_cond_haps ; k ++) {
 			__m256d _alpha = _mm256_set1_pd(Alpha[curr_rel_segment_index-1][k*HAP_NUMBER + h1] * fact1 + fact2);
@@ -874,7 +874,7 @@ bool haplotype_segment_double::TRANS_HAP() {
 
 inline
 bool haplotype_segment_double::TRANS_DIP_MULT() {
-	sumDProbs= 0.0f;
+	sumDProbs= 0.0;
 	double scaling = 1.0 / sumHProbs;
 	for (int pd = 0, t = 0 ; pd < 64 ; ++pd) {
 		if (DIP_GET(G->Diplotypes[curr_segment_index-1], pd)) {
@@ -892,7 +892,7 @@ bool haplotype_segment_double::TRANS_DIP_MULT() {
 
 inline
 bool haplotype_segment_double::TRANS_DIP_ADD() {
-	sumDProbs = 0.0f;
+	sumDProbs = 0.0;
 	double scaling = 1.0 / sumHProbs;
 	for (int pd = 0, t = 0 ; pd < 64 ; ++pd) {
 		if (DIP_GET(G->Diplotypes[curr_segment_index-1], pd)) {
@@ -914,18 +914,18 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
 
-    __m256d _sum0 = _mm256_set1_pd(0.0f);
-    __m256d _sum1 = _mm256_set1_pd(0.0f);
+    __m256d _sum0 = _mm256_set1_pd(0.0);
+    __m256d _sum1 = _mm256_set1_pd(0.0);
 
     __m256d _sumA0[2], _sumA1[2];
-    _sumA0[0] = _mm256_set1_pd(0.0f);
-    _sumA0[1] = _mm256_set1_pd(0.0f);
-    _sumA1[0] = _mm256_set1_pd(0.0f);
-    _sumA1[1] = _mm256_set1_pd(0.0f);
+    _sumA0[0] = _mm256_set1_pd(0.0);
+    _sumA0[1] = _mm256_set1_pd(0.0);
+    _sumA1[0] = _mm256_set1_pd(0.0);
+    _sumA1[1] = _mm256_set1_pd(0.0);
 
     __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][0]);
     __m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][1]);
-    __m256d _ones = _mm256_set1_pd(1.0f);
+    __m256d _ones = _mm256_set1_pd(1.0);
     _alphaSum0 = _mm256_div_pd(_ones, _alphaSum0);
     _alphaSum1 = _mm256_div_pd(_ones, _alphaSum1);
 
@@ -948,11 +948,11 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
         __m256d sum_lo_classes[SUPERSITE_MAX_ALTS + 1];
         __m256d sum_hi_classes[SUPERSITE_MAX_ALTS + 1];
         for (int c = 0; c <= (int)ss.var_count; ++c) {
-            sum_lo_classes[c] = _mm256_set1_pd(0.0f);
-            sum_hi_classes[c] = _mm256_set1_pd(0.0f);
+            sum_lo_classes[c] = _mm256_set1_pd(0.0);
+            sum_hi_classes[c] = _mm256_set1_pd(0.0);
         }
-        __m256d denom_lo = _mm256_set1_pd(0.0f);
-        __m256d denom_hi = _mm256_set1_pd(0.0f);
+        __m256d denom_lo = _mm256_set1_pd(0.0);
+        __m256d denom_hi = _mm256_set1_pd(0.0);
         // Accumulate per conditioning haplotype into class buckets
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
             int code = (int)ss_cond_codes[k]; // 0..n_alts

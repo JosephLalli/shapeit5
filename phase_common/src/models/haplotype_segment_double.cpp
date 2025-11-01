@@ -45,17 +45,17 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
 	n_cond_haps = idxH.size();
 	n_missing = missing_last - missing_first + 1;
 
-	probSumT = 0.0f;
-	prob = aligned_vector32 < double > (HAP_NUMBER * n_cond_haps, 0.0f);
-	probSumH = aligned_vector32 < double > (HAP_NUMBER, 0.0f);
-	probSumK = aligned_vector32 < double > (n_cond_haps, 0.0f);
-	Alpha = vector < aligned_vector32 < double > > (segment_last - segment_first + 1, aligned_vector32 < double > (HAP_NUMBER * n_cond_haps, 0.0f));
+	probSumT = 0.0;
+	prob = aligned_vector32 < double > (HAP_NUMBER * n_cond_haps, 0.0);
+	probSumH = aligned_vector32 < double > (HAP_NUMBER, 0.0);
+	probSumK = aligned_vector32 < double > (n_cond_haps, 0.0);
+	Alpha = vector < aligned_vector32 < double > > (segment_last - segment_first + 1, aligned_vector32 < double > (HAP_NUMBER * n_cond_haps, 0.0));
 	AlphaLocus = vector < int > (segment_last - segment_first + 1, 0);
-	AlphaSum = vector < aligned_vector32 < double > > (segment_last - segment_first + 1, aligned_vector32 < double > (HAP_NUMBER, 0.0f));
+	AlphaSum = vector < aligned_vector32 < double > > (segment_last - segment_first + 1, aligned_vector32 < double > (HAP_NUMBER, 0.0));
 	AlphaSumSum = aligned_vector32 < double > (segment_last - segment_first + 1, 0.0);
 	if (n_missing > 0) {
-		AlphaMissing = vector < aligned_vector32 < double > > (n_missing, aligned_vector32 < double > (HAP_NUMBER * n_cond_haps, 0.0f));
-		AlphaSumMissing = vector < aligned_vector32 < double > > (n_missing, aligned_vector32 < double > (HAP_NUMBER, 0.0f));
+		AlphaMissing = vector < aligned_vector32 < double > > (n_missing, aligned_vector32 < double > (HAP_NUMBER * n_cond_haps, 0.0));
+		AlphaSumMissing = vector < aligned_vector32 < double > > (n_missing, aligned_vector32 < double > (HAP_NUMBER, 0.0));
 	}
 	//Cache efficient data transfer for conditioning haplotypes
 	curr_rel_locus_offset = Hhap.subset(H, idxH, locus_first, locus_last);

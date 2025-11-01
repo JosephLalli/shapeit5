@@ -242,11 +242,22 @@ Native multinomial imputation:
 1. **Full HMM integration test** - End-to-end forward/backward with multinomial imputation
 2. **Mutual exclusivity validator** - Post-processing script to check BCF outputs
 3. **Smoke test fixtures** - Real VCF examples under `tests/data/` with known ground truth
+4. **Supersite combine test** - Multiple supersites in a window (adjacent/overlapping), verify anchor gating across all and no cross-site double counting
 
 ### Medium Priority
 4. **Performance benchmarks** - Multinomial overhead vs. biallelic (target: <10% slowdown)
 5. **Numerical stability tests** - Edge cases (zero probabilities, underflow, overflow)
 6. **SIMD optimization tests** - Validate AVX2 vectorization of multinomial computation
+
+### Newly Added Tests (anchor gating + multinomial)
+- `test_supersite_anchor_gating` — sibling no-op vs anchor-only state
+- `test_supersite_backward_sc` — SC normalization Σc≈1.0 per hap
+- `test_supersite_mutual_exclusivity_make` — exactly one ALT per hap across splits
+- `test_supersite_boundary_conditions` — INIT neutral, COLLAPSE no-op
+- `test_supersite_float_double_parity` — HS vs HD parity under gating (may fail; diagnostic)
+- `test_supersite_class_microcases` — HOM/AMB/MIS classification
+- `test_supersite_no_double_counting` — presence/absence of sibling yields same DP state
+- `test_supersite_perf_smoke` — timing only, no assertions
 
 ### Low Priority
 7. **Fuzzing harness** - Random multiallelic site generation for stress testing
