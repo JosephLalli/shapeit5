@@ -463,7 +463,9 @@ void haplotype_segment_double::INIT_HOM() {
         
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
+            // Sibling at window boundary: initialize neutrally to avoid underflow
+            SS_INIT_MIS();
+            return;
         }
         
         // Classify and dispatch to SS_* helpers
