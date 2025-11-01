@@ -26,12 +26,16 @@ PHASE_COMMON_OBJS := \
 
 TEST_BINARIES := \
     $(bindir)/test_supersite_emissions \
+    $(bindir)/test_supersite_emissions_real \
     $(bindir)/test_supersite_accessor \
     $(bindir)/test_supersite_unpack \
     $(bindir)/test_supersite_builder \
     $(bindir)/test_supersite_hmm \
     $(bindir)/test_supersite_hmm_states \
-    $(bindir)/test_missing_multiallelic_multinomial
+    $(bindir)/test_missing_multiallelic_multinomial \
+    $(bindir)/test_supersite_vs_biallelic_simple \
+    $(bindir)/test_forward_backward_comprehensive \
+    $(bindir)/test_packing_format_diagnostic
 
 # Default goal: only build test binaries (do not build bin/tests)
 .DEFAULT_GOAL := test-binaries
@@ -40,6 +44,9 @@ test-binaries: $(TEST_BINARIES)
 
 # Link rules for each test
 $(bindir)/test_supersite_emissions: $(objdir)/test_supersite_emissions.o
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_supersite_emissions_real: $(objdir)/test_supersite_emissions_real.o
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_supersite_accessor: $(objdir)/test_supersite_accessor.o $(PHASE_COMMON_OBJS)
@@ -58,6 +65,15 @@ $(bindir)/test_supersite_hmm_states: $(objdir)/test_supersite_hmm_states.o $(PHA
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_missing_multiallelic_multinomial: $(objdir)/test_missing_multiallelic_multinomial.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_supersite_vs_biallelic_simple: $(objdir)/test_supersite_vs_biallelic_simple.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_forward_backward_comprehensive: $(objdir)/test_forward_backward_comprehensive.o
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_packing_format_diagnostic: $(objdir)/test_packing_format_diagnostic.o
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 # Explicit compile rules for external sources (not under tests/src)
@@ -104,12 +120,16 @@ $(objdir)/test_toolbox.o: src/test_toolbox.cpp
 .PHONY: test-run
 test-run: test-binaries
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_emissions
+	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_emissions_real
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_accessor
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_unpack
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_builder
 	@echo "Skipping test_supersite_hmm (old implementation, expected to fail)"
 	@echo "Skipping test_supersite_hmm_states (old implementation, expected to fail)"
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_missing_multiallelic_multinomial
+	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_vs_biallelic_simple
+	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_forward_backward_comprehensive
+	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_packing_format_diagnostic
 
 # Add extra cleaning without conflicting with common 'clean'
 .PHONY: clean-extra
