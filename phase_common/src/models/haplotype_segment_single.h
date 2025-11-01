@@ -537,7 +537,7 @@ void haplotype_segment_single::INIT_AMB() {
             SS_INIT_MIS();
             return;
         }
-        
+
         // Classify and dispatch to supersite logic
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
@@ -577,7 +577,7 @@ void haplotype_segment_single::RUN_AMB() {
         if (curr_abs_locus != (int)ss.global_site_id) {
             return; // Sibling: no-op
         }
-        
+
         // Classify and dispatch to supersite logic
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
@@ -663,7 +663,7 @@ void haplotype_segment_single::COLLAPSE_AMB() {
         if (curr_abs_locus != (int)ss.global_site_id) {
             return; // Sibling: no-op
         }
-        
+
         // Classify and dispatch to supersite logic
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);

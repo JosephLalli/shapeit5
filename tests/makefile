@@ -21,6 +21,7 @@ PHASE_COMMON_OBJS := \
     $(objdir)/haplotype_segment_single.o \
     $(objdir)/haplotype_segment_double.o \
     $(objdir)/hmm_parameters.o \
+    $(objdir)/genotype_build.o \
     $(objdir)/genotype_managment_from_pc.o \
     $(objdir)/test_toolbox.o
 
@@ -45,7 +46,8 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_no_double_counting \
     $(bindir)/test_supersite_backward_parity \
     $(bindir)/test_supersite_perf_smoke \
-    $(bindir)/test_supersite_combine
+    $(bindir)/test_supersite_combine \
+    $(bindir)/test_supersite_representation_parity
 
 # Default goal: only build test binaries (do not build bin/tests)
 .DEFAULT_GOAL := test-binaries
@@ -109,6 +111,9 @@ $(bindir)/test_missing_multiallelic_multinomial: $(objdir)/test_missing_multiall
 $(bindir)/test_supersite_vs_biallelic_simple: $(objdir)/test_supersite_vs_biallelic_simple.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
+$(bindir)/test_supersite_representation_parity: $(objdir)/test_supersite_representation_parity.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
 $(bindir)/test_forward_backward_comprehensive: $(objdir)/test_forward_backward_comprehensive.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
@@ -117,6 +122,9 @@ $(bindir)/test_packing_format_diagnostic: $(objdir)/test_packing_format_diagnost
 
 # Explicit compile rules for external sources (not under tests/src)
 $(objdir)/genotype_managment_from_pc.o: ../phase_common/src/objects/genotype/genotype_managment.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+$(objdir)/genotype_build.o: ../phase_common/src/objects/genotype/genotype_build.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_variant.o: ../phase_common/src/objects/variant.cpp
@@ -184,6 +192,9 @@ $(objdir)/test_supersite_perf_smoke.o: src/test_supersite_perf_smoke.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/test_supersite_combine.o: src/test_supersite_combine.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+$(objdir)/test_supersite_representation_parity.o: src/test_supersite_representation_parity.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 .PHONY: test-run
