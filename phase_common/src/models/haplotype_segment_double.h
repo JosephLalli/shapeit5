@@ -216,24 +216,52 @@ void haplotype_segment_double::SS_INIT_AMB() {
     const SuperSite& ss = (*super_sites)[ss_idx];
     uint8_t c0, c1;
     SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
-    
+
     // Load conditioning haplotype codes (cached after first call)
     ss_load_cond_codes(ss, ss_idx);
-    
-    ss_emissions_h1.resize(n_cond_haps, 1.0);
-    precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
-    precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
+
+    // Build per-lane expected class vector
+    uint8_t expected_class[HAP_NUMBER];
+    unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+                             ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+    if (c0 == c1) {
+        for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+    } else {
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            bool use_c1 = ((amb_mask >> h) & 1U);
+            expected_class[h] = use_c1 ? c1 : c0;
+        }
+    }
+
+    alignas(32) int expv[HAP_NUMBER];
+    for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
+    __m128i exp_lo_128 = _mm_load_si128((__m128i*)&expv[0]);
+    __m128i exp_hi_128 = _mm_load_si128((__m128i*)&expv[4]);
+    __m256d match_d = _mm256_set1_pd(1.0);
+    __m256d mis_d   = _mm256_set1_pd(M.ed/M.ee);
+
     __m256d _sum0 = _mm256_set1_pd(0.0);
     __m256d _sum1 = _mm256_set1_pd(0.0);
     for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        __m256d _emit0 = _mm256_set1_pd(ss_emissions[k]);
-        __m256d _emit1 = _mm256_set1_pd(ss_emissions_h1[k]);
-        __m256d _prob0 = _emit0;
-        __m256d _prob1 = _emit1;
-        _sum0 = _mm256_add_pd(_sum0, _prob0);
-        _sum1 = _mm256_add_pd(_sum1, _prob1);
-        _mm256_store_pd(&prob[i], _prob0);
-        _mm256_store_pd(&prob[i+4], _prob1);
+        int dc = (int)ss_cond_codes[k];
+        __m256i dc32 = _mm256_set1_epi32(dc);
+        // low half
+        __m256i exp_lo_32 = _mm256_cvtepi8_epi32(exp_lo_128);
+        __m256i eq_lo     = _mm256_cmpeq_epi32(dc32, exp_lo_32);
+        __m256i eq_lo64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_lo));
+        __m256d mask_lo   = _mm256_castsi256_pd(eq_lo64);
+        __m256d emit_lo   = _mm256_or_pd(_mm256_and_pd(mask_lo, match_d), _mm256_andnot_pd(mask_lo, mis_d));
+        // high half
+        __m256i exp_hi_32 = _mm256_cvtepi8_epi32(exp_hi_128);
+        __m256i eq_hi     = _mm256_cmpeq_epi32(dc32, exp_hi_32);
+        __m256i eq_hi64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_hi));
+        __m256d mask_hi   = _mm256_castsi256_pd(eq_hi64);
+        __m256d emit_hi   = _mm256_or_pd(_mm256_and_pd(mask_hi, match_d), _mm256_andnot_pd(mask_hi, mis_d));
+
+        _sum0 = _mm256_add_pd(_sum0, emit_lo);
+        _sum1 = _mm256_add_pd(_sum1, emit_hi);
+        _mm256_store_pd(&prob[i+0], emit_lo);
+        _mm256_store_pd(&prob[i+4], emit_hi);
     }
     _mm256_store_pd(&probSumH[0], _sum0);
     _mm256_store_pd(&probSumH[4], _sum1);
@@ -295,13 +323,29 @@ void haplotype_segment_double::SS_RUN_AMB() {
     const SuperSite& ss = (*super_sites)[ss_idx];
     uint8_t c0, c1;
     SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
-    
+
     // Load conditioning haplotype codes (cached after first call)
     ss_load_cond_codes(ss, ss_idx);
-    
-    ss_emissions_h1.resize(n_cond_haps, 1.0);
-    precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
-    precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
+
+    // Build expected class per lane
+    uint8_t expected_class[HAP_NUMBER];
+    unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+                             ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+    if (c0 == c1) {
+        for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+    } else {
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            bool use_c1 = ((amb_mask >> h) & 1U);
+            expected_class[h] = use_c1 ? c1 : c0;
+        }
+    }
+    alignas(32) int expv[HAP_NUMBER];
+    for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
+    __m128i exp_lo_128 = _mm_load_si128((__m128i*)&expv[0]);
+    __m128i exp_hi_128 = _mm_load_si128((__m128i*)&expv[4]);
+    __m256d match_d = _mm256_set1_pd(1.0);
+    __m256d mis_d   = _mm256_set1_pd(M.ed/M.ee);
+
     __m256d _sum0 = _mm256_set1_pd(0.0);
     __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
@@ -311,17 +355,30 @@ void haplotype_segment_double::SS_RUN_AMB() {
     _tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
     for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        __m256d _emit0 = _mm256_set1_pd(ss_emissions[k]);
-        __m256d _emit1 = _mm256_set1_pd(ss_emissions_h1[k]);
         __m256d _prob0 = _mm256_load_pd(&prob[i]);
         __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
         _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
         _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
-        _prob0 = _mm256_mul_pd(_prob0, _emit0);
-        _prob1 = _mm256_mul_pd(_prob1, _emit1);
-        _sum0 = _mm256_add_pd(_sum0, _prob0);
-        _sum1 = _mm256_add_pd(_sum1, _prob1);
-        _mm256_store_pd(&prob[i], _prob0);
+
+        int dc = (int)ss_cond_codes[k];
+        __m256i dc32 = _mm256_set1_epi32(dc);
+        __m256i exp_lo_32 = _mm256_cvtepi8_epi32(exp_lo_128);
+        __m256i eq_lo     = _mm256_cmpeq_epi32(dc32, exp_lo_32);
+        __m256i eq_lo64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_lo));
+        __m256d mask_lo   = _mm256_castsi256_pd(eq_lo64);
+        __m256d emit_lo   = _mm256_or_pd(_mm256_and_pd(mask_lo, match_d), _mm256_andnot_pd(mask_lo, mis_d));
+
+        __m256i exp_hi_32 = _mm256_cvtepi8_epi32(exp_hi_128);
+        __m256i eq_hi     = _mm256_cmpeq_epi32(dc32, exp_hi_32);
+        __m256i eq_hi64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_hi));
+        __m256d mask_hi   = _mm256_castsi256_pd(eq_hi64);
+        __m256d emit_hi   = _mm256_or_pd(_mm256_and_pd(mask_hi, match_d), _mm256_andnot_pd(mask_hi, mis_d));
+
+        _prob0 = _mm256_mul_pd(_prob0, emit_lo);
+        _prob1 = _mm256_mul_pd(_prob1, emit_hi);
+        _sum0  = _mm256_add_pd(_sum0, _prob0);
+        _sum1  = _mm256_add_pd(_sum1, _prob1);
+        _mm256_store_pd(&prob[i],   _prob0);
         _mm256_store_pd(&prob[i+4], _prob1);
     }
     _mm256_store_pd(&probSumH[0], _sum0);
@@ -397,29 +454,58 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
     const SuperSite& ss = (*super_sites)[ss_idx];
     uint8_t c0, c1;
     SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
-    
+
     // Load conditioning haplotype codes (cached after first call)
     ss_load_cond_codes(ss, ss_idx);
-    
-    ss_emissions_h1.resize(n_cond_haps, 1.0);
-    precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c0, 1.0, M.ed / M.ee, ss_emissions);
-    precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, c1, 1.0, M.ed / M.ee, ss_emissions_h1);
+
+    // Build expected class per lane
+    uint8_t expected_class[HAP_NUMBER];
+    unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+                             ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+    if (c0 == c1) {
+        for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+    } else {
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            bool use_c1 = ((amb_mask >> h) & 1U);
+            expected_class[h] = use_c1 ? c1 : c0;
+        }
+    }
+    alignas(32) int expv[HAP_NUMBER];
+    for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
+    __m128i exp_lo_128 = _mm_load_si128((__m128i*)&expv[0]);
+    __m128i exp_hi_128 = _mm_load_si128((__m128i*)&expv[4]);
+    __m256d match_d = _mm256_set1_pd(1.0);
+    __m256d mis_d   = _mm256_set1_pd(M.ed/M.ee);
+
     __m256d _sum0 = _mm256_set1_pd(0.0);
     __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
     for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        __m256d _emit0 = _mm256_set1_pd(ss_emissions[k]);
-        __m256d _emit1 = _mm256_set1_pd(ss_emissions_h1[k]);
         __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
         __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
         _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
         _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
-        _prob0 = _mm256_mul_pd(_prob0, _emit0);
-        _prob1 = _mm256_mul_pd(_prob1, _emit1);
-        _sum0 = _mm256_add_pd(_sum0, _prob0);
-        _sum1 = _mm256_add_pd(_sum1, _prob1);
-        _mm256_store_pd(&prob[i], _prob0);
+
+        int dc = (int)ss_cond_codes[k];
+        __m256i dc32 = _mm256_set1_epi32(dc);
+        __m256i exp_lo_32 = _mm256_cvtepi8_epi32(exp_lo_128);
+        __m256i eq_lo     = _mm256_cmpeq_epi32(dc32, exp_lo_32);
+        __m256i eq_lo64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_lo));
+        __m256d mask_lo   = _mm256_castsi256_pd(eq_lo64);
+        __m256d emit_lo   = _mm256_or_pd(_mm256_and_pd(mask_lo, match_d), _mm256_andnot_pd(mask_lo, mis_d));
+
+        __m256i exp_hi_32 = _mm256_cvtepi8_epi32(exp_hi_128);
+        __m256i eq_hi     = _mm256_cmpeq_epi32(dc32, exp_hi_32);
+        __m256i eq_hi64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_hi));
+        __m256d mask_hi   = _mm256_castsi256_pd(eq_hi64);
+        __m256d emit_hi   = _mm256_or_pd(_mm256_and_pd(mask_hi, match_d), _mm256_andnot_pd(mask_hi, mis_d));
+
+        _prob0 = _mm256_mul_pd(_prob0, emit_lo);
+        _prob1 = _mm256_mul_pd(_prob1, emit_hi);
+        _sum0  = _mm256_add_pd(_sum0, _prob0);
+        _sum1  = _mm256_add_pd(_sum1, _prob1);
+        _mm256_store_pd(&prob[i],   _prob0);
         _mm256_store_pd(&prob[i+4], _prob1);
     }
     _mm256_store_pd(&probSumH[0], _sum0);

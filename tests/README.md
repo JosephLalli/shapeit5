@@ -141,21 +141,22 @@ make -C tests -j$(nproc)
 make -C tests test-run
 
 # Or manually with proper library path
-LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_emissions
-LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_accessor
-LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_unpack
-LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_builder
-LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_missing_multiallelic_multinomial
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_emissions
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_accessor
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_unpack
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_builder
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_missing_multiallelic_multinomial
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_float_double_parity
 ```
 
 ### Individual Test Execution
 
 ```bash
 # Example: Run emission tests
-LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_emissions
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_emissions
 
 # Example: Run multinomial imputation validation
-LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_missing_multiallelic_multinomial
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_missing_multiallelic_multinomial
 ```
 
 ---
@@ -295,8 +296,8 @@ sudo ldconfig
 
 **Problem**: `error while loading shared libraries: libhts.so.3`
 ```bash
-# Solution: Add /usr/local/lib to LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+# Solution: Add Linuxbrew and /usr/local/lib to LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH
 # Or use the test-run target which sets this automatically
 make -C tests test-run
 ```

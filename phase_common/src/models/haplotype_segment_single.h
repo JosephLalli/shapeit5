@@ -205,21 +205,34 @@ inline
 void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
 	// Load cached conditioning haplotype codes
 	ss_load_cond_codes(ss, ss_idx);
-	
-	// Precompute emissions for both haplotypes
-	ss_emissions_h1.resize(n_cond_haps, 1.0f);
-	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
-	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
-	
-	// Initialize probabilities (low half = h0, high half = h1)
+
+	// Build per-lane expected class vector (8 lanes)
+	uint8_t expected_class[HAP_NUMBER];
+	unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+	                        ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+	if (c0 == c1) {
+		for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+	} else {
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			bool use_c1 = ((amb_mask >> h) & 1U);
+			expected_class[h] = use_c1 ? c1 : c0;
+		}
+	}
+	alignas(32) int expv[HAP_NUMBER];
+	for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
+	__m256i exp_vec = _mm256_load_si256((__m256i*)expv);
+	__m256 match_f = _mm256_set1_ps(1.0f);
+	__m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
+
 	__m256 _sum = _mm256_set1_ps(0.0f);
 	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-		__m128 _emit0 = _mm_set1_ps(ss_emissions[k]);
-		__m128 _emit1 = _mm_set1_ps(ss_emissions_h1[k]);
-		__m256 _combined = _mm256_castps128_ps256(_emit0);
-		_combined = _mm256_insertf128_ps(_combined, _emit1, 1);
-		_sum = _mm256_add_ps(_sum, _combined);
-		_mm256_store_ps(&prob[i], _combined);
+		int dc = (int)ss_cond_codes[k];
+		__m256i dc_vec = _mm256_set1_epi32(dc);
+		__m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
+		__m256  m_ps   = _mm256_castsi256_ps(eq);
+		__m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+		_sum = _mm256_add_ps(_sum, emit);
+		_mm256_store_ps(&prob[i], emit);
 	}
 	_mm256_store_ps(&probSumH[0], _sum);
 	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
@@ -265,13 +278,26 @@ inline
 bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
 	// Load cached conditioning haplotype codes
 	ss_load_cond_codes(ss, ss_idx);
-	
-	// Precompute emissions for both haplotypes
-	ss_emissions_h1.resize(n_cond_haps, 1.0f);
-	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
-	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
-	
-	// Update probabilities with transitions
+
+	// Build per-lane expected class vector
+	uint8_t expected_class[HAP_NUMBER];
+	unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+	                        ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+	if (c0 == c1) {
+		for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+	} else {
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			bool use_c1 = ((amb_mask >> h) & 1U);
+			expected_class[h] = use_c1 ? c1 : c0;
+		}
+	}
+	alignas(32) int expv[HAP_NUMBER];
+	for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
+	__m256i exp_vec = _mm256_load_si256((__m256i*)expv);
+	__m256 match_f = _mm256_set1_ps(1.0f);
+	__m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
+
+	// Update probabilities with transitions and per-lane emissions
 	__m256 _sum = _mm256_set1_ps(0.0f);
 	__m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
 	__m256 _tFreq = _mm256_load_ps(&probSumH[0]);
@@ -281,16 +307,14 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
 	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
 		__m256 _prob = _mm256_load_ps(&prob[i]);
 		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-		__m128 _prob_low = _mm256_castps256_ps128(_prob);
-		__m128 _prob_hi  = _mm256_extractf128_ps(_prob, 1);
-		__m128 _emit0 = _mm_set1_ps(ss_emissions[k]);
-		__m128 _emit1 = _mm_set1_ps(ss_emissions_h1[k]);
-		_prob_low = _mm_mul_ps(_prob_low, _emit0);
-		_prob_hi  = _mm_mul_ps(_prob_hi,  _emit1);
-		__m256 _combined = _mm256_castps128_ps256(_prob_low);
-		_combined = _mm256_insertf128_ps(_combined, _prob_hi, 1);
-		_sum = _mm256_add_ps(_sum, _combined);
-		_mm256_store_ps(&prob[i], _combined);
+		int dc = (int)ss_cond_codes[k];
+		__m256i dc_vec = _mm256_set1_epi32(dc);
+		__m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
+		__m256  m_ps   = _mm256_castsi256_ps(eq);
+		__m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+		_prob = _mm256_mul_ps(_prob, emit);
+		_sum = _mm256_add_ps(_sum, _prob);
+		_mm256_store_ps(&prob[i], _prob);
 	}
 	_mm256_store_ps(&probSumH[0], _sum);
 	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
@@ -346,13 +370,26 @@ inline
 void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
 	// Load cached conditioning haplotype codes
 	ss_load_cond_codes(ss, ss_idx);
-	
-	// Precompute emissions for both haplotypes
-	ss_emissions_h1.resize(n_cond_haps, 1.0f);
-	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c0, 1.0f, (float)(M.ed/M.ee), ss_emissions);
-	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, c1, 1.0f, (float)(M.ed/M.ee), ss_emissions_h1);
-	
-	// Collapse from probSumK
+
+	// Build per-lane expected class vector
+	uint8_t expected_class[HAP_NUMBER];
+	unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+	                        ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+	if (c0 == c1) {
+		for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+	} else {
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			bool use_c1 = ((amb_mask >> h) & 1U);
+			expected_class[h] = use_c1 ? c1 : c0;
+		}
+	}
+	alignas(32) int expv[HAP_NUMBER];
+	for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
+	__m256i exp_vec = _mm256_load_si256((__m256i*)expv);
+	__m256 match_f = _mm256_set1_ps(1.0f);
+	__m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
+
+	// Collapse from probSumK with per-lane emissions
 	__m256 _sum = _mm256_set1_ps(0.0f);
 	__m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
 	__m256 _nt = _mm256_set1_ps(nt / probSumT);
@@ -360,16 +397,14 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
 	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
 		__m256 _prob = _mm256_set1_ps(probSumK[k]);
 		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-		__m128 _prob_low = _mm256_castps256_ps128(_prob);
-		__m128 _prob_hi  = _mm256_extractf128_ps(_prob, 1);
-		__m128 _emit0 = _mm_set1_ps(ss_emissions[k]);
-		__m128 _emit1 = _mm_set1_ps(ss_emissions_h1[k]);
-		_prob_low = _mm_mul_ps(_prob_low, _emit0);
-		_prob_hi  = _mm_mul_ps(_prob_hi,  _emit1);
-		__m256 _combined = _mm256_castps128_ps256(_prob_low);
-		_combined = _mm256_insertf128_ps(_combined, _prob_hi, 1);
-		_sum = _mm256_add_ps(_sum, _combined);
-		_mm256_store_ps(&prob[i], _combined);
+		int dc = (int)ss_cond_codes[k];
+		__m256i dc_vec = _mm256_set1_epi32(dc);
+		__m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
+		__m256  m_ps   = _mm256_castsi256_ps(eq);
+		__m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+		_prob = _mm256_mul_ps(_prob, emit);
+		_sum = _mm256_add_ps(_sum, _prob);
+		_mm256_store_ps(&prob[i], _prob);
 	}
 	_mm256_store_ps(&probSumH[0], _sum);
 	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];

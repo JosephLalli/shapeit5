@@ -152,6 +152,38 @@ SHAPEIT5 — `phase_common` super-site integration
 3. Validate mutual exclusivity in output BCF
 4. Performance profiling (multinomial overhead vs. biallelic)
 
+## Critical Bug (Nov 2025): Supersite AMB lane semantics mismatch
+
+Summary
+- At ambiguous (HET) supersite anchors, the current supersite emission uses two scalars per donor (one broadcast to lanes 0–3, one broadcast to lanes 4–7). The biallelic path, however, gates emissions per lane using the 8‑bit `G.Ambiguous` mask (checkerboard or more complex patterns from `MASK_UNF*`).
+- This half‑lane broadcast vs. 8‑lane mask mismatch causes large, post‑anchor divergences in per‑lane `probSumH` and `probSumT` between with/without `--enable-supersites`, even on datasets where results should be identical.
+
+Impact
+- Forward/backward totals at/after the anchor differ by orders of magnitude in the representation parity harness, not explained by “one other‑ALT donor”. The difference propagates because RUN/COLLAPSE recurrences are lane‑wise and renormalize by `probSumT`.
+- Downstream most‑likely phasing diverges between builds where it should not.
+
+Evidence
+- See `tests/bin/test_supersite_representation_parity` TSV logs:
+  - Biallelic AMB details show 8‑lane `g0/g1` emission vectors (e.g., checkerboards), derived from `G.Ambiguous`.
+  - Supersite AMB details show donor emissions as two scalars per donor (`emit_low(c0)`, `emit_high(c1)`), flat within halves.
+  - Forward/Backward traces confirm large post‑anchor deltas in `probSumH`/`probSumT` tied to this mismatch.
+
+Root cause
+- Supersite AMB helpers (`SS_INIT_AMB`, `SS_RUN_AMB`, `SS_COLLAPSE_AMB`) assume “lanes 0–3 = hap0, lanes 4–7 = hap1” and broadcast two scalars per donor. Biallelic AMB does not make this assumption; it applies an 8‑lane mask (`G.Ambiguous`) and multiplies by a full 8‑lane emission vector.
+
+Fix strategy (do not implement here; tracked for refactor)
+- At supersite anchors, construct the 8‑lane expected‑allele mask exactly as the biallelic path would do at the anchor split (reusing `G.Ambiguous` semantics):
+  1) Identify the anchor split within the supersite: `anchor_idx = ss.global_site_id`; `anchor_alt_code = (index_in_ss + 1)`.
+  2) Derive per‑lane expected allele at the anchor from `G.Ambiguous[curr_abs_ambiguous]` (the same mask biallelic uses to build `g0/g1`).
+  3) For each donor, compute two scalars: `e_alt(k)` (match if donor carries the anchor ALT at the anchor split, else ed/ee) and `e_ref(k)` (match if donor is REF at the anchor split, else ed/ee). Treat “other ALT” donors as REF at the anchor split, mirroring biallelic.
+  4) Blend `e_ref/e_alt` into a full 8‑lane emission vector using the per‑lane mask. Do not broadcast by halves.
+  5) Apply RUN/COLLAPSE recurrences unchanged; sibling gating unchanged.
+
+Validation plan
+- Extend tests to dump `G.Ambiguous` and per‑lane emission vectors at anchors; assert supersite and biallelic emissions are equal lane‑by‑lane at the anchor on synthetic cases.
+- Use the representation parity test to verify forward/backward parity (within tolerance) and identical most‑likely phasing for datasets that should agree.
+
+
 ## Prioritized Work Queue
 **Phase 3 Implementation Complete - Ready for Testing:**
 1. ✅ Data structures (SuperSite.class_prob_offset, compute_job.SC, anchor_has_missing)
@@ -188,3 +220,97 @@ SHAPEIT5 — `phase_common` super-site integration
 - Keep supersite-related fixtures synthetic for now; real data will live under `tests/data/` once smoke tests are added.
 - External refs: HTSlib docs, Intel AVX2 intrinsics guide, Li & Stephens (2003).
 
+## Supersite AMB Refactor (Design + Code Sketches)
+
+Goal
+- At supersite anchors, compute emissions lane-by-lane using the same 8-lane semantics as the biallelic AMB path, while preserving the strict 4‑bit class equality rule: emission = 1.0 iff donor supersite code equals the lane’s expected supersite class; otherwise ed/ee. No collapsing of “other ALT” to REF.
+
+Where to change
+- Float: `phase_common/src/models/haplotype_segment_single.h` in `SS_INIT_AMB`, `SS_RUN_AMB`, `SS_COLLAPSE_AMB` (anchor only)
+- Double: `phase_common/src/models/haplotype_segment_double.h` in `SS_INIT_AMB`, `SS_RUN_AMB`, `SS_COLLAPSE_AMB` (anchor only)
+
+Inputs on hand
+- `ss_cond_codes[k]` donor codes (0..15) from packed 4-bit per-hap encoding.
+- `classify_supersite(G, ss, super_site_var_index, c0, c1)` returns target hap classes at the supersite (supports 0/ALT and ALT/ALT such as 2/3).
+- `G->Ambiguous[curr_abs_ambiguous]` is the 8-bit per-lane mask the biallelic AMB path uses to shape g0/g1.
+
+1) Build expected class per lane
+```c++
+uint8_t expected_class[8];
+uint8_t c0, c1; // from classify_supersite(...)
+unsigned char amb = G->Ambiguous[curr_abs_ambiguous]; // 8-bit
+if (c0 == c1) {
+  for (int h = 0; h < 8; ++h) expected_class[h] = c0; // HOM: uniform lanes
+} else {
+  for (int h = 0; h < 8; ++h) {
+    bool use_c1 = ((amb >> h) & 1U);
+    expected_class[h] = use_c1 ? c1 : c0; // AMB: per-lane choice of c0/c1
+  }
+}
+```
+
+2) Per-donor 8-lane emission by 4-bit equality
+```c++
+// donor_code[k] in [0..15]
+float E8[8];
+for (int h = 0; h < 8; ++h) {
+  E8[h] = (donor_code[k] == expected_class[h]) ? 1.0f : (float)(M.ed / M.ee);
+}
+// INIT: prob[i+h] = E8[h]
+// RUN/COLLAPSE: prob'[i+h] = transition_mix[i+h] * E8[h]
+```
+
+3) AVX2 sketches
+- Float (8 lanes):
+```c++
+alignas(32) int expv[8]; for (int h=0; h<8; ++h) expv[h] = (int)expected_class[h];
+__m256i exp_vec = _mm256_load_si256((__m256i*)expv);
+__m256 match_f = _mm256_set1_ps(1.0f);
+__m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
+
+int dc = (int)ss_cond_codes[k];
+__m256i dc_vec = _mm256_set1_epi32(dc);
+__m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);  // 8x mask
+__m256  m_ps   = _mm256_castsi256_ps(eq);
+__m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+```
+
+- Double (process halves as 4 lanes):
+```c++
+alignas(32) int expv[8]; for (int h=0; h<8; ++h) expv[h] = (int)expected_class[h];
+__m128i exp_lo_128 = _mm_load_si128((__m128i*)&expv[0]);
+__m128i exp_hi_128 = _mm_load_si128((__m128i*)&expv[4]);
+__m256d match_d = _mm256_set1_pd(1.0);
+__m256d mis_d   = _mm256_set1_pd(M.ed/M.ee);
+
+int dc = (int)ss_cond_codes[k];
+__m256i dc32 = _mm256_set1_epi32(dc);
+
+// lanes 0..3
+__m256i exp_lo_32 = _mm256_cvtepi8_epi32(exp_lo_128);
+__m256i eq_lo     = _mm256_cmpeq_epi32(dc32, exp_lo_32);
+__m256i eq_lo64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_lo));
+__m256d mask_lo   = _mm256_castsi256_pd(eq_lo64);
+__m256d emit_lo   = _mm256_or_pd(_mm256_and_pd(mask_lo, match_d), _mm256_andnot_pd(mask_lo, mis_d));
+
+// lanes 4..7
+__m256i exp_hi_32 = _mm256_cvtepi8_epi32(exp_hi_128);
+__m256i eq_hi     = _mm256_cmpeq_epi32(dc32, exp_hi_32);
+__m256i eq_hi64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_hi));
+__m256d mask_hi   = _mm256_castsi256_pd(eq_hi64);
+__m256d emit_hi   = _mm256_or_pd(_mm256_and_pd(mask_hi, match_d), _mm256_andnot_pd(mask_hi, mis_d));
+
+// store 8 lanes for donor k at offset i
+_mm256_store_pd(&prob[i+0], emit_lo);
+_mm256_store_pd(&prob[i+4], emit_hi);
+```
+
+4) Keep the HMM recurrence and gating unchanged
+- RUN: `prob'[k,h] = E_k[h] * ( prob[k,h]*(nt/probSumT) + probSumH[h]*(yt/(n*probSumT)) )`
+- COLLAPSE: `prob'[k,h] = E_k[h] * ( probSumK[k]*(nt/probSumT) + yt/n )`
+- Siblings: continue to skip DP (no double counting).
+
+5) Tests
+- Anchor emission parity (including multi‑ALT 2/3): supersite vs biallelic lane‑by‑lane equality at the anchor.
+- HMM microcases: INIT/RUN/COLLAPSE with supersites at anchors; assert per‑lane probSumH/probSumT against derived expectations.
+- Representation parity: realistic dataset shows tight FB parity and identical most‑likely phasing across builds.

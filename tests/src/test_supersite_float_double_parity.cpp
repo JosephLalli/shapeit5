@@ -83,7 +83,7 @@ int main() {
 
     // Parity check (tolerant to small FP differences)
     const double tol_prob = 1e-5;
-    const double tol_sum = 3e-6; // scaled to measured probSumT diff (~1.76e-6) with margin
+    const double tol_sum = 3e-6; // fixed tolerance based on observed diff (~1.76e-6)
     assert(HS.prob.size() == HD.prob.size());
     for (size_t i = 0; i < HS.prob.size(); ++i) {
         double diff = std::fabs((double)HS.prob[i] - HD.prob[i]);
