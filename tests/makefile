@@ -70,7 +70,7 @@ $(bindir)/test_missing_multiallelic_multinomial: $(objdir)/test_missing_multiall
 $(bindir)/test_supersite_vs_biallelic_simple: $(objdir)/test_supersite_vs_biallelic_simple.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
-$(bindir)/test_forward_backward_comprehensive: $(objdir)/test_forward_backward_comprehensive.o
+$(bindir)/test_forward_backward_comprehensive: $(objdir)/test_forward_backward_comprehensive.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_packing_format_diagnostic: $(objdir)/test_packing_format_diagnostic.o
