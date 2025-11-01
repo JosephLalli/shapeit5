@@ -16,7 +16,7 @@ comparison_region=chr22:19000000-24000000
 
 in_bcf='wgs/1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.unphased.native_maps.biallelic.18000000-25000000.bcf'
 scaffold_bcf_prefix="$tmp_dir/chr22.1KGP.18-25mb.phase_common"
-if [[ 'x' == 'y' ]]; then
+# if [[ 'x' == 'y' ]]; then
 if [[ ! -s $scaffold_bcf_prefix.og.bcf ]]; then
 /usr/bin/time ./SHAPEIT5_phase_common_static_v1.1.1 \
   --input $in_bcf \
@@ -24,7 +24,7 @@ if [[ ! -s $scaffold_bcf_prefix.og.bcf ]]; then
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.og.bcf \
-  --thread 8
+  --thread 32
 fi
 
 /usr/bin/time ../phase_common/bin/phase_common \
@@ -33,14 +33,33 @@ fi
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.main_algo.bcf \
-  --thread 8
-fi
+  --thread 32
+# fi
 /usr/bin/time ../phase_common/bin/phase_common \
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.supersites.bcf \
-  --enable-supersites
+  --enable-supersites \
+  --thread 32
+
+../switch/bin/switch \
+  --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
+  --estimation "$scaffold_bcf_prefix.og.bcf" \
+  --region $comparison_region \
+  --output "$tmp_dir/$scaffold_bcf_prefix.og"
+
+../switch/bin/switch \
+  --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
+  --estimation "$scaffold_bcf_prefix.main_algo.bcf" \
+  --region $comparison_region \
+  --output "$tmp_dir/$scaffold_bcf_prefix.main_algo"
+  
+../switch/bin/switch \
+  --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
+  --estimation "$scaffold_bcf_prefix.supersites.bcf" \
+  --region $comparison_region \
+  --output "$tmp_dir/$scaffold_bcf_prefix.supersites"
 
 #assert_same_variants "$filtered_bcf" "$SCRIPT_DIR/expected/phase.wgs.unrelated.vcf"
