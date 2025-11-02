@@ -48,8 +48,8 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_perf_smoke \
     $(bindir)/test_supersite_combine \
     $(bindir)/test_supersite_representation_parity \
-    $(bindir)/test_supersite_expansion_parity \
-    $(bindir)/test_supersite_expected_codes
+    $(bindir)/test_supersite_expansion_parity
+#    $(bindir)/test_supersite_expected_codes  # TODO: File missing, commented out for now
 
 # Default goal: only build test binaries (do not build bin/tests)
 .DEFAULT_GOAL := test-binaries
