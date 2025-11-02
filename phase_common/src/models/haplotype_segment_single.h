@@ -123,7 +123,7 @@ private:
 	
 	void SUMK();
 	void IMPUTE(std::vector < float > & );
-	void IMPUTE_SUPERSITE_MULTINOMIAL(std::vector<float>& SC, const SuperSite& ss, int ss_idx);
+	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector<float>& SC, const SuperSite& ss, int ss_idx);
 	bool TRANS_HAP();
 	bool TRANS_DIP_MULT();
 	bool TRANS_DIP_ADD();
@@ -511,7 +511,7 @@ void haplotype_segment_single::INIT_HOM() {
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
             // Sibling at window boundary: initialize neutrally to avoid underflow
-            SS_INIT_MIS();
+            INIT_MIS();  // BUG FIX #1: Use biallelic MIS (representation-agnostic)
             return;
         }
         
@@ -519,7 +519,7 @@ void haplotype_segment_single::INIT_HOM() {
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
-            case SSClass::MIS: SS_INIT_MIS(); return;
+            case SSClass::MIS: INIT_MIS(); return;
             case SSClass::HOM: SS_INIT_HOM(ss, ss_idx, c0); return;
             case SSClass::AMB: SS_INIT_AMB(ss, ss_idx, c0, c1); return;
         }
@@ -554,7 +554,7 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
-            case SSClass::MIS: return SS_RUN_MIS();
+            case SSClass::MIS: RUN_MIS(); return true;  // BUG FIX #1: Use biallelic MIS
             case SSClass::HOM: return SS_RUN_HOM(ss, ss_idx, c0);
             case SSClass::AMB: return SS_RUN_AMB(ss, ss_idx, c0, c1);
         }
@@ -600,7 +600,7 @@ void haplotype_segment_single::COLLAPSE_HOM() {
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
-            case SSClass::MIS: SS_COLLAPSE_MIS(); return;
+            case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
             case SSClass::HOM: SS_COLLAPSE_HOM(ss, ss_idx, c0); return;
             case SSClass::AMB: SS_COLLAPSE_AMB(ss, ss_idx, c0, c1); return;
         }
@@ -638,7 +638,7 @@ void haplotype_segment_single::INIT_AMB() {
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
             // Sibling at window boundary: initialize neutrally to avoid underflow
-            SS_INIT_MIS();
+            INIT_MIS();  // BUG FIX #1: Use biallelic MIS
             return;
         }
 
@@ -646,7 +646,7 @@ void haplotype_segment_single::INIT_AMB() {
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
-            case SSClass::MIS: SS_INIT_MIS(); return;
+            case SSClass::MIS: INIT_MIS(); return;  // BUG FIX #1: Use biallelic MIS
             case SSClass::HOM: SS_INIT_HOM(ss, ss_idx, c0); return;
             case SSClass::AMB: SS_INIT_AMB(ss, ss_idx, c0, c1); return;
         }
@@ -686,7 +686,7 @@ void haplotype_segment_single::RUN_AMB() {
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
-            case SSClass::MIS: SS_RUN_MIS(); return;
+            case SSClass::MIS: RUN_MIS(); return;  // BUG FIX #1: Use biallelic MIS
             case SSClass::HOM: SS_RUN_HOM(ss, ss_idx, c0); return;
             case SSClass::AMB: SS_RUN_AMB(ss, ss_idx, c0, c1); return;
         }
@@ -772,7 +772,7 @@ void haplotype_segment_single::COLLAPSE_AMB() {
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
-            case SSClass::MIS: SS_COLLAPSE_MIS(); return;
+            case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
             case SSClass::HOM: SS_COLLAPSE_HOM(ss, ss_idx, c0); return;
             case SSClass::AMB: SS_COLLAPSE_AMB(ss, ss_idx, c0, c1); return;
         }
@@ -972,11 +972,11 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
     }
 }
 
-// Phase 3: Impute multinomial posteriors for missing supersite
+// Phase 3: Impute multivariant posteriors for missing supersite
 // Computes P(class_c | Alpha, Beta) for each class c ∈ {REF, ALT1, ..., ALTn}
 // Storage: SC[offset + h*C + c] where h=lane, C=num_classes, c=class_index
 inline
-void haplotype_segment_single::IMPUTE_SUPERSITE_MULTINOMIAL(
+void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
     std::vector<float>& SC, 
     const SuperSite& ss, 
     int ss_idx) 
