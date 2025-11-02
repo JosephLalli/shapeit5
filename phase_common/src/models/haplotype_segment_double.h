@@ -159,8 +159,42 @@ public:
 /*******************************************************************************/
 /*****************     SUPERSITE HELPER FUNCTIONS (Phase 2)     ***************/
 /*******************************************************************************/
-/*****************     SUPERSITE HELPER FUNCTIONS (Phase 2)     ***************/
-/*******************************************************************************/
+
+/*
+ * EMISSION PATTERN DESIGN RATIONALE (BUG #6 DOCUMENTATION):
+ * 
+ * Biallelic and supersite code use different emission computation patterns,
+ * but both implement identical Li & Stephens emission probabilities:
+ *   emit[h] = (donor_matches_sample[h]) ? 1.0 : (ed/ee)
+ * 
+ * BIALLELIC PATTERN (optimized for binary alleles):
+ *   Uses inline conditional multiplication:
+ *     if (ag != ah) _prob *= mismatch;
+ *   Advantages:
+ *     - Minimal overhead for simple boolean comparison (0 vs 1)
+ *     - Direct scalar-vector multiplication
+ *     - Cache-friendly for dense biallelic data
+ * 
+ * SUPERSITE PATTERN (required for per-lane multi-allelic semantics):
+ *   Uses precomputed emission vectors or SIMD blend:
+ *     emit = _mm256_blendv_ps(mis_f, match_f, match_mask);
+ *   Advantages:
+ *     - Handles per-lane expected class (each lane may expect different ALT)
+ *     - Supports 4-bit allele codes (0-15) vs binary (0-1)
+ *     - AMB sites need different emissions per lane based on amb_code mask
+ *   Requirements:
+ *     - Must build per-lane expected class array from amb_code
+ *     - Must compare donor 4-bit code against per-lane expected codes
+ *     - Cannot use simple scalar broadcast (each lane has different expectation)
+ * 
+ * MATHEMATICAL EQUIVALENCE:
+ *   Biallelic: if (donor_allele != sample_allele) → multiply by (ed/ee)
+ *   Supersite: if (donor_code != expected_class[lane]) → multiply by (ed/ee)
+ *   Both: P(observe sample | donor state) = match ? 1.0 : error_rate
+ * 
+ * DECISION: Keep both patterns (each optimized for its use case).
+ * The divergence is intentional and necessary, not a bug to fix.
+ */
 
 // Phase 3: Caching helper to load conditioning haplotype codes once per supersite
 inline
@@ -535,7 +569,7 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
         }
     }
 
-    // Precompute expected vector based on mode (BUG FIX #5: unified code path)
+    // Precompute expected vector based on mode
     __m256d match_d = _mm256_set1_pd(1.0);
     __m256d mis_d   = _mm256_set1_pd(M.ed/M.ee);
     alignas(32) int exp_arr[HAP_NUMBER];

@@ -160,6 +160,42 @@ public:
 /*****************         SUPERSITE HELPER FUNCTIONS      ********************/
 /*******************************************************************************/
 
+/*
+ * EMISSION PATTERN DESIGN RATIONALE (BUG #6 DOCUMENTATION):
+ * 
+ * Biallelic and supersite code use different emission computation patterns,
+ * but both implement identical Li & Stephens emission probabilities:
+ *   emit[h] = (donor_matches_sample[h]) ? 1.0 : (ed/ee)
+ * 
+ * BIALLELIC PATTERN (optimized for binary alleles):
+ *   Uses inline conditional multiplication:
+ *     if (ag != ah) _prob *= mismatch;
+ *   Advantages:
+ *     - Minimal overhead for simple boolean comparison (0 vs 1)
+ *     - Direct scalar-vector multiplication
+ *     - Cache-friendly for dense biallelic data
+ * 
+ * SUPERSITE PATTERN (required for per-lane multi-allelic semantics):
+ *   Uses precomputed emission vectors or SIMD blend:
+ *     emit = _mm256_blendv_ps(mis_f, match_f, match_mask);
+ *   Advantages:
+ *     - Handles per-lane expected class (each lane may expect different ALT)
+ *     - Supports 4-bit allele codes (0-15) vs binary (0-1)
+ *     - AMB sites need different emissions per lane based on amb_code mask
+ *   Requirements:
+ *     - Must build per-lane expected class array from amb_code
+ *     - Must compare donor 4-bit code against per-lane expected codes
+ *     - Cannot use simple scalar broadcast (each lane has different expectation)
+ * 
+ * MATHEMATICAL EQUIVALENCE:
+ *   Biallelic: if (donor_allele != sample_allele) → multiply by (ed/ee)
+ *   Supersite: if (donor_code != expected_class[lane]) → multiply by (ed/ee)
+ *   Both: P(observe sample | donor state) = match ? 1.0 : error_rate
+ * 
+ * DECISION: Keep both patterns (each optimized for its use case).
+ * The divergence is intentional and necessary, not a bug to fix.
+ */
+
 // Cache donor codes for a supersite to avoid repeated unpacking
 inline
 void haplotype_segment_single::ss_load_cond_codes(const SuperSite& ss, int ss_idx) {
