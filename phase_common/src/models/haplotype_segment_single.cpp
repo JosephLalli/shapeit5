@@ -66,9 +66,6 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
     const std::vector<int>* _super_site_var_index) :
     G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site),
     locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), super_site_var_index(_super_site_var_index), cond_idx(&idxH) {
-	// Initialize experimental flags
-	init_collapse_normalization();
-	
 	segment_first = W.start_segment;
 	segment_last = W.stop_segment;
 	locus_first = W.start_locus;

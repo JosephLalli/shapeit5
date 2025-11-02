@@ -798,3 +798,7 @@ Alignment items for supersites:
 - `phase_common/src/phaser/phaser_algorithm.cpp`: Window segmentation, threading, precision fallback
 - `common/src/utils/otools.h`: `aligned_vector32`, toolbox externs
 - `tests/makefile`: Unit test build rules, external object linking
+
+
+## Side note re: compilation 
+- This is a many cpu machine, and I recommend making with -j24 argument

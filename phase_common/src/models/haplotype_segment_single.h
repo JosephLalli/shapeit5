@@ -616,8 +616,9 @@ void haplotype_segment_single::COLLAPSE_HOM() {
     // BUG #4 EXPERIMENTAL: Test normalization behavior
     // Default (env not set): _tFreq = yt / n_cond_haps (current behavior)
     // With SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION=1: _tFreq = (yt * probSumT) / n_cond_haps
-    extern bool normalize_collapse_transition_enabled();
-    __m256 _tFreq = normalize_collapse_transition_enabled() 
+    static const char* norm_env = std::getenv("SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION");
+    static const bool use_normalization = (norm_env && norm_env[0] != '\0' && norm_env[0] != '0');
+    __m256 _tFreq = use_normalization
         ? _mm256_set1_ps((yt * probSumT) / n_cond_haps)
         : _mm256_set1_ps(yt / n_cond_haps);
     __m256 _nt = _mm256_set1_ps(nt / probSumT);
@@ -846,8 +847,9 @@ inline
 void haplotype_segment_single::COLLAPSE_MIS() {
 	__m256 _sum = _mm256_set1_ps(0.0f);
 	// BUG #4 EXPERIMENTAL: Test normalization behavior
-	extern bool normalize_collapse_transition_enabled();
-	__m256 _tFreq = normalize_collapse_transition_enabled()
+	static const char* norm_env = std::getenv("SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION");
+	static const bool use_normalization = (norm_env && norm_env[0] != '\0' && norm_env[0] != '0');
+	__m256 _tFreq = use_normalization
 	    ? _mm256_set1_ps((yt * probSumT) / n_cond_haps)
 	    : _mm256_set1_ps(yt / n_cond_haps);
 	__m256 _nt = _mm256_set1_ps(nt / probSumT);
