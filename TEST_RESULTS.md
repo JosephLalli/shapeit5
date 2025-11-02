@@ -28,7 +28,7 @@ g++ -std=c++17 -O3 -mavx2 -mfma ... -o bin/test_supersite_emissions_real
 g++ -std=c++17 -O3 -mavx2 -mfma ... -o bin/test_supersite_accessor
 g++ -std=c++17 -O3 -mavx2 -mfma ... -o bin/test_supersite_unpack
 g++ -std=c++17 -O3 -mavx2 -mfma ... -o bin/test_supersite_builder
-g++ -std=c++17 -O3 -mavx2 -mfma ... -o bin/test_missing_multiallelic_multinomial
+g++ -std=c++17 -O3 -mavx2 -mfma ... -o bin/test_missing_multiallelic_multivariant
 g++ -std=c++17 -O3 -mavx2 -mfma ... -o bin/test_supersite_vs_biallelic_simple
 ```
 
@@ -37,7 +37,7 @@ g++ -std=c++17 -O3 -mavx2 -mfma ... -o bin/test_supersite_vs_biallelic_simple
 - `bin/test_supersite_accessor` (142 KB)
 - `bin/test_supersite_unpack` (14 KB)
 - `bin/test_supersite_builder` (186 KB)
-- `bin/test_missing_multiallelic_multinomial` (154 KB)
+- `bin/test_missing_multiallelic_multivariant` (154 KB)
 - `bin/test_supersite_vs_biallelic_simple` (162 KB)
 
 ## Test Execution Results
@@ -120,9 +120,9 @@ All tests passed!
 
 **Status**: ✅ PASS (6/6 scenarios)
 
-### Test 5: test_missing_multiallelic_multinomial ✅ PASS
+### Test 5: test_missing_multiallelic_multivariant ✅ PASS
 
-**Purpose**: Validate Phase 3 multinomial imputation structure
+**Purpose**: Validate Phase 3 multivariant imputation structure
 
 ```
 Testing missing multiallelic site imputation (Phase 3)...
@@ -130,7 +130,7 @@ Testing missing multiallelic site imputation (Phase 3)...
   Verifying conditioning haplotype codes...
   Checking missing data detection across splits...
   Verifying supersite context setting...
-  Validating structure for multinomial imputation...
+  Validating structure for multivariant imputation...
 All tests passed!
 ```
 
@@ -207,7 +207,7 @@ Two older tests are intentionally skipped (old pre-Phase 3 implementation):
    - Correctly identifies multiallelic sites (same chr:bp)
    - Proper split record grouping
 
-6. **Phase 3 Multinomial Imputation Structure**
+6. **Phase 3 Multivariant Imputation Structure**
    - Supersite context setting
    - Class probability offset allocation
    - n_classes computation
@@ -216,7 +216,7 @@ Two older tests are intentionally skipped (old pre-Phase 3 implementation):
 
 1. **Full HMM Integration**
    - Complete forward-backward passes with supersites
-   - Multinomial imputation sampling
+   - Multivariant imputation sampling
    - Alpha/Beta value verification
 
 2. **Mutual Exclusivity**
@@ -288,6 +288,6 @@ All 6 test suites (36 individual scenarios) pass successfully, providing strong 
 - Emission computation
 - Missing data handling
 - Biallelic equivalence
-- Phase 3 multinomial imputation structure
+- Phase 3 multivariant imputation structure
 
 The test infrastructure is production-ready and provides a solid foundation for future development and validation.

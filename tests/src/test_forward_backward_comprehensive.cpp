@@ -5,7 +5,7 @@
  * 1. All biallelic variants (baseline)
  * 2. One multiallelic variant (supersite support)
  * 3. Missing data at biallelic variant
- * 4. Missing data at multiallelic variant (Phase 3 multinomial)
+ * 4. Missing data at multiallelic variant (Phase 3 multivariant)
  * 
  * Each test creates minimal conditioning panel and target genotypes,
  * runs forward/backward passes, and prints intermediate Alpha/Beta values
@@ -79,7 +79,7 @@ int main() {
     std::cout << "  1. All biallelic variants (baseline)" << std::endl;
     std::cout << "  2. One multiallelic variant (2 ALTs)" << std::endl;
     std::cout << "  3. Missing data at biallelic variant" << std::endl;
-    std::cout << "  4. Missing data at multiallelic variant (Phase 3 multinomial)" << std::endl;
+    std::cout << "  4. Missing data at multiallelic variant (Phase 3 multivariant)" << std::endl;
     std::cout << std::endl;
     std::cout << "NOTE: Tests print intermediate Alpha/Beta values for manual verification." << std::endl;
     std::cout << "See HMM_CALCULATION_GUIDE.md for step-by-step calculation instructions." << std::endl;
@@ -381,7 +381,7 @@ void test_missing_multiallelic() {
     std::cout << "  1 multiallelic site FULLY MISSING (both splits missing)" << std::endl;
     std::cout << "  4 conditioning haplotypes with diverse allele codes" << std::endl;
     std::cout << "  Target sample: ./. at multiallelic site" << std::endl;
-    std::cout << "  Tests Phase 3 multinomial imputation structure" << std::endl;
+    std::cout << "  Tests Phase 3 multivariant imputation structure" << std::endl;
     std::cout << std::endl;
     
     // Create split records
@@ -467,7 +467,7 @@ void test_missing_multiallelic() {
     std::cout << "    AlphaMissing exists: " << (!HS.AlphaMissing.empty() ? "yes" : "no") << std::endl;
     std::cout << std::endl;
     
-    std::cout << "  NOTE: Phase 3 multinomial imputation (SC buffer, anchor_has_missing)" << std::endl;
+    std::cout << "  NOTE: Phase 3 multivariant imputation (SC buffer, anchor_has_missing)" << std::endl;
     std::cout << "        would be populated during backward pass for actual imputation." << std::endl;
     std::cout << "        This test validates that missing multiallelic data is detected." << std::endl;
     std::cout << std::endl;

@@ -1,5 +1,5 @@
  /*******************************************************************************
-  * Supersite multinomial backward test
+  * Supersite multivariant backward test
   *
   * Verifies that backward() computes class posteriors (SC buffer) for a fully
   * missing supersite and that per-haplotype class probabilities normalize to 1.
@@ -50,7 +50,7 @@ static void setup_genotype_missing(genotype& G, unsigned int n_variants) {
 }
 
 int main() {
-    std::cout << "Testing supersite backward multinomial normalization..." << std::endl;
+    std::cout << "Testing supersite backward multivariant normalization..." << std::endl;
 
     // Supersite with 2 splits at same position
     variant_map V;
@@ -114,7 +114,7 @@ int main() {
     HS.forward();
 
     // White-box: set a simple, positive Alpha/Beta state for first missing index
-    // so IMPUTE_SUPERSITE_MULTINOMIAL can run without relying on full backward.
+    // so IMPUTE_SUPERSITE_MULTIVARIATE can run without relying on full backward.
     if (HS.AlphaMissing.empty()) {
         std::cerr << "AlphaMissing not allocated; forward() precondition failed" << std::endl;
         return 1;
@@ -126,8 +126,8 @@ int main() {
     for (int i = 0; i < (int)(HAP_NUMBER * idxH.size()); ++i) HS.AlphaMissing[0][i] = 1.0f;
     for (int h = 0; h < HAP_NUMBER; ++h) HS.AlphaSumMissing[0][h] = 1.0f;
 
-    // Invoke multinomial imputation directly (anchor context)
-    HS.IMPUTE_SUPERSITE_MULTINOMIAL(SC, ss, /*ss_idx=*/0);
+    // Invoke multivariant imputation directly (anchor context)
+    HS.IMPUTE_SUPERSITE_MULTIVARIATE(SC, ss, /*ss_idx=*/0);
 
     // Verify per-haplotype normalization: sum_c SC[h*C+c] ≈ 1.0
     int C = ss.n_classes;

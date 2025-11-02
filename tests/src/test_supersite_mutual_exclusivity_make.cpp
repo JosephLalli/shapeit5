@@ -1,7 +1,7 @@
  /*******************************************************************************
   * Supersite mutual exclusivity projection test
   *
-  * Verifies that genotype::make() projects multinomial classes to split records
+  * Verifies that genotype::make() projects multivariant classes to split records
   * such that exactly one ALT is set per haplotype across all member variants.
   ******************************************************************************/
 
@@ -83,7 +83,7 @@ int main() {
     std::vector<unsigned char> DipSampled(1, 1);
     std::vector<float> Mprob; // unused for supersite path
 
-    // Project multinomial sample to splits
+    // Project multivariant sample to splits
     G.make(DipSampled, Mprob);
 
     // Validate mutual exclusivity: exactly one ALT per hap across the two splits

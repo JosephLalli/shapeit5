@@ -1,9 +1,9 @@
 /*******************************************************************************
- * Test missing multiallelic site imputation - Phase 3 multinomial approach
+ * Test missing multiallelic site imputation - Phase 3 multivariant approach
  * 
  * This test validates:
- * 1. Multinomial posterior computation in backward pass
- * 2. Sampling from multinomial distribution
+ * 1. Multivariant posterior computation in backward pass
+ * 2. Sampling from multivariant distribution
  * 3. Mutual exclusivity guarantee (exactly one ALT per haplotype)
  * 4. Projection to split records
  ******************************************************************************/
@@ -148,9 +148,9 @@ int main() {
     std::cout << "  Supersite context setting: OK" << std::endl;
     
     // Test 5: Verify basic structure of supersite
-    // The actual multinomial sampling requires proper HMM forward/backward pass
+    // The actual multivariant sampling requires proper HMM forward/backward pass
     // which is tested in the integration tests
-    std::cout << "  NOTE: Full multinomial sampling requires HMM forward/backward" << std::endl;
+    std::cout << "  NOTE: Full multivariant sampling requires HMM forward/backward" << std::endl;
     std::cout << "  This test validates structure, not end-to-end imputation" << std::endl;
     
     std::cout << "All tests passed!" << std::endl;

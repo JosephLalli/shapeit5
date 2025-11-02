@@ -2,7 +2,7 @@
 
 ## Overview
 
-This directory contains comprehensive unit tests for SHAPEIT5, with a particular focus on validating the Phase 3 multinomial imputation implementation for missing multiallelic sites.
+This directory contains comprehensive unit tests for SHAPEIT5, with a particular focus on validating the Phase 3 multivariant imputation implementation for missing multiallelic sites.
 
 ## Test Organization
 
@@ -89,23 +89,23 @@ This directory contains comprehensive unit tests for SHAPEIT5, with a particular
 
 ---
 
-#### 5. test_missing_multiallelic_multinomial.cpp
-**Purpose**: Validate Phase 3 multinomial imputation for missing supersites
+#### 5. test_missing_multiallelic_multivariant.cpp
+**Purpose**: Validate Phase 3 multivariant imputation for missing supersites
 
 **Coverage:**
 - 3-split multiallelic site creation (4 classes: REF, ALT1, ALT2, ALT3)
 - Conditioning panel with diverse allele distribution
 - Missing data detection across all splits of supersite
 - Supersite context setting for genotype sampling
-- Structure validation for multinomial posterior computation
+- Structure validation for multivariant posterior computation
 
 **Key Assertions:**
 - All splits at same position grouped correctly
 - Conditioning haplotypes encoded with correct class codes (0=REF, 1-3=ALT1-3)
 - `getSampleSuperSiteAlleleCode()` returns `SUPERSITE_CODE_MISSING` when all splits missing
-- `setSuperSiteContext()` properly initializes genotype for multinomial sampling
+- `setSuperSiteContext()` properly initializes genotype for multivariant sampling
 
-**Note**: End-to-end multinomial sampling (calling `genotype::make()`) requires full HMM forward/backward pass to populate SC buffer. This is tested in integration tests.
+**Note**: End-to-end multivariant sampling (calling `genotype::make()`) requires full HMM forward/backward pass to populate SC buffer. This is tested in integration tests.
 
 ---
 
@@ -114,7 +114,7 @@ This directory contains comprehensive unit tests for SHAPEIT5, with a particular
 - **`test_supersite_hmm.cpp`** - Tests old HMM implementation (pre-Phase 3)
 - **`test_supersite_hmm_states.cpp`** - Tests old state transitions (pre-Phase 3)
 
-These tests validate pre-Phase 3 biallelic supersite logic. They are retained for reference but skip execution in `make test-run` as the implementation has evolved to Phase 3 multinomial imputation.
+These tests validate pre-Phase 3 biallelic supersite logic. They are retained for reference but skip execution in `make test-run` as the implementation has evolved to Phase 3 multivariant imputation.
 
 ---
 
@@ -145,7 +145,7 @@ LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/t
 LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_accessor
 LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_unpack
 LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_builder
-LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_missing_multiallelic_multinomial
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_missing_multiallelic_multivariant
 LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_float_double_parity
 
 ### Verbose Tracing (TSV)
@@ -169,8 +169,8 @@ ls -1 tests/out
 # Example: Run emission tests
 LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_emissions
 
-# Example: Run multinomial imputation validation
-LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_missing_multiallelic_multinomial
+# Example: Run multivariant imputation validation
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_missing_multiallelic_multivariant
 ```
 
 ---
@@ -199,21 +199,21 @@ LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/t
 
 ---
 
-## Phase 3 Multinomial Imputation Summary
+## Phase 3 Multivariant Imputation Summary
 
 ### Problem
 Independent biallelic imputation of split multiallelic records can produce multiple ALTs on the same haplotype (e.g., both split1=1|0 and split2=1|0 at chr:pos, implying hap0 carries ALT1 and ALT2 simultaneously).
 
 ### Solution
-Native multinomial imputation:
+Native multivariant imputation:
 
-1. **HMM Backward Pass** (`IMPUTE_SUPERSITE_MULTINOMIAL`):
+1. **HMM Backward Pass** (`IMPUTE_SUPERSITE_MULTIVARIANT`):
    - Computes P(class_c | Alpha, Beta) for all classes c ∈ {REF, ALT1, ..., ALTn}
    - Uses C SIMD accumulators (C ≤ 16): `sum[code] += Alpha[k] × Beta[k] / AlphaSum`
    - Stores normalized posteriors in SC buffer: `SC[offset + hap*C + c]`
 
 2. **Genotype Sampling** (`genotype::make`):
-   - Samples one class per haplotype from multinomial distribution
+   - Samples one class per haplotype from multivariant distribution
    - Projects to splits: if class=ALTi, set split_i=ALT, all others=REF
    - **Mathematical guarantee**: Exactly one split set to ALT per haplotype
 
@@ -241,7 +241,7 @@ Native multinomial imputation:
 | 4-bit code packing/unpacking | ✅ 5 scenarios | ✅ phase.*.sh |
 | Accessor functions | ✅ 6 scenarios | ✅ phase.*.sh |
 | Missing data detection | ✅ 2 scenarios | ✅ phase.wgs.*.sh |
-| Multinomial structure | ✅ 5 scenarios | ⚠️ Pending |
+| Multivariant structure | ✅ 5 scenarios | ⚠️ Pending |
 | Mutual exclusivity | ⚠️ Requires HMM | ⚠️ Pending |
 
 **Legend:**
@@ -254,17 +254,17 @@ Native multinomial imputation:
 ## Future Enhancements
 
 ### High Priority
-1. **Full HMM integration test** - End-to-end forward/backward with multinomial imputation
+1. **Full HMM integration test** - End-to-end forward/backward with multivariant imputation
 2. **Mutual exclusivity validator** - Post-processing script to check BCF outputs
 3. **Smoke test fixtures** - Real VCF examples under `tests/data/` with known ground truth
 4. **Supersite combine test** - Multiple supersites in a window (adjacent/overlapping), verify anchor gating across all and no cross-site double counting
 
 ### Medium Priority
-4. **Performance benchmarks** - Multinomial overhead vs. biallelic (target: <10% slowdown)
+4. **Performance benchmarks** - Multivariant overhead vs. biallelic (target: <10% slowdown)
 5. **Numerical stability tests** - Edge cases (zero probabilities, underflow, overflow)
-6. **SIMD optimization tests** - Validate AVX2 vectorization of multinomial computation
+6. **SIMD optimization tests** - Validate AVX2 vectorization of multivariant computation
 
-### Newly Added Tests (anchor gating + multinomial)
+### Newly Added Tests (anchor gating + multivariant)
 - `test_supersite_anchor_gating` — sibling no-op vs anchor-only state
 - `test_supersite_backward_sc` — SC normalization Σc≈1.0 per hap
 - `test_supersite_mutual_exclusivity_make` — exactly one ALT per hap across splits
@@ -321,7 +321,7 @@ make -C tests test-run
 # Likely causes:
 # 1. Unaligned AVX2 load (check aligned_vector32 usage)
 # 2. Null pointer dereference (check supersite context setup)
-# 3. Buffer overflow (check SC buffer sizing in multinomial tests)
+# 3. Buffer overflow (check SC buffer sizing in multivariant tests)
 
 # Debug with:
 gdb tests/bin/test_name
@@ -333,7 +333,7 @@ gdb tests/bin/test_name
 
 ## References
 
-- **AGENTS.md** - Detailed implementation notes for Phase 3 multinomial imputation
+- **AGENTS.md** - Detailed implementation notes for Phase 3 multivariant imputation
 - **SUPERSITE_CONVERSATION_SUMMARY.md** - Evolution of supersite design decisions
 - **.github/copilot-instructions.md** - Authoritative coding guidelines for supersites
 - **test/scripts/** - Integration test suite for end-to-end validation
