@@ -12,3 +12,4 @@ tests/bin/
 tests/obj/
 simulate/bin/simulate
 ligate/bin/ligate
+logs/underflow.tsv

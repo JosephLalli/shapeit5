@@ -147,6 +147,20 @@ LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/t
 LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_builder
 LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_missing_multiallelic_multinomial
 LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/test_supersite_float_double_parity
+
+### Verbose Tracing (TSV)
+
+- Set `SHAPEIT5_TEST_TRACE=1` to enable per-locus forward/backward TSV traces for
+  parity tests. Files are written under `tests/out/` (e.g.,
+  `forward_with_supersite.tsv`, `backward_no_supersite.tsv`, `amb_*_*.tsv`).
+  Example:
+
+```bash
+SHAPEIT5_TEST_TRACE=1 \
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH \
+tests/bin/test_supersite_representation_parity
+ls -1 tests/out
+```
 ```
 
 ### Individual Test Execution

@@ -36,6 +36,8 @@ public :
 	std::vector < char > rare_allele;
 	double ee;
 	double ed;
+	// Supersite configuration
+	bool ss_anchor_split_emissions; // when true, use biallelic split semantics at supersite anchors
 
 	//CONSTRUCTOR/DESTRUCTOR
 	hmm_parameters();

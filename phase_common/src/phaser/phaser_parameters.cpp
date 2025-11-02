@@ -76,7 +76,8 @@ void phaser::declare_options() {
 
 	bpo::options_description opt_supersites ("Super-site support (experimental)");
 	opt_supersites.add_options()
-		("enable-supersites", "Enable super-site support for multiallelic positions (STRs) with 4-bit encoding");
+		("enable-supersites", "Enable super-site support for multiallelic positions (STRs) with 4-bit encoding")
+		("ss-anchor-split-emissions", "Use biallelic split semantics for supersite anchors (treat other ALT as REF at the anchor split)");
 
 	descriptions.add(opt_base)
 		.add(opt_input)
@@ -144,6 +145,8 @@ void phaser::check_options() {
 
     // Initialize super-site support flag
     enable_supersites = options.count("enable-supersites") > 0;
+    // Configure supersite anchor emission semantics (toggle)
+    M.ss_anchor_split_emissions = options.count("ss-anchor-split-emissions") > 0;
 }
 
 void phaser::verbose_files() {

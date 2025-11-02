@@ -21,8 +21,31 @@
  ******************************************************************************/
 
 #include <models/haplotype_segment_double.h>
+#include <mutex>
+#include <cstdio>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 using namespace std;
+
+// Debug underflow tracing (gated by SHAPEIT5_DEBUG_UNDERFLOW)
+namespace {
+static std::mutex g_underflow_log_mutex_d;
+static bool underflow_trace_enabled_d() {
+    static int flag = -1;
+    if (flag < 0) {
+        const char* env = std::getenv("SHAPEIT5_DEBUG_UNDERFLOW");
+        flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+    }
+    return flag == 1;
+}
+static void ensure_logs_dir_d() {
+    struct stat st{};
+    if (stat("logs", &st) != 0) {
+        mkdir("logs", 0777);
+    }
+}
+} // namespace
 
 haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M,
     const std::vector<SuperSite>* _super_sites,
@@ -132,13 +155,47 @@ void haplotype_segment_double::forward() {
 		}
 		prev_abs_locus=update_prev_locus?curr_abs_locus:prev_abs_locus;
 
-		if (curr_segment_locus == (G->Lengths[curr_segment_index] - 1)) SUMK();
-		if (curr_segment_locus == G->Lengths[curr_segment_index] - 1) {
-			Alpha[curr_segment_index - segment_first] = prob;
-			AlphaSum[curr_segment_index - segment_first] = probSumH;
-			AlphaSumSum[curr_segment_index - segment_first] = probSumT;
-			AlphaLocus[curr_segment_index - segment_first] = prev_abs_locus;
-		}
+        if (curr_segment_locus == (G->Lengths[curr_segment_index] - 1)) SUMK();
+
+        // Forward-side diagnostic: detect non-finite or underflowed probSumT early
+        if (underflow_trace_enabled_d()) {
+            if (!std::isfinite(probSumT) || probSumT <= std::numeric_limits<double>::min()) {
+                std::lock_guard<std::mutex> lk(g_underflow_log_mutex_d);
+                ensure_logs_dir_d();
+                FILE* f = std::fopen("logs/underflow.tsv", "a");
+                if (f) {
+                    static bool header_written_fwd = false;
+                    if (!header_written_fwd) {
+                        std::fprintf(f, "sample\tprecision\tstage\tcurr_abs_locus\tprev_abs_locus\tcm_curr\tcm_prev\tyt\tnt\tprobSumT\tAlphaSumSum_curr");
+                        for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(f, "\tprobSumH[%d]", h);
+                        std::fprintf(f, "\tamb\tmis\thom\tss_idx\tn_cond_haps\n");
+                        header_written_fwd = true;
+                    }
+                    int curr = curr_abs_locus;
+                    int prev = prev_abs_locus;
+                    double cm_curr = (curr >= 0 && curr < (int)M.cm.size()) ? M.cm[curr] : NAN;
+                    double cm_prev = (prev >= 0 && prev < (int)M.cm.size()) ? M.cm[prev] : NAN;
+                    bool amb = VAR_GET_AMB(MOD2(curr), G->Variants[DIV2(curr)]);
+                    bool mis = VAR_GET_MIS(MOD2(curr), G->Variants[DIV2(curr)]);
+                    bool hom = !(amb || mis);
+                    int ss_idx = -1;
+                    if (locus_to_super_idx && super_sites) ss_idx = (*locus_to_super_idx)[curr];
+                    double alphaSumSum_curr = probSumT; // at this locus, same scalar
+                    std::fprintf(f, "%s\tdouble\tFORWARD_NAN\t%d\t%d\t%.8g\t%.8g\t%.8g\t%.8g\t%.17g\t%.17g",
+                                 G->name.c_str(), curr, prev, cm_curr, cm_prev,
+                                 yt, nt, probSumT, alphaSumSum_curr);
+                    for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(f, "\t%.17g", probSumH[h]);
+                    std::fprintf(f, "\t%d\t%d\t%d\t%d\t%u\n", (int)amb, (int)mis, (int)hom, ss_idx, n_cond_haps);
+                    std::fclose(f);
+                }
+            }
+        }
+        if (curr_segment_locus == G->Lengths[curr_segment_index] - 1) {
+            Alpha[curr_segment_index - segment_first] = prob;
+            AlphaSum[curr_segment_index - segment_first] = probSumH;
+            AlphaSumSum[curr_segment_index - segment_first] = probSumT;
+            AlphaLocus[curr_segment_index - segment_first] = prev_abs_locus;
+        }
 		if (mis) {
 			AlphaMissing[curr_rel_missing] = prob;
 			AlphaSumMissing[curr_rel_missing] = probSumH;
@@ -246,12 +303,56 @@ void haplotype_segment_double::SET_FIRST_TRANS(vector < double > & transition_pr
 }
 
 int haplotype_segment_double::SET_OTHER_TRANS(vector < double > & transition_probabilities) {
-	int underflow_recovered = 0;
-	if (TRANS_HAP()) return -1;
-	if (TRANS_DIP_MULT()) {
-		if (TRANS_DIP_ADD()) return -2;
-		else underflow_recovered = 1;
-	}
+    int underflow_recovered = 0;
+    if (TRANS_HAP()) {
+        if (underflow_trace_enabled_d()) {
+            std::lock_guard<std::mutex> lk(g_underflow_log_mutex_d);
+            ensure_logs_dir_d();
+            FILE* f = std::fopen("logs/underflow.tsv", "a");
+            if (f) {
+                static bool header_written = false;
+                if (!header_written) {
+                    std::fprintf(f, "sample\tprecision\tstage\tcurr_abs_locus\tprev_abs_locus\tcm_curr\tcm_prev\tyt\tnt\tprobSumT\tsumHProbs\tAlphaSumSum_prev");
+                    for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(f, "\tAlphaSum_prev[%d]", h);
+                    std::fprintf(f, "\tis_anchor\tis_sibling\tamb\tmis\thom\tss_idx\tn_cond_haps\n");
+                    header_written = true;
+                }
+                int curr = curr_abs_locus;
+                int prev = prev_abs_locus;
+                double cm_curr = (curr >= 0 && curr < (int)M.cm.size()) ? M.cm[curr] : NAN;
+                double cm_prev = (prev >= 0 && prev < (int)M.cm.size()) ? M.cm[prev] : NAN;
+                bool amb = VAR_GET_AMB(MOD2(curr), G->Variants[DIV2(curr)]);
+                bool mis = VAR_GET_MIS(MOD2(curr), G->Variants[DIV2(curr)]);
+                bool hom = !(amb || mis);
+                int ss_idx = -1; bool is_anchor = false; bool is_sibling = false;
+                if (locus_to_super_idx && super_sites) {
+                    ss_idx = (*locus_to_super_idx)[curr];
+                    if (ss_idx >= 0) {
+                        const SuperSite& ss = (*super_sites)[ss_idx];
+                        is_anchor = (curr == (int)ss.global_site_id);
+                        is_sibling = !is_anchor;
+                    }
+                }
+                unsigned int rel_prev_seg = (curr_segment_index - segment_first) - 1;
+                double alphaSumSum_prev = (rel_prev_seg < AlphaSumSum.size()) ? AlphaSumSum[rel_prev_seg] : NAN;
+                std::fprintf(f, "%s\tdouble\t%s\t%d\t%d\t%.8g\t%.8g\t%.8g\t%.8g\t%.8g\t%.8g\t%.8g",
+                             G->name.c_str(), "SET_OTHER_TRANS", curr, prev, cm_curr, cm_prev,
+                             yt, nt, probSumT, sumHProbs, alphaSumSum_prev);
+                if (rel_prev_seg < AlphaSum.size()) {
+                    for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(f, "\t%.8g", AlphaSum[rel_prev_seg][h]);
+                } else {
+                    for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(f, "\tNA");
+                }
+                std::fprintf(f, "\t%d\t%d\t%d\t%d\t%d\t%d\t%u\n", (int)is_anchor, (int)is_sibling, (int)amb, (int)mis, (int)hom, ss_idx, n_cond_haps);
+                std::fclose(f);
+            }
+        }
+        return -1;
+    }
+    if (TRANS_DIP_MULT()) {
+        if (TRANS_DIP_ADD()) return -2;
+        else underflow_recovered = 1;
+    }
 	unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
 	unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
 	unsigned int n_transitions = curr_dipcount * prev_dipcount;

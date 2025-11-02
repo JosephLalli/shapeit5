@@ -179,6 +179,9 @@ void haplotype_segment_double::ss_load_cond_codes(const SuperSite& ss, int ss_id
     ss_cached[ss_idx] = true;
 }
 
+// Note: pack_expected_codes_pd() helper removed - was causing half-lane split antipattern
+// Now using proper per-lane emission logic throughout SS_*_AMB() functions
+
 inline
 void haplotype_segment_double::SS_INIT_HOM() {
     // Assumes: ss_idx >= 0, at anchor, classified as HOM or AMB (c0==c1)
@@ -233,35 +236,61 @@ void haplotype_segment_double::SS_INIT_AMB() {
         }
     }
 
-    alignas(32) int expv[HAP_NUMBER];
-    for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
-    __m128i exp_lo_128 = _mm_load_si128((__m128i*)&expv[0]);
-    __m128i exp_hi_128 = _mm_load_si128((__m128i*)&expv[4]);
     __m256d match_d = _mm256_set1_pd(1.0);
     __m256d mis_d   = _mm256_set1_pd(M.ed/M.ee);
 
     __m256d _sum0 = _mm256_set1_pd(0.0);
     __m256d _sum1 = _mm256_set1_pd(0.0);
-    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        int dc = (int)ss_cond_codes[k];
-        __m256i dc32 = _mm256_set1_epi32(dc);
-        // low half
-        __m256i exp_lo_32 = _mm256_cvtepi8_epi32(exp_lo_128);
-        __m256i eq_lo     = _mm256_cmpeq_epi32(dc32, exp_lo_32);
-        __m256i eq_lo64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_lo));
-        __m256d mask_lo   = _mm256_castsi256_pd(eq_lo64);
-        __m256d emit_lo   = _mm256_or_pd(_mm256_and_pd(mask_lo, match_d), _mm256_andnot_pd(mask_lo, mis_d));
-        // high half
-        __m256i exp_hi_32 = _mm256_cvtepi8_epi32(exp_hi_128);
-        __m256i eq_hi     = _mm256_cmpeq_epi32(dc32, exp_hi_32);
-        __m256i eq_hi64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_hi));
-        __m256d mask_hi   = _mm256_castsi256_pd(eq_hi64);
-        __m256d emit_hi   = _mm256_or_pd(_mm256_and_pd(mask_hi, match_d), _mm256_andnot_pd(mask_hi, mis_d));
 
-        _sum0 = _mm256_add_pd(_sum0, emit_lo);
-        _sum1 = _mm256_add_pd(_sum1, emit_hi);
-        _mm256_store_pd(&prob[i+0], emit_lo);
-        _mm256_store_pd(&prob[i+4], emit_hi);
+    // Anchor ALT code for this locus
+    int anchor_code = 0; 
+    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+        if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { anchor_code = (int)ai + 1; break; }
+    }
+
+    if (M.ss_anchor_split_emissions) {
+        // Split semantics: per-lane expected ALT at anchor vs donor carries anchor ALT
+        alignas(32) int exp_is_alt[HAP_NUMBER];
+        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+        
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+            
+            // Create per-lane emissions (process as two 4-lane halves for double precision)
+            alignas(32) double E8[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                E8[h] = (donor_is_alt == exp_is_alt[h]) ? 1.0 : (M.ed/M.ee);
+            }
+            
+            // Load as two 256-bit double vectors
+            __m256d emit_lo = _mm256_load_pd(&E8[0]);
+            __m256d emit_hi = _mm256_load_pd(&E8[4]);
+            
+            _sum0 = _mm256_add_pd(_sum0, emit_lo);
+            _sum1 = _mm256_add_pd(_sum1, emit_hi);
+            _mm256_store_pd(&prob[i+0], emit_lo);
+            _mm256_store_pd(&prob[i+4], emit_hi);
+        }
+    } else {
+        // Strict 4-bit equality semantics: per-lane comparison
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            int dc = (int)ss_cond_codes[k];
+            
+            // Create per-lane emissions (process as two 4-lane halves for double precision)
+            alignas(32) double E8[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                E8[h] = (dc == (int)expected_class[h]) ? 1.0 : (M.ed/M.ee);
+            }
+            
+            // Load as two 256-bit double vectors
+            __m256d emit_lo = _mm256_load_pd(&E8[0]);
+            __m256d emit_hi = _mm256_load_pd(&E8[4]);
+            
+            _sum0 = _mm256_add_pd(_sum0, emit_lo);
+            _sum1 = _mm256_add_pd(_sum1, emit_hi);
+            _mm256_store_pd(&prob[i+0], emit_lo);
+            _mm256_store_pd(&prob[i+4], emit_hi);
+        }
     }
     _mm256_store_pd(&probSumH[0], _sum0);
     _mm256_store_pd(&probSumH[4], _sum1);
@@ -339,10 +368,7 @@ void haplotype_segment_double::SS_RUN_AMB() {
             expected_class[h] = use_c1 ? c1 : c0;
         }
     }
-    alignas(32) int expv[HAP_NUMBER];
-    for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
-    __m128i exp_lo_128 = _mm_load_si128((__m128i*)&expv[0]);
-    __m128i exp_hi_128 = _mm_load_si128((__m128i*)&expv[4]);
+
     __m256d match_d = _mm256_set1_pd(1.0);
     __m256d mis_d   = _mm256_set1_pd(M.ed/M.ee);
 
@@ -354,32 +380,70 @@ void haplotype_segment_double::SS_RUN_AMB() {
     _tFreq0 = _mm256_mul_pd(_tFreq0, _factor);
     _tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
-    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        __m256d _prob0 = _mm256_load_pd(&prob[i]);
-        __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
-        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
 
-        int dc = (int)ss_cond_codes[k];
-        __m256i dc32 = _mm256_set1_epi32(dc);
-        __m256i exp_lo_32 = _mm256_cvtepi8_epi32(exp_lo_128);
-        __m256i eq_lo     = _mm256_cmpeq_epi32(dc32, exp_lo_32);
-        __m256i eq_lo64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_lo));
-        __m256d mask_lo   = _mm256_castsi256_pd(eq_lo64);
-        __m256d emit_lo   = _mm256_or_pd(_mm256_and_pd(mask_lo, match_d), _mm256_andnot_pd(mask_lo, mis_d));
+    // Anchor ALT code for this locus
+    int anchor_code = 0; 
+    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+        if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { anchor_code = (int)ai + 1; break; }
+    }
 
-        __m256i exp_hi_32 = _mm256_cvtepi8_epi32(exp_hi_128);
-        __m256i eq_hi     = _mm256_cmpeq_epi32(dc32, exp_hi_32);
-        __m256i eq_hi64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_hi));
-        __m256d mask_hi   = _mm256_castsi256_pd(eq_hi64);
-        __m256d emit_hi   = _mm256_or_pd(_mm256_and_pd(mask_hi, match_d), _mm256_andnot_pd(mask_hi, mis_d));
+    if (M.ss_anchor_split_emissions) {
+        // Split semantics: per-lane expected ALT at anchor vs donor carries anchor ALT
+        alignas(32) int exp_is_alt[HAP_NUMBER];
+        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+        
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            __m256d _prob0 = _mm256_load_pd(&prob[i]);
+            __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
+            _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+            _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+            
+            int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+            
+            // Create per-lane emissions (process as two 4-lane halves for double precision)
+            alignas(32) double E8[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                E8[h] = (donor_is_alt == exp_is_alt[h]) ? 1.0 : (M.ed/M.ee);
+            }
+            
+            // Load as two 256-bit double vectors
+            __m256d emit_lo = _mm256_load_pd(&E8[0]);
+            __m256d emit_hi = _mm256_load_pd(&E8[4]);
+            
+            _prob0 = _mm256_mul_pd(_prob0, emit_lo);
+            _prob1 = _mm256_mul_pd(_prob1, emit_hi);
+            _sum0 = _mm256_add_pd(_sum0, _prob0);
+            _sum1 = _mm256_add_pd(_sum1, _prob1);
+            _mm256_store_pd(&prob[i], _prob0);
+            _mm256_store_pd(&prob[i+4], _prob1);
+        }
+    } else {
+        // Strict 4-bit equality semantics: per-lane comparison
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            __m256d _prob0 = _mm256_load_pd(&prob[i]);
+            __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
+            _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+            _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
 
-        _prob0 = _mm256_mul_pd(_prob0, emit_lo);
-        _prob1 = _mm256_mul_pd(_prob1, emit_hi);
-        _sum0  = _mm256_add_pd(_sum0, _prob0);
-        _sum1  = _mm256_add_pd(_sum1, _prob1);
-        _mm256_store_pd(&prob[i],   _prob0);
-        _mm256_store_pd(&prob[i+4], _prob1);
+            int dc = (int)ss_cond_codes[k];
+            
+            // Create per-lane emissions (process as two 4-lane halves for double precision)
+            alignas(32) double E8[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                E8[h] = (dc == (int)expected_class[h]) ? 1.0 : (M.ed/M.ee);
+            }
+            
+            // Load as two 256-bit double vectors
+            __m256d emit_lo = _mm256_load_pd(&E8[0]);
+            __m256d emit_hi = _mm256_load_pd(&E8[4]);
+
+            _prob0 = _mm256_mul_pd(_prob0, emit_lo);
+            _prob1 = _mm256_mul_pd(_prob1, emit_hi);
+            _sum0  = _mm256_add_pd(_sum0, _prob0);
+            _sum1  = _mm256_add_pd(_sum1, _prob1);
+            _mm256_store_pd(&prob[i],   _prob0);
+            _mm256_store_pd(&prob[i+4], _prob1);
+        }
     }
     _mm256_store_pd(&probSumH[0], _sum0);
     _mm256_store_pd(&probSumH[4], _sum1);
@@ -470,10 +534,7 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
             expected_class[h] = use_c1 ? c1 : c0;
         }
     }
-    alignas(32) int expv[HAP_NUMBER];
-    for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
-    __m128i exp_lo_128 = _mm_load_si128((__m128i*)&expv[0]);
-    __m128i exp_hi_128 = _mm_load_si128((__m128i*)&expv[4]);
+
     __m256d match_d = _mm256_set1_pd(1.0);
     __m256d mis_d   = _mm256_set1_pd(M.ed/M.ee);
 
@@ -481,32 +542,70 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
     __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
-    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-        __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
-        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
-        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
 
-        int dc = (int)ss_cond_codes[k];
-        __m256i dc32 = _mm256_set1_epi32(dc);
-        __m256i exp_lo_32 = _mm256_cvtepi8_epi32(exp_lo_128);
-        __m256i eq_lo     = _mm256_cmpeq_epi32(dc32, exp_lo_32);
-        __m256i eq_lo64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_lo));
-        __m256d mask_lo   = _mm256_castsi256_pd(eq_lo64);
-        __m256d emit_lo   = _mm256_or_pd(_mm256_and_pd(mask_lo, match_d), _mm256_andnot_pd(mask_lo, mis_d));
+    // Anchor ALT code for this locus
+    int anchor_code = 0; 
+    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+        if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { anchor_code = (int)ai + 1; break; }
+    }
 
-        __m256i exp_hi_32 = _mm256_cvtepi8_epi32(exp_hi_128);
-        __m256i eq_hi     = _mm256_cmpeq_epi32(dc32, exp_hi_32);
-        __m256i eq_hi64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_hi));
-        __m256d mask_hi   = _mm256_castsi256_pd(eq_hi64);
-        __m256d emit_hi   = _mm256_or_pd(_mm256_and_pd(mask_hi, match_d), _mm256_andnot_pd(mask_hi, mis_d));
+    if (M.ss_anchor_split_emissions) {
+        // Split semantics: per-lane expected ALT at anchor vs donor carries anchor ALT
+        alignas(32) int exp_is_alt[HAP_NUMBER];
+        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+        
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
+            __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
+            _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
+            _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
+            
+            int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+            
+            // Create per-lane emissions (process as two 4-lane halves for double precision)
+            alignas(32) double E8[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                E8[h] = (donor_is_alt == exp_is_alt[h]) ? 1.0 : (M.ed/M.ee);
+            }
+            
+            // Load as two 256-bit double vectors
+            __m256d emit_lo = _mm256_load_pd(&E8[0]);
+            __m256d emit_hi = _mm256_load_pd(&E8[4]);
+            
+            _prob0 = _mm256_mul_pd(_prob0, emit_lo);
+            _prob1 = _mm256_mul_pd(_prob1, emit_hi);
+            _sum0  = _mm256_add_pd(_sum0, _prob0);
+            _sum1  = _mm256_add_pd(_sum1, _prob1);
+            _mm256_store_pd(&prob[i],   _prob0);
+            _mm256_store_pd(&prob[i+4], _prob1);
+        }
+    } else {
+        // Strict 4-bit equality semantics: per-lane comparison
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
+            __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
+            _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
+            _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
 
-        _prob0 = _mm256_mul_pd(_prob0, emit_lo);
-        _prob1 = _mm256_mul_pd(_prob1, emit_hi);
-        _sum0  = _mm256_add_pd(_sum0, _prob0);
-        _sum1  = _mm256_add_pd(_sum1, _prob1);
-        _mm256_store_pd(&prob[i],   _prob0);
-        _mm256_store_pd(&prob[i+4], _prob1);
+            int dc = (int)ss_cond_codes[k];
+            
+            // Create per-lane emissions (process as two 4-lane halves for double precision)
+            alignas(32) double E8[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                E8[h] = (dc == (int)expected_class[h]) ? 1.0 : (M.ed/M.ee);
+            }
+            
+            // Load as two 256-bit double vectors
+            __m256d emit_lo = _mm256_load_pd(&E8[0]);
+            __m256d emit_hi = _mm256_load_pd(&E8[4]);
+
+            _prob0 = _mm256_mul_pd(_prob0, emit_lo);
+            _prob1 = _mm256_mul_pd(_prob1, emit_hi);
+            _sum0  = _mm256_add_pd(_sum0, _prob0);
+            _sum1  = _mm256_add_pd(_sum1, _prob1);
+            _mm256_store_pd(&prob[i],   _prob0);
+            _mm256_store_pd(&prob[i+4], _prob1);
+        }
     }
     _mm256_store_pd(&probSumH[0], _sum0);
     _mm256_store_pd(&probSumH[4], _sum1);
@@ -708,7 +807,9 @@ void haplotype_segment_double::INIT_AMB() {
         
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
+            // Sibling at window boundary: initialize neutrally to avoid underflow
+            SS_INIT_MIS();
+            return;
         }
         
         // Classify and dispatch to SS_* helpers

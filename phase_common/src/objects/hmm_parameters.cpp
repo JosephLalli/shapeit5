@@ -26,8 +26,9 @@
 using namespace std;
 
 hmm_parameters::hmm_parameters() {
-	ed = 0.0001f;
-	ee = 0.9999f;
+    ed = 0.0001f;
+    ee = 0.9999f;
+    ss_anchor_split_emissions = false;
 }
 
 hmm_parameters::~hmm_parameters() {

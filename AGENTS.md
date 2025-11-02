@@ -9,7 +9,7 @@ SHAPEIT5 — `phase_common` super-site integration
 - Expose optional super-site phasing for multi-allelic loci (`--enable-supersites`) while keeping default behaviour untouched.
 - Maintain the original biallelic code paths (and performance characteristics) when supersites are disabled.
 
-## Current Status (Oct 29, 2025)
+## Current Status (Nov 2025)
 - **Phase 3 Multinomial Imputation: COMPLETE** ✅
   - Native multinomial imputation for missing supersites implemented end-to-end
   - Guarantees mutual exclusivity by design (exactly one ALT per haplotype across all splits)
@@ -25,6 +25,9 @@ SHAPEIT5 — `phase_common` super-site integration
   - `test_supersite_hmm` (forward path regression)
   - `test_supersite_hmm_states` (INIT/RUN/COLLAPSE micro-harness)
 - Build / tooling: tests have a standalone `tests/makefile` mirroring top-level flags and linking supersite objects.
+- Test trace gating: set `SHAPEIT5_TEST_TRACE=1` to dump per‑locus forward/backward TSVs from parity tests to `tests/out/`.
+- Underflow diagnostics: set `SHAPEIT5_DEBUG_UNDERFLOW=1` to log forward/transition underflows from `phase_common` into `logs/underflow.tsv` (thread‑safe TSV rows).
+- Supersite anchor emission toggle: new CLI flag `--ss-anchor-split-emissions` (with `--enable-supersites`) to use biallelic split semantics at anchors; default remains strict 4‑bit equality.
 
 ## Recent Work (Phase 3 Implementation)
 **Problem Identified:** Split multi-allelic records were being imputed independently, allowing multiple ALTs on the same haplotype (e.g., both split1=1|0 and split2=1|0 at chr:pos, implying hap0 carries both ALT1 and ALT2 simultaneously). This violates biological reality.
@@ -129,6 +132,8 @@ SHAPEIT5 — `phase_common` super-site integration
 ## Debugging & Logging
 - Debug builds: `make -C phase_common debug` adds `-g` and reduces optimization for easier stepping; run `gdb` or `valgrind` on binaries/tests.
 - Logging: use `vrb.bullet()` and `vrb.title()` for structured console output. Inspect `Alpha`, `AlphaSum` (32‑byte aligned) in debugger for HMM state.
+- Tests: set `SHAPEIT5_TEST_TRACE=1` to write verbose per‑locus forward/backward TSV traces to `tests/out/`.
+- HMM underflow tracing: set `SHAPEIT5_DEBUG_UNDERFLOW=1` to append forward/transition underflow events to `logs/underflow.tsv` with sample, locus, cm, yt/nt, probSumT, probSumH[], and prior segment Alpha summaries.
 
 ## Common Pitfalls (Do/Don’t)
 - Don’t allocate inside `RUN_AMB` (or any hot path); hoist buffers to class members to avoid allocator churn and `posix_memalign` crashes.
@@ -136,6 +141,10 @@ SHAPEIT5 — `phase_common` super-site integration
 - Don’t perform unaligned AVX2 loads; ensure 32‑byte alignment for `_mm256_load_ps` sources.
 - Do gate DP to anchors to prevent double counting at sibling splits.
 - Do preserve AMB lane semantics from biallelic code; avoid half-lane logic divergence.
+
+Alignment items for supersites:
+- Don’t overload `rare_allele` to signal supersite siblings (e.g., `rare_allele=2`). Use explicit supersite gating (`locus_to_super_idx`, `super_sites`) consistently in HMM paths.
+- Don’t start windows at supersite siblings when `--enable-supersites` is set; adjust window starts to the anchor or a non‑member locus.
 
 ## Known Bugs (from current sprint)
 **All Phase 3 blockers resolved as of Oct 29, 2025:**
@@ -146,11 +155,16 @@ SHAPEIT5 — `phase_common` super-site integration
 - ✅ HOM masquerading as AMB: Not applicable (Phase 3 classifies at supersite level)
 - ✅ Repeated `ss_cond_codes` unpacking: Still occurs but not critical for Phase 3; can optimize later
 
+Additional fixes and toggles (Nov 2025):
+- ✅ Double path sibling-at-window-start neutral init at INIT_* to avoid uninitialized states/NaNs (float already did this). Long‑term fix: do not start windows on siblings.
+- ✅ Emission toggle at anchors: `--ss-anchor-split-emissions` to mirror biallelic split semantics (treat other‑ALT donors as REF at the anchor split). Default remains strict 4‑bit equality for backward compatibility.
+
 **Remaining validation tasks:**
 1. Integration testing on real data with --enable-supersites
 2. Verify multinomials sum to 1.0 (add assertion if needed)
 3. Validate mutual exclusivity in output BCF
 4. Performance profiling (multinomial overhead vs. biallelic)
+5. A/B evaluate `--ss-anchor-split-emissions` on anchor‑heavy datasets; decide default based on parity/accuracy.
 
 ## Critical Bug (Nov 2025): Supersite AMB lane semantics mismatch
 
@@ -220,10 +234,22 @@ Validation plan
 - Keep supersite-related fixtures synthetic for now; real data will live under `tests/data/` once smoke tests are added.
 - External refs: HTSlib docs, Intel AVX2 intrinsics guide, Li & Stephens (2003).
 
+## New CLI / Env Flags
+- `--enable-supersites`: enable supersite support.
+- `--ss-anchor-split-emissions`: at supersite anchors, use biallelic split‑site emissions (treat other‑ALT donors as REF at the anchor split). Default off; when not set, strict 4‑bit equality is used.
+- `SHAPEIT5_TEST_TRACE=1`: enable verbose test tracing to `tests/out/*.tsv`.
+- `SHAPEIT5_DEBUG_UNDERFLOW=1`: enable HMM underflow diagnostics to `logs/underflow.tsv`.
+
+## TODOs
+- Remove the `rare_allele=2` sibling hack; rely exclusively on supersite gating (`locus_to_super_idx`, `super_sites`) in HMM paths.
+- Avoid starting windows on supersite siblings when `--enable-supersites` is set; shift window starts to anchors or non‑member loci.
+
 ## Supersite AMB Refactor (Design + Code Sketches)
 
 Goal
-- At supersite anchors, compute emissions lane-by-lane using the same 8-lane semantics as the biallelic AMB path, while preserving the strict 4‑bit class equality rule: emission = 1.0 iff donor supersite code equals the lane’s expected supersite class; otherwise ed/ee. No collapsing of “other ALT” to REF.
+- Provide a selectable anchor emission model:
+  - Default: strict 4‑bit class equality per lane (donor_class == expected_class[h]).
+  - Optional (`--ss-anchor-split-emissions`): biallelic split semantics at anchor (per‑lane “is ALT at anchor” for expected vs donor; treat other‑ALT as REF for the REF lane).
 
 Where to change
 - Float: `phase_common/src/models/haplotype_segment_single.h` in `SS_INIT_AMB`, `SS_RUN_AMB`, `SS_COLLAPSE_AMB` (anchor only)

@@ -218,24 +218,47 @@ void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint
 			expected_class[h] = use_c1 ? c1 : c0;
 		}
 	}
-	alignas(32) int expv[HAP_NUMBER];
-	for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
-	__m256i exp_vec = _mm256_load_si256((__m256i*)expv);
-	__m256 match_f = _mm256_set1_ps(1.0f);
-	__m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
+    __m256 match_f = _mm256_set1_ps(1.0f);
+    __m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
 
-	__m256 _sum = _mm256_set1_ps(0.0f);
-	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-		int dc = (int)ss_cond_codes[k];
-		__m256i dc_vec = _mm256_set1_epi32(dc);
-		__m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
-		__m256  m_ps   = _mm256_castsi256_ps(eq);
-		__m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
-		_sum = _mm256_add_ps(_sum, emit);
-		_mm256_store_ps(&prob[i], emit);
-	}
-	_mm256_store_ps(&probSumH[0], _sum);
-	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    // Determine anchor ALT code (1..n_alts) for current anchor locus
+    int anchor_code = 0; 
+    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+        if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { anchor_code = (int)ai + 1; break; }
+    }
+
+    __m256 _sum = _mm256_set1_ps(0.0f);
+    if (M.ss_anchor_split_emissions) {
+        // Split semantics: per-lane expected ALT at anchor vs donor carries anchor ALT
+        alignas(32) int exp_is_alt[HAP_NUMBER];
+        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+        __m256i exp_vec = _mm256_load_si256((__m256i*)exp_is_alt);
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+            __m256i dc_vec = _mm256_set1_epi32(donor_is_alt);
+            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
+            __m256  m_ps   = _mm256_castsi256_ps(eq);
+            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+            _sum = _mm256_add_ps(_sum, emit);
+            _mm256_store_ps(&prob[i], emit);
+        }
+    } else {
+        // Strict 4-bit equality semantics
+        alignas(32) int expv[HAP_NUMBER];
+        for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
+        __m256i exp_vec = _mm256_load_si256((__m256i*)expv);
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            int dc = (int)ss_cond_codes[k];
+            __m256i dc_vec = _mm256_set1_epi32(dc);
+            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
+            __m256  m_ps   = _mm256_castsi256_ps(eq);
+            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+            _sum = _mm256_add_ps(_sum, emit);
+            _mm256_store_ps(&prob[i], emit);
+        }
+    }
+    _mm256_store_ps(&probSumH[0], _sum);
+    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 }
 
 inline
@@ -297,28 +320,51 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
 	__m256 match_f = _mm256_set1_ps(1.0f);
 	__m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
 
-	// Update probabilities with transitions and per-lane emissions
-	__m256 _sum = _mm256_set1_ps(0.0f);
-	__m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
-	__m256 _tFreq = _mm256_load_ps(&probSumH[0]);
-	_tFreq = _mm256_mul_ps(_tFreq, _factor);
-	__m256 _nt = _mm256_set1_ps(nt / probSumT);
-	
-	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-		__m256 _prob = _mm256_load_ps(&prob[i]);
-		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-		int dc = (int)ss_cond_codes[k];
-		__m256i dc_vec = _mm256_set1_epi32(dc);
-		__m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
-		__m256  m_ps   = _mm256_castsi256_ps(eq);
-		__m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
-		_prob = _mm256_mul_ps(_prob, emit);
-		_sum = _mm256_add_ps(_sum, _prob);
-		_mm256_store_ps(&prob[i], _prob);
-	}
-	_mm256_store_ps(&probSumH[0], _sum);
-	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-	return true;
+    // Update probabilities with transitions and per-lane emissions
+    __m256 _sum = _mm256_set1_ps(0.0f);
+    __m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
+    __m256 _tFreq = _mm256_load_ps(&probSumH[0]);
+    _tFreq = _mm256_mul_ps(_tFreq, _factor);
+    __m256 _nt = _mm256_set1_ps(nt / probSumT);
+
+    int anchor_code = 0; 
+    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+        if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { anchor_code = (int)ai + 1; break; }
+    }
+
+    if (M.ss_anchor_split_emissions) {
+        alignas(32) int exp_is_alt[HAP_NUMBER];
+        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+        __m256i exp_vec_isalt = _mm256_load_si256((__m256i*)exp_is_alt);
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            __m256 _prob = _mm256_load_ps(&prob[i]);
+            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+            int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+            __m256i dc_vec = _mm256_set1_epi32(donor_is_alt);
+            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec_isalt);
+            __m256  m_ps   = _mm256_castsi256_ps(eq);
+            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+            _prob = _mm256_mul_ps(_prob, emit);
+            _sum = _mm256_add_ps(_sum, _prob);
+            _mm256_store_ps(&prob[i], _prob);
+        }
+    } else {
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            __m256 _prob = _mm256_load_ps(&prob[i]);
+            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+            int dc = (int)ss_cond_codes[k];
+            __m256i dc_vec = _mm256_set1_epi32(dc);
+            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
+            __m256  m_ps   = _mm256_castsi256_ps(eq);
+            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+            _prob = _mm256_mul_ps(_prob, emit);
+            _sum = _mm256_add_ps(_sum, _prob);
+            _mm256_store_ps(&prob[i], _prob);
+        }
+    }
+    _mm256_store_ps(&probSumH[0], _sum);
+    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    return true;
 }
 
 inline
@@ -394,20 +440,43 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
 	__m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
 	__m256 _nt = _mm256_set1_ps(nt / probSumT);
 	
-	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-		__m256 _prob = _mm256_set1_ps(probSumK[k]);
-		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-		int dc = (int)ss_cond_codes[k];
-		__m256i dc_vec = _mm256_set1_epi32(dc);
-		__m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
-		__m256  m_ps   = _mm256_castsi256_ps(eq);
-		__m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
-		_prob = _mm256_mul_ps(_prob, emit);
-		_sum = _mm256_add_ps(_sum, _prob);
-		_mm256_store_ps(&prob[i], _prob);
-	}
-	_mm256_store_ps(&probSumH[0], _sum);
-	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    int anchor_code = 0; 
+    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+        if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { anchor_code = (int)ai + 1; break; }
+    }
+
+    if (M.ss_anchor_split_emissions) {
+        alignas(32) int exp_is_alt[HAP_NUMBER];
+        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+        __m256i exp_vec_isalt = _mm256_load_si256((__m256i*)exp_is_alt);
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            __m256 _prob = _mm256_set1_ps(probSumK[k]);
+            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+            int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+            __m256i dc_vec = _mm256_set1_epi32(donor_is_alt);
+            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec_isalt);
+            __m256  m_ps   = _mm256_castsi256_ps(eq);
+            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+            _prob = _mm256_mul_ps(_prob, emit);
+            _sum = _mm256_add_ps(_sum, _prob);
+            _mm256_store_ps(&prob[i], _prob);
+        }
+    } else {
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            __m256 _prob = _mm256_set1_ps(probSumK[k]);
+            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+            int dc = (int)ss_cond_codes[k];
+            __m256i dc_vec = _mm256_set1_epi32(dc);
+            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
+            __m256  m_ps   = _mm256_castsi256_ps(eq);
+            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+            _prob = _mm256_mul_ps(_prob, emit);
+            _sum = _mm256_add_ps(_sum, _prob);
+            _mm256_store_ps(&prob[i], _prob);
+        }
+    }
+    _mm256_store_ps(&probSumH[0], _sum);
+    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 }
 
 inline
