@@ -429,54 +429,77 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
 			expected_class[h] = use_c1 ? c1 : c0;
 		}
 	}
-	alignas(32) int expv[HAP_NUMBER];
-	for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
-	__m256i exp_vec = _mm256_load_si256((__m256i*)expv);
+	
+	// Precompute emission vectors based on mode (BUG FIX #5: unified code path)
 	__m256 match_f = _mm256_set1_ps(1.0f);
 	__m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
+	__m256i exp_vec;
+	
+	if (M.ss_anchor_split_emissions) {
+		// Split semantics: compare binary (is anchor ALT?) for both donor and expected
+		int anchor_code = 0; 
+		for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+			if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { 
+				anchor_code = (int)ai + 1; 
+				break; 
+			}
+		}
+		alignas(32) int exp_is_alt[HAP_NUMBER];
+		for (int h = 0; h < HAP_NUMBER; ++h) 
+			exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+		exp_vec = _mm256_load_si256((__m256i*)exp_is_alt);
+	} else {
+		// Strict 4-bit class equality semantics
+		alignas(32) int expv[HAP_NUMBER];
+		for (int h = 0; h < HAP_NUMBER; ++h) 
+			expv[h] = (int)expected_class[h];
+		exp_vec = _mm256_load_si256((__m256i*)expv);
+	}
 
-	// Collapse from probSumK with per-lane emissions
+	// Unified loop: collapse from probSumK with per-lane emissions
+	// BUG FIX #5: Single code path with parameterized emission computation
 	__m256 _sum = _mm256_set1_ps(0.0f);
 	__m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
 	__m256 _nt = _mm256_set1_ps(nt / probSumT);
 	
-    int anchor_code = 0; 
-    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-        if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { anchor_code = (int)ai + 1; break; }
-    }
-
-    if (M.ss_anchor_split_emissions) {
-        alignas(32) int exp_is_alt[HAP_NUMBER];
-        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
-        __m256i exp_vec_isalt = _mm256_load_si256((__m256i*)exp_is_alt);
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256 _prob = _mm256_set1_ps(probSumK[k]);
-            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-            int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
-            __m256i dc_vec = _mm256_set1_epi32(donor_is_alt);
-            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec_isalt);
-            __m256  m_ps   = _mm256_castsi256_ps(eq);
-            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
-            _prob = _mm256_mul_ps(_prob, emit);
-            _sum = _mm256_add_ps(_sum, _prob);
-            _mm256_store_ps(&prob[i], _prob);
-        }
-    } else {
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256 _prob = _mm256_set1_ps(probSumK[k]);
-            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-            int dc = (int)ss_cond_codes[k];
-            __m256i dc_vec = _mm256_set1_epi32(dc);
-            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
-            __m256  m_ps   = _mm256_castsi256_ps(eq);
-            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
-            _prob = _mm256_mul_ps(_prob, emit);
-            _sum = _mm256_add_ps(_sum, _prob);
-            _mm256_store_ps(&prob[i], _prob);
-        }
-    }
-    _mm256_store_ps(&probSumH[0], _sum);
-    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		// Transition: collapse from previous segment boundary
+		__m256 _prob = _mm256_set1_ps(probSumK[k]);
+		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+		
+		// Emission: compute donor code based on mode, then compare to expected
+		// BUG #6 DOCUMENTED: Supersite uses vector blend (required for per-lane semantics)
+		// vs. biallelic inline conditional (optimized for binary alleles)
+		// Both implement: emit[h] = (donor_matches_expected[h]) ? 1.0 : (ed/ee)
+		int donor_code;
+		if (M.ss_anchor_split_emissions) {
+			// Split mode: donor code is binary (is anchor ALT?)
+			int anchor_code = 0; 
+			for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+				if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { 
+					anchor_code = (int)ai + 1; 
+					break; 
+				}
+			}
+			donor_code = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+		} else {
+			// Standard mode: donor code is full 4-bit class
+			donor_code = (int)ss_cond_codes[k];
+		}
+		
+		__m256i dc_vec = _mm256_set1_epi32(donor_code);
+		__m256i eq = _mm256_cmpeq_epi32(dc_vec, exp_vec);
+		__m256 m_ps = _mm256_castsi256_ps(eq);
+		__m256 emit = _mm256_blendv_ps(mis_f, match_f, m_ps);
+		
+		// Apply emission, accumulate, store
+		_prob = _mm256_mul_ps(_prob, emit);
+		_sum = _mm256_add_ps(_sum, _prob);
+		_mm256_store_ps(&prob[i], _prob);
+	}
+	
+	_mm256_store_ps(&probSumH[0], _sum);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 }
 
 inline

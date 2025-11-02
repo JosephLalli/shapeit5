@@ -760,13 +760,27 @@ Alignment items for supersites:
 - **Issue**: Two separate 30+ line code paths for `ss_anchor_split_emissions` mode vs full-supersite mode
 - **Impact**: Code duplication, maintenance burden
 - **Fix**: Extract common transition code, parameterize only emission computation
-- **Status**: ⏳ TODO
+- **Status**: ✅ FIXED (Nov 2, 2025) - Unified loop with precomputed emission vectors in both single and double precision
+- **Implementation**: Refactored `SS_COLLAPSE_AMB` in both `haplotype_segment_single.h` and `haplotype_segment_double.h`
+  - Single loop processes all donors with precomputed expected class array
+  - Transition code (`probSumK[k] * nt + tFreq`) unified
+  - Emission computation parameterized by mode (split vs strict 4-bit equality)
+  - Reduced ~60 lines duplicate code to ~45 lines unified path per file
+- **Verification**: Clean compilation with -O3 -mavx2 -mfma optimization flags
 
 **BUG #6: Emission application divergence**
 - **Issue**: Biallelic uses inline conditional multiplication, supersite precomputes emission vectors
 - **Impact**: Different code paths for same operation; harder to verify correctness
-- **Fix**: Unify approach - either precompute everywhere or use inline everywhere
-- **Status**: ⏳ TODO - needs design decision
+- **Analysis**: The divergence exists because biallelic operates on binary (0/1) alleles while supersites operate on 4-bit codes (0-15) with per-lane semantics
+- **Mathematical equivalence**:
+  - Biallelic: `if (ag!=ah) _prob *= mismatch` ≡ `emit = (ag==ah) ? 1.0 : (ed/ee)`
+  - Supersite: `emit = _mm256_blendv_ps(mis_f, match_f, match_mask)` ≡ `emit[h] = (donor_code==expected_class[h]) ? 1.0 : (ed/ee)`
+- **Design decision**: **Keep both patterns** (Option C)
+  - Biallelic: Optimized for simple binary comparisons, minimal branching overhead
+  - Supersite: Required for per-lane class semantics, uses SIMD blend operations
+  - Both patterns implement identical Li & Stephens emission probabilities
+  - Rationale documented in code comments for reviewer clarity
+- **Status**: ✅ DOCUMENTED (Nov 2, 2025) - No code change needed; patterns are mathematically equivalent and each optimized for their use case
 
 **Known Implementation Debt:**
 - Window starts may land on supersite siblings; ideally adjust to anchors or non-member loci when `--enable-supersites` is set

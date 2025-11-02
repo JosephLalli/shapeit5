@@ -535,78 +535,79 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
         }
     }
 
+    // Precompute expected vector based on mode (BUG FIX #5: unified code path)
     __m256d match_d = _mm256_set1_pd(1.0);
     __m256d mis_d   = _mm256_set1_pd(M.ed/M.ee);
+    alignas(32) int exp_arr[HAP_NUMBER];
+    
+    if (M.ss_anchor_split_emissions) {
+        // Split semantics: compare binary (is anchor ALT?) for both donor and expected
+        int anchor_code = 0; 
+        for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+            if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { 
+                anchor_code = (int)ai + 1; 
+                break; 
+            }
+        }
+        for (int h = 0; h < HAP_NUMBER; ++h) 
+            exp_arr[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+    } else {
+        // Strict 4-bit class equality semantics
+        for (int h = 0; h < HAP_NUMBER; ++h) 
+            exp_arr[h] = (int)expected_class[h];
+    }
 
+    // Unified loop: collapse from probSumK with per-lane emissions
+    // BUG FIX #5: Single code path with parameterized emission computation
     __m256d _sum0 = _mm256_set1_pd(0.0);
     __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
 
-    // Anchor ALT code for this locus
-    int anchor_code = 0; 
-    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-        if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { anchor_code = (int)ai + 1; break; }
-    }
-
-    if (M.ss_anchor_split_emissions) {
-        // Split semantics: per-lane expected ALT at anchor vs donor carries anchor ALT
-        alignas(32) int exp_is_alt[HAP_NUMBER];
-        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+        // Transition: collapse from previous segment boundary
+        __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
+        __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
+        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
+        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
         
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-            __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
-            _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
-            _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
-            
-            int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
-            
-            // Create per-lane emissions (process as two 4-lane halves for double precision)
-            alignas(32) double E8[HAP_NUMBER];
-            for (int h = 0; h < HAP_NUMBER; ++h) {
-                E8[h] = (donor_is_alt == exp_is_alt[h]) ? 1.0 : (M.ed/M.ee);
+        // Emission: compute donor code based on mode, then compare to expected per lane
+        // BUG #6 DOCUMENTED: Supersite uses per-lane array computation (required for double precision)
+        // vs. biallelic inline conditional (optimized for binary alleles)
+        // Both implement: emit[h] = (donor_matches_expected[h]) ? 1.0 : (ed/ee)
+        int donor_code;
+        if (M.ss_anchor_split_emissions) {
+            int anchor_code = 0; 
+            for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+                if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { 
+                    anchor_code = (int)ai + 1; 
+                    break; 
+                }
             }
-            
-            // Load as two 256-bit double vectors
-            __m256d emit_lo = _mm256_load_pd(&E8[0]);
-            __m256d emit_hi = _mm256_load_pd(&E8[4]);
-            
-            _prob0 = _mm256_mul_pd(_prob0, emit_lo);
-            _prob1 = _mm256_mul_pd(_prob1, emit_hi);
-            _sum0  = _mm256_add_pd(_sum0, _prob0);
-            _sum1  = _mm256_add_pd(_sum1, _prob1);
-            _mm256_store_pd(&prob[i],   _prob0);
-            _mm256_store_pd(&prob[i+4], _prob1);
+            donor_code = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+        } else {
+            donor_code = (int)ss_cond_codes[k];
         }
-    } else {
-        // Strict 4-bit equality semantics: per-lane comparison
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-            __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
-            _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
-            _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
-
-            int dc = (int)ss_cond_codes[k];
-            
-            // Create per-lane emissions (process as two 4-lane halves for double precision)
-            alignas(32) double E8[HAP_NUMBER];
-            for (int h = 0; h < HAP_NUMBER; ++h) {
-                E8[h] = (dc == (int)expected_class[h]) ? 1.0 : (M.ed/M.ee);
-            }
-            
-            // Load as two 256-bit double vectors
-            __m256d emit_lo = _mm256_load_pd(&E8[0]);
-            __m256d emit_hi = _mm256_load_pd(&E8[4]);
-
-            _prob0 = _mm256_mul_pd(_prob0, emit_lo);
-            _prob1 = _mm256_mul_pd(_prob1, emit_hi);
-            _sum0  = _mm256_add_pd(_sum0, _prob0);
-            _sum1  = _mm256_add_pd(_sum1, _prob1);
-            _mm256_store_pd(&prob[i],   _prob0);
-            _mm256_store_pd(&prob[i+4], _prob1);
+        
+        // Build per-lane emissions (process as two 4-lane halves for double precision)
+        alignas(32) double E8[HAP_NUMBER];
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            E8[h] = (donor_code == exp_arr[h]) ? 1.0 : (M.ed/M.ee);
         }
+        
+        // Load as two 256-bit double vectors and apply
+        __m256d emit_lo = _mm256_load_pd(&E8[0]);
+        __m256d emit_hi = _mm256_load_pd(&E8[4]);
+        _prob0 = _mm256_mul_pd(_prob0, emit_lo);
+        _prob1 = _mm256_mul_pd(_prob1, emit_hi);
+        
+        // Accumulate and store
+        _sum0 = _mm256_add_pd(_sum0, _prob0);
+        _sum1 = _mm256_add_pd(_sum1, _prob1);
+        _mm256_store_pd(&prob[i],   _prob0);
+        _mm256_store_pd(&prob[i+4], _prob1);
     }
+    
     _mm256_store_pd(&probSumH[0], _sum0);
     _mm256_store_pd(&probSumH[4], _sum1);
     probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
