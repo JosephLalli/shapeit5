@@ -76,7 +76,7 @@ Successful build creates binaries in `tests/bin/`:
 - `test_supersite_accessor`
 - `test_supersite_unpack`
 - `test_supersite_builder`
-- `test_missing_multiallelic_multinomial`
+- `test_missing_multiallelic_multivariant`
 - `test_supersite_vs_biallelic_simple`
 
 ## Running Tests
@@ -99,7 +99,7 @@ export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 ./bin/test_supersite_accessor
 ./bin/test_supersite_unpack
 ./bin/test_supersite_builder
-./bin/test_missing_multiallelic_multinomial
+./bin/test_missing_multiallelic_multivariant
 ./bin/test_supersite_vs_biallelic_simple
 ```
 

@@ -9,7 +9,7 @@ SHAPEIT5 is a high-performance C++17 haplotype phasing toolkit for genomic data 
 
 Current development focuses on optional **supersite phasing** for multi-allelic loci (`--enable-supersites`), maintaining backward compatibility with default biallelic paths.
 
-**Phase 3 Multinomial Imputation (Oct 29, 2025):** Native multinomial imputation for missing supersites is now complete, guaranteeing mutual exclusivity (exactly one ALT per haplotype across all splits of a multi-allelic site). See "Phase 3 Implementation" section below for details.
+**Phase 3 Multivariant Imputation (Oct 29, 2025):** Native multivariant imputation for missing supersites is now complete, guaranteeing mutual exclusivity (exactly one ALT per haplotype across all splits of a multi-allelic site). See "Phase 3 Implementation" section below for details.
 
 ## Architecture & Data Flow
 
@@ -19,7 +19,7 @@ Current development focuses on optional **supersite phasing** for multi-allelic 
   - Each uses `aligned_vector32<T>` (32-byte aligned via Boost) for SIMD-friendly Alpha/Beta arrays
   - **INIT/RUN/COLLAPSE** state transitions encoded as inlined functions (one set per genotype type: HOM/AMB/MIS)
   - Operates on 8-lane vectors (HAP_NUMBER=8) using AVX2 intrinsics
-  - **Phase 3: IMPUTE_SUPERSITE_MULTINOMIAL** computes multinomial posteriors for missing supersites in backward pass
+  - **Phase 3: IMPUTE_SUPERSITE_MULTIVARIANT** computes multivariant posteriors for missing supersites in backward pass
   - Supersite support gated by `if (super_sites && locus_to_super_idx)` checks – avoids overhead when disabled
 - **Transition model**: Li & Stephens HMM with recombination distance-based state switching
   - `nt` = probability of no transition (stay on same donor haplotype)
@@ -29,7 +29,7 @@ Current development focuses on optional **supersite phasing** for multi-allelic 
   - HOM: ~1.0 if donor matches, ~ε (M.ed/M.ee) if mismatches
   - AMB: uses lane mask (amb_code) to allow both 0|1 and 1|0 orientations
   - MIS: ~1.0 for all donors (uninformative, imputed via flanking sites)
-  - **Phase 3**: Missing supersites use multinomial imputation instead of independent biallelic IMPUTE
+  - **Phase 3**: Missing supersites use multivariant imputation instead of independent biallelic IMPUTE
 
 ### Supersite Data Model (`phase_common/src/objects/super_site_builder.cpp`)
 - **Purpose**: Treat multiallelic loci (split into multiple biallelic records) as single HMM positions
@@ -44,7 +44,7 @@ Current development focuses on optional **supersite phasing** for multi-allelic 
   - `var_start`, `var_count`: indices into `super_site_var_index` (flat list of member variant IDs)
   - `n_alts`: number of alternate alleles in this chunk
   - **Phase 3 additions:**
-    - `class_prob_offset`: byte offset into SC buffer for multinomial posteriors
+    - `class_prob_offset`: byte offset into SC buffer for multivariant posteriors
     - `n_classes`: number of classes (C = 1 + n_alts), cached for convenience
 - **Lookup structures** (all sized to total variant count):
   - `locus_to_super_idx[v]`: maps variant index v → supersite index s (or -1 if not in supersite)
@@ -56,7 +56,7 @@ Current development focuses on optional **supersite phasing** for multi-allelic 
 - **Runtime allele lookup**:
   - Panel: `unpackSuperSiteCode(panel_codes, ss.panel_offset, hap_idx)` → O(1) 4-bit code
   - Sample: `getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, hap)` → infer from split records
-  - **Phase 3**: Multinomial posterior: `SC[class_prob_offset + hap*C + c]` = P(class_c | hap)
+  - **Phase 3**: Multivariant posterior: `SC[class_prob_offset + hap*C + c]` = P(class_c | hap)
 
 ### Emission Kernels
 - **Biallelic**: direct AVX2 ops on conditioning haplotypes (bitmatrix Hvar access)
@@ -269,16 +269,16 @@ Position 1000: REF=A, ALT1=T, ALT2=G (split into 2 biallelic records)
 
 **Root cause:** Biallelic IMPUTE treats each split independently with no coordination. P(ALT | data) computed separately for split1 and split2, allowing both to sample ALT for the same haplotype.
 
-### Solution: Native Multinomial Imputation
+### Solution: Native Multivariant Imputation
 
-**Phase 3 approach:** Compute P(class_c | Alpha, Beta) for all classes {REF, ALT1, ALT2, ..., ALTn} in one multinomial distribution during HMM backward pass, then sample exactly one class per haplotype.
+**Phase 3 approach:** Compute P(class_c | Alpha, Beta) for all classes {REF, ALT1, ALT2, ..., ALTn} in one multivariant distribution during HMM backward pass, then sample exactly one class per haplotype.
 
-**Mathematical guarantee:** Sampling from multinomial ∑_c P(c)=1.0 ensures exactly one class selected → at most one ALT in projected splits.
+**Mathematical guarantee:** Sampling from multivariant ∑_c P(c)=1.0 ensures exactly one class selected → at most one ALT in projected splits.
 
 ### Implementation Components
 
 #### 1. Data Structures (`super_site_accessor.h`, `compute_job.{h,cpp}`)
-- `SuperSite.class_prob_offset`: byte offset into SC buffer for multinomial posteriors
+- `SuperSite.class_prob_offset`: byte offset into SC buffer for multivariant posteriors
 - `SuperSite.n_classes`: cached class count (C = 1 + n_alts)
 - `compute_job.SC`: CurrentSuperClassPosteriors buffer, size = ∑ (HAP_NUMBER × n_classes) for missing supersites
 - `compute_job.anchor_has_missing`: boolean vector, true if ALL members of supersite are missing for this sample
@@ -286,10 +286,10 @@ Position 1000: REF=A, ALT1=T, ALT2=G (split into 2 biallelic records)
 
 #### 2. HMM Backward Pass (`haplotype_segment_{single,double}.{h,cpp}`)
 
-**IMPUTE_SUPERSITE_MULTINOMIAL function:**
+**IMPUTE_SUPERSITE_MULTIVARIANT function:**
 ```cpp
 // Compute P(class_c | Alpha, Beta) for c ∈ {REF, ALT1, ..., ALTn}
-void IMPUTE_SUPERSITE_MULTINOMIAL(vector<float>& SC, const SuperSite& ss, int ss_idx) {
+void IMPUTE_SUPERSITE_MULTIVARIANT(vector<float>& SC, const SuperSite& ss, int ss_idx) {
     // 1. Unpack conditioning hap codes (0=REF, 1..n_alts)
     for (k=0; k<n_cond_haps; ++k)
         ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, k);
@@ -309,7 +309,7 @@ void IMPUTE_SUPERSITE_MULTINOMIAL(vector<float>& SC, const SuperSite& ss, int ss
     // 4. Normalize and write: SC[offset + h*C + c] = sum[c][h] / denom[h]
     for (c=0; c<C; ++c)
         for (h=0; h<8; ++h)
-            SC[offset + h*C + c] = sum[c][h] / denom[h];  // Multinomial posterior
+            SC[offset + h*C + c] = sum[c][h] / denom[h];  // Multivariant posterior
 }
 ```
 
@@ -321,8 +321,8 @@ if (mis) {
     if (ss_idx_here >= 0 && anchor_has_missing && (*anchor_has_missing)[ss_idx_here] && SC) {
         const SuperSite& ss = (*super_sites)[ss_idx_here];
         if (curr_abs_locus == (int)ss.global_site_id) {
-            // Anchor: compute multinomial once for entire supersite
-            IMPUTE_SUPERSITE_MULTINOMIAL(*SC, ss, ss_idx_here);
+            // Anchor: compute multivariant once for entire supersite
+            IMPUTE_SUPERSITE_MULTIVARIANT(*SC, ss, ss_idx_here);
         }
         // Sibling: skip, no DP
         curr_abs_missing--;
@@ -343,19 +343,19 @@ class genotype {
     const std::vector<SuperSite>* super_sites;
     const std::vector<int>* locus_to_super_idx;
     const std::vector<int>* super_site_var_index;
-    const std::vector<float>* SC;  // Multinomial posteriors from HMM
+    const std::vector<float>* SC;  // Multivariant posteriors from HMM
     const std::vector<bool>* anchor_has_missing;
     
     void setSuperSiteContext(...);  // Called from phaser_algorithm before sample()
 };
 ```
 
-**Multinomial sampling in make():**
+**Multivariant sampling in make():**
 ```cpp
 // At missing supersite anchor:
 if (ss_idx >= 0 && anchor_has_missing && (*anchor_has_missing)[ss_idx] && SC) {
     if (vabs == ss.global_site_id) {
-        // 1. Sample class_0 and class_1 from multinomials
+        // 1. Sample class_0 and class_1 from multivariants
         float r0 = rng.getDouble();
         float cumsum0 = 0.0f;
         for (c=0; c<C; ++c) {
@@ -386,7 +386,7 @@ if (ss_idx >= 0 && anchor_has_missing && (*anchor_has_missing)[ss_idx] && SC) {
 
 **Before sample():**
 ```cpp
-// Set supersite context for multinomial imputation
+// Set supersite context for multivariant imputation
 if (enable_supersites) {
     G.vecG[id_job]->setSuperSiteContext(
         &super_sites,
@@ -397,7 +397,7 @@ if (enable_supersites) {
     );
 }
 
-// Now sample() can access multinomial posteriors
+// Now sample() can access multivariant posteriors
 G.vecG[id_job]->sample(threadData[id_worker].T, threadData[id_worker].M);
 ```
 
@@ -412,24 +412,24 @@ outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M,
 
 **Why Phase 3 over Phase 1 (reconstruction)?**
 
-| Aspect | Phase 1 (Reconstruction) | Phase 3 (Native Multinomial) |
+| Aspect | Phase 1 (Reconstruction) | Phase 3 (Native Multivariant) |
 |--------|-------------------------|------------------------------|
-| Approach | Compute biallelic P(ALT1), P(ALT2), then normalize to multinomial | Compute multinomial P(class_c) directly in HMM |
+| Approach | Compute biallelic P(ALT1), P(ALT2), then normalize to multivariant | Compute multivariant P(class_c) directly in HMM |
 | Normalization | Post-hoc: P(c) = P(ALTc) / ∑_c P(ALTc) | Native: ∑_k [Alpha × Beta × 1{donor=c}] / ∑_k [Alpha × Beta] |
-| Mutual exclusivity | Enforced by normalization + sampling constraints | Mathematically guaranteed by multinomial sampling |
+| Mutual exclusivity | Enforced by normalization + sampling constraints | Mathematically guaranteed by multivariant sampling |
 | Numerical stability | Potential issues if posteriors poorly scaled | Stable: same Alpha×Beta pattern as biallelic |
 | Code complexity | Complex reconstruction logic in genotype::make() | Clean separation: HMM computes, genotype samples |
-| Truth | Multiple sources (SC for splits, then reconstruct) | Single source: SC contains true multinomial |
+| Truth | Multiple sources (SC for splits, then reconstruct) | Single source: SC contains true multivariant |
 
 **Result:** Phase 3 chosen for cleaner design, guaranteed correctness, and numerical stability.
 
 ### Validation Checklist
 
 1. **Compilation**: ✅ Clean compilation (commit 698e325, Oct 29 2025)
-2. **Multinomial constraint**: Assert ∑_c SC[offset+hap*C+c] ≈ 1.0 in IMPUTE_SUPERSITE_MULTINOMIAL
+2. **Multivariant constraint**: Assert ∑_c SC[offset+hap*C+c] ≈ 1.0 in IMPUTE_SUPERSITE_MULTIVARIANT
 3. **Mutual exclusivity**: Verify no haplotype has multiple ALTs at same position in output BCF
 4. **Integration testing**: Run `test/scripts/phase.wgs.unrelated.sh --enable-supersites`
-5. **Performance**: Profile multinomial overhead vs. biallelic
+5. **Performance**: Profile multivariant overhead vs. biallelic
 6. **Accuracy**: Compare phasing accuracy with/without supersites
 
 ### Future Optimizations (Optional)

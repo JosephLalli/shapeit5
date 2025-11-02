@@ -70,11 +70,11 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				const SuperSite& ss = (*super_sites)[ss_idx];
 				
 				if (vabs == ss.global_site_id) {
-					// Anchor: sample multinomial and project to all splits
+					// Anchor: sample multivariant and project to all splits
 					int C = (int)ss.n_classes;
 					uint32_t offset = ss.class_prob_offset;
 					
-					// Sample one class per haplotype from multinomial
+					// Sample one class per haplotype from multivariant
 					// SC[offset + hap*C + c] = P(class_c | hap)
 					uint8_t class0 = 0, class1 = 0;
 					
@@ -190,7 +190,7 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 	}
 }
 
-// Phase 3: Set supersite context for multinomial imputation
+// Phase 3: Set supersite context for multivariant imputation
 void genotype::setSuperSiteContext(
 const std::vector<SuperSite>* _super_sites,
 const std::vector<int>* _locus_to_super_idx,

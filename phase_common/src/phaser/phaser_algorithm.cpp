@@ -108,7 +108,7 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 	H.Kbanned.pushIBD2(id_job, threadData[id_worker].Kbanned);
 	if (options["thread"].as < int > () > 1) pthread_mutex_unlock(&mutex_workers);
 
-	// Phase 3: Set supersite context for multinomial imputation
+	// Phase 3: Set supersite context for multivariant imputation
 	if (enable_supersites) {
 		G.vecG[id_job]->setSuperSiteContext(
 			&super_sites,

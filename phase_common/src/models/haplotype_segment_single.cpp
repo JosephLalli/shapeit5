@@ -234,8 +234,8 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 				const SuperSite& ss = (*super_sites)[ss_idx_here];
 				
 				if (curr_abs_locus == (int)ss.global_site_id) {
-					// Anchor: compute multinomial for entire supersite
-					IMPUTE_SUPERSITE_MULTINOMIAL(*SC, ss, ss_idx_here);
+					// Anchor: compute multivariant for entire supersite
+					IMPUTE_SUPERSITE_MULTIVARIATE(*SC, ss, ss_idx_here);
 				}
 				// Else: sibling, skip (no IMPUTE call)
 				

@@ -138,7 +138,7 @@ All tests now compile and run successfully in Copilot environment:
 - ✅ test_supersite_accessor: PASS
 - ✅ test_supersite_unpack: PASS
 - ✅ test_supersite_builder: PASS
-- ✅ test_missing_multiallelic_multinomial: PASS
+- ✅ test_missing_multiallelic_multivariant: PASS
 
 ## Future Recommendations
 

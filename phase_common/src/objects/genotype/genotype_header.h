@@ -94,7 +94,7 @@ public:
 	std::vector < float > ProbStored;
 	std::vector < float > ProbMissing;
 
-	// SUPERSITE CONTEXT (Phase 3: multinomial imputation)
+	// SUPERSITE CONTEXT (Phase 3: multivariant imputation)
 	const std::vector<SuperSite>* super_sites;
 	const std::vector<int>* locus_to_super_idx;
 	const std::vector<int>* super_site_var_index;
