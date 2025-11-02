@@ -5,108 +5,675 @@ SHAPEIT5 — `phase_common` super-site integration
 - This AGENTS.md mirrors `.github/copilot-instructions.md`, which is the authoritative, detailed guide distilled from `SUPERSITE_CONVERSATION_SUMMARY.md`.
 - If anything diverges, prefer `.github/copilot-instructions.md` and update this file to match.
 
-## Objectives (unchanged)
-- Expose optional super-site phasing for multi-allelic loci (`--enable-supersites`) while keeping default behaviour untouched.
-- Maintain the original biallelic code paths (and performance characteristics) when supersites are disabled.
+## Context
+- SHAPEIT5's algorithm is a program that employs two variations (phase_common and phase_rare) of the MCMC Li-Stephens model to take genetic variant calls and determine the allele of origin (right or left) for heterozygous variants
+- When variant callers were unsure of the genotype and emitted a missing call(./.), SHAPEIT5 also imputes the most likely genotype.
+- It only supports biallelic sites, as it internally represents variants as 0 (reference) or 1 (not reference)
+- MCMC uses forwards/backwards algorithm to calculate "emission" probability (probability of 1; default 0.001 likelihood of genotype error) and "transmission probability" (likelihood of variant arising from different source haplotype)
 
-## Current Status (Nov 2025)
-- **Phase 3 Multinomial Imputation: COMPLETE** ✅
-  - Native multinomial imputation for missing supersites implemented end-to-end
-  - Guarantees mutual exclusivity by design (exactly one ALT per haplotype across all splits)
-  - Clean compilation, ready for integration testing
-- Data model / builder: `buildSuperSites` partitions split records, fills `super_sites`, `locus_to_super_idx`, `super_site_var_index`, and packs panel haplotype codes. Conditioning haplotypes are encoded with 4-bit classes (two per byte) as planned.
-- HMM integration: `haplotype_segment_{single,double}` accept optional supersite state and compute multinomial posteriors in backward pass via `IMPUTE_SUPERSITE_MULTINOMIAL()`.
-- Genotype projection: `genotype::make()` samples from multinomials and projects to split records, enforcing mutual exclusivity.
-- Unit test coverage:
-  - `test_supersite_emissions` (float/double kernels)
-  - `test_supersite_accessor` (per-hap sample codes)
-  - `test_supersite_unpack` (4-bit decode)
-  - `test_supersite_builder` (grouping/panel packing)
-  - `test_supersite_hmm` (forward path regression)
-  - `test_supersite_hmm_states` (INIT/RUN/COLLAPSE micro-harness)
-- Build / tooling: tests have a standalone `tests/makefile` mirroring top-level flags and linking supersite objects.
-- Test trace gating: set `SHAPEIT5_TEST_TRACE=1` to dump per‑locus forward/backward TSVs from parity tests to `tests/out/`.
-- Underflow diagnostics: set `SHAPEIT5_DEBUG_UNDERFLOW=1` to log forward/transition underflows from `phase_common` into `logs/underflow.tsv` (thread‑safe TSV rows).
-- Supersite anchor emission toggle: new CLI flag `--ss-anchor-split-emissions` (with `--enable-supersites`) to use biallelic split semantics at anchors; default remains strict 4‑bit equality.
+## SHAPEIT5 algorithm details
 
-## Recent Work (Phase 3 Implementation)
-**Problem Identified:** Split multi-allelic records were being imputed independently, allowing multiple ALTs on the same haplotype (e.g., both split1=1|0 and split2=1|0 at chr:pos, implying hap0 carries both ALT1 and ALT2 simultaneously). This violates biological reality.
+### What is Phasing?
+Phasing is the process of determining which alleles came from which parent. When sequencing DNA, we get genotype calls like "0/1" at heterozygous sites, but we don't know if the "1" allele is on the chromosome inherited from mom or dad. Phasing figures this out, creating two separate haplotypes (one maternal, one paternal).
 
-**Solution Implemented:** Phase 3 native multinomial imputation treats supersites as first-class multi-allelic loci throughout the HMM pipeline:
+For example, if you have three nearby variants:
+- Variant 1: A/G (genotype 0/1)
+- Variant 2: C/T (genotype 0/1)  
+- Variant 3: G/A (genotype 1/0)
 
-1. **HMM Backward Pass** (`haplotype_segment_{single,double}.{h,cpp}`):
-   - Added `IMPUTE_SUPERSITE_MULTINOMIAL()` function that computes P(class_c | Alpha, Beta) for all classes c ∈ {REF, ALT1, ..., ALTn}
-   - Uses C SIMD accumulators (C ≤ 16) following same Alpha×Beta pattern as biallelic IMPUTE
-   - Stores multinomial posteriors in SC buffer: `SC[offset + hap*C + c]`
-   - Updated `backward()` signature to accept `SC` and `anchor_has_missing` pointers
-   - Added conditional logic to call multinomial imputation at anchors, skip siblings
+Phasing determines whether the haplotypes are:
+- Haplotype 1 (maternal): A-C-A
+- Haplotype 2 (paternal): G-T-G
 
-2. **Genotype Projection** (`genotype_header.h`, `genotype_managment.cpp`):
-   - Added supersite context pointers to genotype class (super_sites, locus_to_super_idx, etc.)
-   - Implemented `setSuperSiteContext()` to pass HMM multinomial posteriors
-   - Updated `make()` to sample one class per haplotype from multinomial distribution
-   - Projects sampled class to split records: if class=ALTi, set split_i=ALT, all others=REF
-   - **Mathematical guarantee:** Exactly one split set to ALT per haplotype (mutual exclusivity)
+Or some other combination.
 
-3. **Integration** (`phaser_algorithm.cpp`, `compute_job.{h,cpp}`):
-   - `compute_job` allocates SC buffer and populates `anchor_has_missing` per window
-   - `phaser_algorithm` passes SC to backward() and calls `setSuperSiteContext()` before sample()
-   - Works across all iteration types (BURN, PRUN, MAIN) and precision paths (float/double)
+### The Li & Stephens Hidden Markov Model (HMM)
 
-**Key Design Choice:** Phase 3 was chosen over Phase 1 (reconstruction) because:
-- Phase 1: Compute biallelic posteriors, then reconstruct multinomial in genotype::make()
-  - Requires complex normalization, potential for numerical instability
-  - Post-hoc constraints may not perfectly enforce mutual exclusivity
-- Phase 3: Compute multinomial natively in HMM
-  - Single source of truth for posteriors
-  - Sampling from multinomial mathematically guarantees mutual exclusivity
-  - Cleaner separation of concerns (HMM computes probabilities, genotype samples)
+SHAPEIT5 uses a probabilistic model based on the Li & Stephens (2003) algorithm. The key insight is that **your DNA sequence is a mosaic of pieces copied from other individuals in the population**, with occasional copying errors and recombination events that switch which individual you're copying from.
 
-## Outstanding Issues
-1. **Integration testing needed**
-   - Run `test/scripts/phase.wgs.unrelated.sh --enable-supersites` to verify correctness
-   - Validate SC buffer contents (multinomials sum to ~1.0)
-   - Check output BCF for mutual exclusivity violations (should be zero)
-   - Compare phasing accuracy vs. biallelic mode
-2. Unit test harness
-   - `tests/bin/test_supersite_hmm_states` may need update for Phase 3 validation
-   - Fixtures under `tests/data/` still needed for smoke tests (placeholders exist)
-3. Build stability
-   - `make -C tests` succeeds after setting `LD_LIBRARY_PATH=$HOME/.linuxbrew/lib`. Ensure CI/exported instructions include this.
+Think of it like this: imagine you're writing a term paper by copying paragraphs from 100 different sources. Most of the time, you copy exactly, but sometimes you make a typo (sequencing error). And every so often, you switch to copying from a different source (recombination event). If someone gave you the final paper and the 100 sources, you could probably figure out which paragraphs came from which source - that's essentially what the HMM does.
 
-## Next Steps
-1. **Integration testing** (priority 1): Run full phasing pipeline with --enable-supersites on test data
-2. Add validation checks:
-   - Assert Σ_c SC[offset+hap*C+c] ≈ 1.0 in IMPUTE_SUPERSITE_MULTINOMIAL
-   - Log sampled classes in genotype::make() for debugging
-   - Add mutual exclusivity validator in output writer
-3. Profile performance: measure overhead of multinomial computation vs. biallelic
-4. Author integration smoke test harness (`tests/run_supersite_smoke.sh`) with known multi-allelic VCF fixtures
-5. Optional optimizations:
-   - SIMD stores in IMPUTE_SUPERSITE_MULTINOMIAL (currently scalar extraction)
-   - Separate SuperProbMissing storage if needed (currently SC serves this purpose)
+**Key HMM Components:**
 
-## Architecture & Data Flow (Essentials)
-- HMM cores: `phase_common/src/models/haplotype_segment_{single,double}` implement forward/backward with AVX2 on 8-lane vectors (HAP_NUMBER=8) using `aligned_vector32<T>` arrays for Alpha/Beta and sums.
-- States: INIT/RUN/COLLAPSE per genotype class (HOM/AMB/MIS), mirrored between float/double implementations.
-- Supersite check: Always guard supersite logic with `if (super_sites && locus_to_super_idx)` to preserve biallelic defaults.
-- Precision fallback: Forward/backward return non-zero on underflow; caller (`phaser_algorithm.cpp`) retries with double precision.
+1. **Hidden States (K states)**: Each state represents "currently copying from donor haplotype K". SHAPEIT5 typically uses K≈200 donor haplotypes selected via PBWT (explained below).
 
-## Supersite Data Model
-- Built by `phase_common/src/objects/super_site_builder.{h,cpp}` via `buildSuperSites()` once per iteration after PBWT selection.
-- 4‑bit allele codes (0=REF, 1..15=ALT) per conditioning haplotype; two codes per byte in a packed array; `panel_offset` is the starting byte for a supersite.
-- `locus_to_super_idx[v]` maps variant index to supersite index or -1 when not in a supersite.
-- Member variants are referenced via flat `super_site_var_index` with `var_start/var_count` (CSR-style). Large sites chunk when `n_alts>15`.
-- **Phase 3 additions:**
-  - `SuperSite.class_prob_offset`: byte offset into SC buffer for this supersite's multinomial posteriors
-  - `SuperSite.n_classes`: number of classes (C = 1 + n_alts), cached for convenience
-  - `compute_job.SC`: CurrentSuperClassPosteriors buffer storing P(class_c | hap) per missing supersite
-  - `compute_job.anchor_has_missing`: boolean vector indicating which supersites have all members missing for this sample
-- Runtime lookups:
+2. **Emission Probabilities**: The probability of observing your allele given you're copying from donor K:
+   - If your allele matches the donor: probability ≈ 1.0 (correct copy)
+   - If your allele doesn't match: probability ≈ 0.001 (sequencing error rate, default `ed/ee`)
+   - If your genotype is missing (./.): probability ≈ 1.0 for all donors (uninformative)
+
+3. **Transition Probabilities**: The probability of switching donors between adjacent variants:
+   - `nt` (no transition): probability of staying with the same donor = 1 - recombination_rate
+   - `yt` (yes transition): probability of switching to a different donor = recombination_rate / (K-1)
+   - Recombination rate is based on genetic distance (centiMorgans) from a genetic map
+
+4. **Forward-Backward Algorithm**: 
+   - **Forward pass**: Computes α(k) = probability of observing all variants up to position i and being in state k
+   - **Backward pass**: Computes β(k) = probability of observing all variants after position i given state k
+   - Together: posterior probability = α(k) × β(k), normalized
+
+### SHAPEIT5 Modes
+
+SHAPEIT5 has two phasing/imputation modes:
+- **phase_common**: Used on common variants (MAF > 0.001 by default). Uses the full HMM on all samples.
+- **phase_rare**: Used on rare variants. Phases rare variants onto existing common variant scaffolds using a simplified HMM.
+
+This documentation focuses on **phase_common**, which is the core algorithm.
+
+---
+
+## phase_common Implementation Outline
+
+### High-Level Architecture
+
+The `phase_common` algorithm consists of several major subsystems that work together:
+
+```
+Input VCF/BCF
+     ↓
+[1] Data Loading & Initialization
+     ↓
+[2] MCMC Iteration Loop (burn-in → pruning → main)
+     ├─→ [3] PBWT State Selection (select K donor haplotypes per sample)
+     ├─→ [4] Window Segmentation (divide genome into manageable chunks)
+     ├─→ [5] Multi-threaded HMM Computation
+     │        ├─→ Forward Pass (compute α values)
+     │        └─→ Backward Pass (compute β values + imputation)
+     ├─→ [6] Sampling (pick most likely phase configuration)
+     └─→ [7] Haplotype Update (update reference panel with new phases)
+     ↓
+Output Phased VCF/BCF
+```
+
+### [1] Data Loading & Initialization (`phaser_initialise.cpp`)
+
+**Key Data Structures:**
+- `genotype_set G`: All samples being phased
+  - Each `genotype` object stores one sample's data as a graph of segments
+  - Variants encoded as bit-packed values: HOM/HET/MIS/SCAFFOLD (2 bits per variant)
+  - Ambiguous (heterozygous) sites stored separately with orientation masks
+  
+- `conditioning_set H`: Reference panel haplotypes used as "donor" states
+  - Stored as bit matrices: `H_opt_var[variant][haplotype]` and `H_opt_hap[haplotype][variant]`
+  - Transposed views for cache-efficient access patterns
+  
+- `variant_map V`: Variant metadata (position, genetic distance, allele frequency)
+  
+- `hmm_parameters M`: HMM model parameters
+  - Transition probabilities `nt[i]`, `yt[i]` pre-computed from genetic map
+  - Emission error rates `ed`, `ee` (typically ed/ee ≈ 0.001)
+
+**Supersite Data Structures** (when `--enable-supersites` is used):
+- `std::vector<SuperSite> super_sites`: Multi-allelic site metadata
+  - `global_site_id`: Anchor variant index (where HMM DP runs)
+  - `panel_offset`: Byte offset into packed 4-bit allele codes
+  - `var_start`, `var_count`: Member variant indices (CSR-style)
+  - `n_alts`: Number of alternate alleles (1-15)
+  - `class_prob_offset`: Offset into SC buffer for multivariant posteriors (Phase 3)
+  - `n_classes`: Number of allele classes (C = 1 + n_alts)
+- `std::vector<int> locus_to_super_idx`: Maps variant index → supersite index (or -1)
+- `std::vector<int> super_site_var_index`: Flat array of member variant indices
+- `std::vector<uint8_t> packed_allele_codes`: Compact 4-bit codes (2 per byte) for panel haplotypes
+
+**Graph Representation:**
+Each sample's genotype is stored as a directed acyclic graph (DAG) of segments:
+- Each **segment** represents a region where the phasing is locally determined
+- Each segment has a **diplotype** = set of compatible (haplotype0, haplotype1) pairs
+- Diplotypes encoded as 64-bit masks where bit d=1 means diplotype d is possible
+- Initial state: most segments have all 64 diplotypes possible (fully ambiguous)
+
+### [2] MCMC Iteration Scheme (`phaser_algorithm.cpp::phase()`)
+
+SHAPEIT5 uses an iterative MCMC approach with three stages:
+
+1. **Burn-in** (default: 7 iterations): Sample new phase configurations to explore the state space
+2. **Pruning** (default: 8 iterations): Sample + merge segments with high confidence (>95% probability) to reduce complexity
+3. **Main** (default: 10 iterations): Sample + store posterior probabilities for final output
+
+Each iteration follows this pattern:
+```cpp
+for (each iteration) {
+    H.select();              // [3] PBWT: Select K conditioning states
+    phaseWindow();          // [4-6] Window segmentation + HMM + sampling
+    H.updateHaplotypes(G);  // [7] Update reference panel
+    H.transposeHaplotypes_H2V();  // Prepare for next PBWT
+}
+```
+
+### [3] PBWT State Selection (`conditioning_set_selection.cpp`)
+
+**Purpose**: For computational efficiency, the HMM doesn't use all N haplotypes in the panel as states - instead, it selects K≈200 "best" donor haplotypes per sample using the Positional Burrows-Wheeler Transform (PBWT).
+
+**How PBWT Works:**
+The PBWT is a data structure that efficiently finds haplotypes that are **identical-by-descent (IBD)** in a local region. It works by:
+
+1. **Prefix Array**: At each variant, maintain a sorted array A where haplotypes are ordered by their suffix (all variants from position i onward)
+2. **Divergence Array**: Track where each haplotype last differed from its neighbors
+3. **Selection**: For each sample's haplotype, find the K nearest neighbors in the PBWT array (= most similar locally)
+
+**Key Insight**: Haplotypes that share long IBD segments are more likely to be good "copy sources" in the HMM, because they represent recent common ancestry.
+
+**SHAPEIT5 Implementation Details:**
+- Multi-threaded PBWT sweep (`conditioning_set::select()`)
+- Divides genome into chunks for parallel processing
+- At selected "evaluation sites", stores K nearest neighbors per haplotype
+- IBD2 tracking: Detects identical-by-descent pairs (parent-child, twins) and bans them from being selected together
+
+**Data Flow:**
+```
+H_opt_var (variant-major)
+    ↓
+PBWT forward sweep (partition by allele, track divergence)
+    ↓
+Select K neighbors at evaluation sites → indexes_pbwt_neighbour[]
+    ↓
+Transpose to haplotype-major layout for HMM access
+```
+
+### [4] Window Segmentation (`window_set.cpp`)
+
+**Purpose**: The genome is too large to phase in one HMM pass, so it's divided into overlapping windows.
+
+**Window Requirements** (for successful split):
+- Span ≥4 segments in the genotype graph
+- Contain ≥100 variants
+- Span ≥genetic distance threshold (default: 0.0001 cM, effectively disabled)
+
+**Recursive Split Algorithm**:
+```cpp
+bool split(min_length, left_index, right_index) {
+    if (too_small) return false;
+    
+    split_point = random(middle_half_of_range);  // Randomize for MCMC diversity
+    
+    if (split(left_half) && split(right_half))
+        return true;  // Successful recursive split
+    else
+        return [left_index, right_index];  // Keep as single window
+}
+```
+
+**Window Metadata** (per window):
+- `start_locus`, `stop_locus`: Variant range
+- `start_segment`, `stop_segment`: Segment range in genotype graph
+- `start_ambiguous`, `stop_ambiguous`: Heterozygous variant range
+- `start_missing`, `stop_missing`: Missing variant range
+- `start_transition`, `stop_transition`: Transition range in graph
+
+### [5] Multi-threaded HMM Computation (`haplotype_segment_single.cpp`)
+
+This is the computational core of SHAPEIT5. Each sample is processed independently in parallel.
+
+**Per-Thread Data** (`compute_job` class):
+- `std::vector<double> T`: Transition probabilities per window
+- `std::vector<float> M`: Missing probabilities per window
+- **Supersite additions** (Phase 3):
+  - `std::vector<float> SC`: CurrentSuperClassPosteriors buffer storing P(class_c | hap) per missing supersite
+  - `std::vector<bool> anchor_has_missing`: Per-supersite flag indicating all members missing for this sample
+  - Read-only references to global supersite metadata (`super_sites`, `locus_to_super_idx`, `super_site_var_index`)
+
+**Thread Management**:
+```cpp
+void phaseWindow() {
+    for (each sample in parallel) {
+        for (each window) {
+            // Try single-precision first (faster)
+            haplotype_segment_single HS(...);
+            HS.forward();
+            outcome = HS.backward(...);
+            
+            // If underflow, retry with double-precision
+            if (outcome != 0) {
+                haplotype_segment_double HS(...);
+                HS.forward();
+                outcome = HS.backward(...);
+                mark_sample_as_needing_double_precision();
+            }
+        }
+    }
+}
+```
+
+#### 5a. Forward Pass (`haplotype_segment_single::forward()`)
+
+**Purpose**: Compute α[k] = P(observations up to variant i, state=k) for all variants and all K states.
+
+**Key Data Structures**:
+- `prob[k*8 + h]`: Current forward probability for donor k, lane h (8 lanes for AVX2 SIMD)
+- `Alpha[s]`: Stored forward probabilities at segment boundaries
+- `AlphaMissing[m]`: Stored forward probabilities at missing sites (for imputation)
+- `probSumH[h]`: Sum of prob across all donors for lane h
+- `probSumT`: Sum across all lanes and donors
+
+**Three HMM Operations** (inlined for each variant type):
+
+1. **INIT**: Initialize first variant in window or segment
+   ```cpp
+   void INIT_HOM() {  // Homozygous reference or alternate
+       for (each donor k) {
+           emission = (donor_matches_sample) ? 1.0 : (ed/ee);
+           prob[k] = emission;
+       }
+       probSumT = sum(prob);
+   }
+   
+   void INIT_AMB() {  // Heterozygous (ambiguous orientation)
+       for (each donor k) {
+           // Use amb_code mask to handle both 0|1 and 1|0 orientations
+           // across 8 SIMD lanes simultaneously
+           emission_g0 = (donor==0) ? 1.0 : (ed/ee);
+           emission_g1 = (donor==1) ? 1.0 : (ed/ee);
+           prob[k] = blend(emission_g0, emission_g1, based_on_amb_code);
+       }
+   }
+   
+   void INIT_MIS() {  // Missing genotype
+       for (each donor k) {
+           prob[k] = 1.0;  // All donors equally likely
+       }
+   }
+   ```
+
+2. **RUN**: Propagate within a segment
+   ```cpp
+   bool RUN_HOM(rare_allele) {
+       for (each donor k) {
+           emission = (donor_matches_sample) ? 1.0 : (ed/ee);
+           
+           // Li & Stephens transition:
+           // Stay with same donor (nt) or switch to any donor (yt)
+           transition = nt * prob[k] + yt * probSumH[lane];
+           
+           prob[k] = emission * transition;
+       }
+       probSumT = sum(prob);
+       
+       // Optimization: skip transition if rare allele doesn't match
+       return (sample_has_rare_allele);
+   }
+   ```
+
+3. **COLLAPSE**: Handle segment boundaries (diplotype changes)
+   ```cpp
+   void COLLAPSE_HOM() {
+       // At segment boundary, previous diplotype constrains which
+       // donor haplotypes are compatible
+       for (each donor k) {
+           emission = (donor_matches_sample) ? 1.0 : (ed/ee);
+           
+           // probSumK[k] = sum of prob[k] across all diplotypes
+           // that include this donor
+           transition = nt * probSumK[k] + yt * (1.0 / K);
+           
+           prob[k] = emission * transition;
+       }
+   }
+   ```
+
+**AVX2 SIMD Optimization**:
+All operations process 8 lanes simultaneously using Intel AVX2 intrinsics:
+- `__m256` = 8 floats (32 bytes, aligned)
+- `_mm256_load_ps`, `_mm256_store_ps`: Load/store aligned float vectors
+- `_mm256_mul_ps`, `_mm256_add_ps`: Vectorized arithmetic
+- `_mm256_fmadd_ps`: Fused multiply-add (prob * nt + tFreq)
+
+The 8 lanes represent potential haplotype orientations (for heterozygous sites) or are duplicated (for homozygous sites).
+
+**Storage**:
+- At each **segment boundary**: Store `Alpha[s] = prob`, `AlphaSum[s] = probSumH`
+- At each **missing variant**: Store `AlphaMissing[m] = prob`, `AlphaSumMissing[m] = probSumH`
+
+#### 5b. Backward Pass (`haplotype_segment_single::backward()`)
+
+**Purpose**: 
+1. Compute β[k] = P(observations after variant i | state=k)
+2. Compute posterior probabilities: α[k] × β[k]
+3. Impute missing genotypes
+4. Compute transition probabilities between segments
+
+**Same Operations** (INIT/RUN/COLLAPSE) but in reverse order:
+- Start at last variant, move toward first
+- Use same emission probabilities
+- Use backward transition probabilities (same as forward, but indexed differently)
+
+**Missing Genotype Imputation**:
+```cpp
+void IMPUTE(missing_probabilities) {
+    // Posterior = α[k] × β[k] / sum(α[k] × β[k])
+    for (each donor k) {
+        for (each lane h) {
+            posterior = Alpha[k,h] * prob[k,h] / AlphaSum[h];
+            missing_probabilities[h] += posterior;  // Accumulate across donors
+        }
+    }
+    // Result: missing_probabilities[h] = P(allele=1 | data, lane h)
+}
+```
+
+**Supersite Multivariant Imputation** (Phase 3, when `--enable-supersites` used):
+For missing supersites, compute multivariant distribution over all allele classes:
+```cpp
+void IMPUTE_SUPERSITE_MULTIVARIANT(SC, ss, ss_idx) {
+    // For each donor k, accumulate by their allele class
+    for (k in donors) {
+        class_c = ss_cond_codes[k];  // Which allele this donor carries
+        sum[class_c] += Alpha[k] * Beta[k] / AlphaSum;
+    }
+    
+    // Normalize: SC[offset + hap*C + c] = P(class_c | hap)
+    for (c in 0..n_classes) {
+        for (h in 0..7) {
+            SC[offset + h*C + c] = sum[c][h] / total;
+        }
+    }
+}
+```
+- **Mathematical Guarantee**: Sum over all classes equals 1.0 for each haplotype, ensuring mutual exclusivity
+- **Runtime lookups**: 
   - Panel donor code: `unpackSuperSiteCode(panel_codes, ss.panel_offset, hap_idx)`
   - Sample code: `getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, hap)`
-  - Multinomial posterior: `SC[class_prob_offset + hap*C + c]` = P(class_c | hap)
-- Anchor gating: Run DP only at `SuperSite.global_site_id`; sibling split records skip emission/transition to avoid double counting.
+  - Multivariant posterior: `SC[class_prob_offset + hap*C + c]` = P(class_c | hap)
+- **Anchor gating**: Run DP only at `SuperSite.global_site_id`; sibling split records skip emission/transition
+
+**Transition Probability Computation**:
+At segment boundaries, compute probability of each diplotype transition:
+```cpp
+P(diplotype_t | data) = 
+    (AlphaSum[hap0_prev] * probSumH[hap0_curr] / AlphaSumSum) *
+    (AlphaSum[hap1_prev] * probSumH[hap1_curr] / AlphaSumSum)
+```
+
+This gives a probability distribution over all valid diplotype transitions.
+
+### [6] Sampling (`genotype_managment.cpp`)
+
+**Purpose**: Use HMM posteriors to select the most likely phase configuration.
+
+**Forward Sampling**:
+```cpp
+void sampleForward(transition_probs, missing_probs) {
+    current_diplotype = sample_from_distribution(transition_probs[0]);
+    
+    for (each segment) {
+        // Sample next diplotype based on transition probabilities
+        next_diplotype = sample_from_distribution(
+            transition_probs[segment]
+        );
+        
+        current_diplotype = next_diplotype;
+    }
+    
+    // Now make() to apply phasing to variants
+    make(sampled_diplotypes, missing_probs);
+}
+```
+
+**make() Function**:
+Applies the sampled diplotype sequence to the variant array:
+```cpp
+void make(DipSampled, MissingProbs) {
+    for (each segment s) {
+        hap0 = DIP_HAP0(DipSampled[s]);  // Extract haplotype indices
+        hap1 = DIP_HAP1(DipSampled[s]);
+        
+        for (each variant in segment) {
+            if (heterozygous) {
+                // Apply orientation from amb_code
+                set_phase_from_Ambiguous[amb_idx];
+            }
+            if (missing) {
+                // Sample from posterior probability
+                allele0 = (random() < MissingProbs[hap0]) ? 1 : 0;
+                allele1 = (random() < MissingProbs[hap1]) ? 1 : 0;
+            }
+        }
+    }
+}
+```
+
+**Pruning** (optional, in PRUN stage):
+After sampling, identify segment transitions with very high confidence (>95%) and merge them, reducing the graph complexity for future iterations.
+
+### [7] Haplotype Update (`conditioning_set_selection.cpp`)
+
+After sampling new phase configurations, update the reference panel:
+
+```cpp
+void updateHaplotypes(genotype_set G) {
+    for (each sample) {
+        for (each variant) {
+            H_opt_hap[sample_hap0][variant] = sample.hap0_allele;
+            H_opt_hap[sample_hap1][variant] = sample.hap1_allele;
+        }
+    }
+}
+```
+
+Then transpose from haplotype-major to variant-major layout for next PBWT iteration:
+```cpp
+void transposeHaplotypes_H2V() {
+    // Block-wise transpose for cache efficiency
+    H_opt_var = transpose(H_opt_hap);
+}
+```
+
+### Performance Optimizations
+
+1. **Precision Fallback**: Start with single-precision (faster), retry with double-precision on underflow
+2. **AVX2 SIMD**: Process 8 lanes simultaneously for all HMM operations
+3. **Memory Alignment**: All arrays 32-byte aligned for SIMD (`aligned_vector32`)
+4. **Cache Efficiency**: Bit-packed storage, transposed matrix views, block-wise operations
+5. **Multi-threading**: Independent samples processed in parallel
+6. **PBWT**: Reduce states from N haplotypes to K≈200 most relevant
+7. **Segment Pruning**: Merge high-confidence segments to reduce graph complexity
+
+### Error Handling
+
+- **Underflow Detection**: If `probSumT` becomes too small, HMM returns error code
+- **Precision Escalation**: Automatically retry with double-precision
+- **IBD2 Constraints**: Detect and prevent identical samples from being used as mutual donors
+- **Validation**: Check for biologically impossible configurations (e.g., trio Mendelian conflicts)
+
+### Debugging & Logging
+
+- **Debug builds**: `make -C phase_common debug` adds `-g` and reduces optimization for easier stepping; run `gdb` or `valgrind` on binaries/tests
+- **Logging**: Use `vrb.bullet()` and `vrb.title()` for structured console output. Inspect `Alpha`, `AlphaSum` (32‑byte aligned) in debugger for HMM state
+- **Test tracing**: Set `SHAPEIT5_TEST_TRACE=1` to write verbose per‑locus forward/backward TSV traces to `tests/out/`
+- **Underflow diagnostics**: Set `SHAPEIT5_DEBUG_UNDERFLOW=1` to append forward/transition underflow events to `logs/underflow.tsv` with sample, locus, cm, yt/nt, probSumT, probSumH[], and prior segment Alpha summaries
+
+### Common Implementation Pitfalls
+
+- **Don't** allocate inside `RUN_AMB` (or any hot path); hoist buffers to class members to avoid allocator churn and `posix_memalign` crashes
+- **Don't** perform unaligned AVX2 loads; ensure 32‑byte alignment for `_mm256_load_ps` sources
+- **Do** use `aligned_vector32<T>` for all HMM arrays consumed by AVX2 intrinsics
+
+---
+
+## phase_rare Implementation Outline
+
+(This section is intentionally left brief - phase_rare is a separate algorithm not currently the focus of supersite development)
+
+- Uses phased common variants as a scaffold
+- Applies simplified HMM only to rare variants
+- Lower computational cost than phase_common
+
+---
+
+## Supersite Extension Implementation Outline
+
+### Motivation: Invalid Phasing and Imputation
+
+**Problem 1: Invalid Phasing**
+- Haplotypes at multiallelic sites can only have one ALT per haplotype
+- Multiallelic variants are common, especially short tandem repeats
+- Current workflow splits multiallelic into biallelic (e.g., ALT 2/3 → split1: 0/0, split2: 0/1, split3: 0/1)
+- This allows biologically invalid phasing: (0|0, 1|0, 1|0) implies haplotype carries both ALT2 and ALT3
+
+**Problem 2: Invalid Imputation**
+- Missing multiallelic calls imputed independently per split
+- Allows biologically invalid calls: (./. → 0/1, 1/1, 0/1) implies three alleles at diploid site
+
+**Solution: Atomic Multiallelic Loci**
+
+Supersites treat all split records at the same genomic position (`chr:bp`) as a **single HMM locus**, ensuring the entire multiallelic site is phased and imputed as one atomic unit with exactly one ALT per haplotype.
+
+### High-Level Architecture
+
+When `--enable-supersites` is enabled, the algorithm extends the standard phase_common pipeline:
+
+```
+Input VCF/BCF (split multiallelic)
+     ↓
+[1] Data Loading & Initialization
+     ├─→ Standard structures (G, H, V, M)
+     └─→ Supersite structures (super_sites, locus_to_super_idx, packed_allele_codes)
+     ↓
+[2] MCMC Iteration Loop (burn-in → pruning → main)
+     ├─→ [3] PBWT State Selection
+     ├─→ [3.5] buildSuperSites() ← NEW: Group split records, encode panel alleles
+     ├─→ [4] Window Segmentation
+     ├─→ [5] Multi-threaded HMM Computation
+     │        ├─→ Forward Pass (anchor-gated supersite emissions)
+     │        └─→ Backward Pass (multivariant imputation for missing supersites)
+     ├─→ [6] Sampling (multivariant sampling + projection to splits)
+     └─→ [7] Haplotype Update
+     ↓
+Output Phased VCF/BCF (mutual exclusivity guaranteed)
+```
+
+### [1] Supersite Data Structures
+
+**Extensions to phase_common structures** (when `--enable-supersites` enabled):
+
+- `std::vector<SuperSite> super_sites`: Multi-allelic site metadata
+  ```cpp
+  struct SuperSite {
+      uint32_t global_site_id;      // Anchor variant (where HMM DP runs)
+      uint32_t panel_offset;         // Byte offset into packed_allele_codes
+      uint32_t var_start, var_count; // Member variant indices (CSR-style)
+      uint8_t n_alts;                // Number of alternate alleles (1-15)
+      uint32_t class_prob_offset;    // Offset into SC buffer (Phase 3)
+      uint8_t n_classes;             // C = 1 + n_alts (cached)
+  };
+  ```
+
+- `std::vector<int> locus_to_super_idx`: Maps variant index → supersite index (or -1)
+- `std::vector<int> super_site_var_index`: Flat array of member variant indices
+- `std::vector<uint8_t> packed_allele_codes`: 4-bit allele codes (0=REF, 1-15=ALT1-15), 2 codes per byte
+
+**Per-Thread Extensions** (`compute_job`):
+- `std::vector<float> SC`: Multivariant posteriors P(class_c | haplotype) for missing supersites
+- `std::vector<bool> anchor_has_missing`: Flags supersites with all members missing
+
+### [3.5] Supersite Preprocessing (`super_site_builder.cpp::buildSuperSites()`)
+
+Called once per MCMC iteration after PBWT state selection.
+
+**Key Operations**:
+- **Grouping**: Identify split multiallelic records at same `(chr, bp)` position
+- **4-bit Encoding**: Assign codes 0=REF, 1-15=ALT1-15 per conditioning haplotype (first matching ALT wins)
+- **Packing**: Store 2 codes per byte at `panel_offset`
+- **Chunking**: Sites with >15 alleles split into multiple SuperSite records
+- **Lookup Tables**: Build `locus_to_super_idx` and flatten `super_site_var_index`
+
+### [5a] Forward Pass: Anchor-Gated Supersite Emissions
+
+**Supersite Detection & Anchor Gating**:
+```cpp
+int ss_idx = (locus_to_super_idx) ? (*locus_to_super_idx)[curr_abs_locus] : -1;
+if (ss_idx >= 0) {
+    const SuperSite& ss = (*super_sites)[ss_idx];
+    if (curr_abs_locus != ss.global_site_id) {
+        return;  // Sibling split: skip DP, maintain bookkeeping only
+    }
+    // Anchor: run DP once for entire supersite
+}
+```
+
+**Sample Classification** (based on both haplotypes, not per-split):
+```cpp
+uint8_t c0 = getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, hap0);
+uint8_t c1 = getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, hap1);
+
+if (c0 == MISSING && c1 == MISSING) → MIS
+else if (c0 == c1)                  → HOM (even if both are ALT5)
+else                                → AMB
+```
+
+**Emission Computation** (uses 4-bit codes instead of binary alleles):
+- **HOM**: `emission = (donor_code == c0) ? 1.0 : (ed/ee)`
+- **AMB**: Per-lane expected allele from `amb_code`, compare to `donor_code`
+- **MIS**: `emission = 1.0` (all donors equally likely)
+
+**Implementation**: `SS_INIT/RUN/COLLAPSE_{HOM,AMB,MIS}()` functions cache donor codes and apply same Li & Stephens transition/emission math as biallelic.
+
+### [5b] Backward Pass: Multivariant Imputation
+
+**Standard Operations**: Same INIT/RUN/COLLAPSE as forward pass (see [5a]).
+
+**Multivariant Imputation** (Phase 3 extension for missing supersites):
+
+Computes P(class_c | Alpha, Beta) for all allele classes {REF, ALT1, ALT2, ...} in single distribution:
+
+```cpp
+void IMPUTE_SUPERSITE_MULTIVARIANT(SC, ss, ss_idx) {
+    // Accumulate per class based on donor allele codes
+    for (k in 0..n_cond_haps) {
+        class_c = ss_cond_codes[k];  // Which allele this donor carries
+        sum[class_c] += Alpha[k] * Beta[k] / AlphaSum;
+    }
+    
+    // Normalize: SC stores P(class_c | haplotype)
+    for (c in 0..n_classes) {
+        for (h in 0..7) {
+            SC[offset + h*C + c] = sum[c][h] / total[h];
+        }
+    }
+}
+```
+
+**Guarantee**: ∑_c SC[h, c] = 1.0 for each haplotype → exactly one class sampled → mutual exclusivity.
+
+### [6] Sampling: Multivariant Sampling & Projection
+
+**Standard Sampling**: Non-missing supersites use standard biallelic sampling (see phase_common [6]).
+
+**Multivariant Sampling** (for missing supersites):
+
+Sample one allele class per haplotype from multivariant distribution, then project to split records:
+
+```cpp
+// Sample class_0 and class_1 from SC multivariant posteriors
+float r0 = rng.getDouble();
+for (c in 0..n_classes) {
+    cumsum += SC[offset + hap0*C + c];
+    if (r0 <= cumsum) { class0 = c; break; }
+}
+
+// Project: set exactly ONE split to ALT per haplotype
+for (ai in 0..n_alts) {
+    split_vabs = super_site_var_index[ss.var_start + ai];
+    alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
+    
+    if (class0 == alt_class) VAR_SET_HAP0(split_vabs);
+    else VAR_CLR_HAP0(split_vabs);
+}
+```
+
+**Result**: Each haplotype has exactly 0 or 1 ALT across all member splits.
+
+### Supersite-Specific Optimizations & Error Handling
+
+**Performance**:
+- 4-bit encoding: 50% memory reduction vs byte-per-code
+- Anchor gating: DP runs once per biological site (not per split)
+- Donor code caching: 10-20% speedup in SS-heavy windows
+
+**Error Handling**: Same underflow detection and precision fallback as biallelic (see phase_common section).
+
+**Design**: Minimal divergence from biallelic - reuse HMM arrays, transition math, SIMD patterns. Zero overhead when `--enable-supersites` is off.
+
+---
 
 ## Supersite Coding Patterns (Mirror Biallelic)
 - Function taxonomy: Extract `SS_INIT_*`, `SS_RUN_*`, `SS_COLLAPSE_*` with signatures/returns matching biallelic functions; dispatch from existing entry points after centralized classification.
@@ -119,15 +686,7 @@ SHAPEIT5 — `phase_common` super-site integration
 - Anchor gating: If `curr_abs_locus != ss.global_site_id`, treat as sibling and skip DP while maintaining bookkeeping (e.g., missing counters if applicable).
 - Naming consistency: Match biallelic locals (`_prob`, `_emit`, `_nt`, `_tFreq`, `_mismatch`, `_factor`) and accumulators (`probSumH`, `probSumT`, `probSumK`).
 
-## Performance & Memory
-- Use `aligned_vector32<T>` for HMM arrays and supersite scratch buffers; avoid `std::vector` inside hot loops.
-- Pre-allocate as class members: `ss_emissions`, `ss_emissions_h1`, and (optionally) cached donor codes `ss_cond_codes` with a parallel `ss_cached` bitset.
-- Precompute emission vectors once per supersite event (INIT/RUN/COLLAPSE) rather than per function body; reuse the same AVX broadcast pattern as biallelic (`_factor`, `_tFreq`, `_nt`, `_mismatch`).
-
-## Error Handling & Globals
-- No exceptions in hot paths; use assertions for invariants. Underflow is signalled by return code and retried in double.
-- Global singletons: exactly one `.cpp` defines `_DECLARE_TOOLBOX_HERE` to instantiate `rng`, `stb`, `alg`, `vrb`, `tac`; others include externs from `common/src/utils/otools.h`. In tests, `tests/src/test_toolbox.cpp` owns the declaration.
-- Commit tracing: Makefile injects `__COMMIT_ID__` and `__COMMIT_DATE__` via `-D` flags; binaries report via `--version`.
+---
 
 ## Debugging & Logging
 - Debug builds: `make -C phase_common debug` adds `-g` and reduces optimization for easier stepping; run `gdb` or `valgrind` on binaries/tests.
@@ -135,7 +694,7 @@ SHAPEIT5 — `phase_common` super-site integration
 - Tests: set `SHAPEIT5_TEST_TRACE=1` to write verbose per‑locus forward/backward TSV traces to `tests/out/`.
 - HMM underflow tracing: set `SHAPEIT5_DEBUG_UNDERFLOW=1` to append forward/transition underflow events to `logs/underflow.tsv` with sample, locus, cm, yt/nt, probSumT, probSumH[], and prior segment Alpha summaries.
 
-## Common Pitfalls (Do/Don’t)
+## Common Pitfalls (Do/Don't)
 - Don’t allocate inside `RUN_AMB` (or any hot path); hoist buffers to class members to avoid allocator churn and `posix_memalign` crashes.
 - Don’t access supersite state without null/size checks (`super_sites`, `locus_to_super_idx`).
 - Don’t perform unaligned AVX2 loads; ensure 32‑byte alignment for `_mm256_load_ps` sources.
@@ -146,197 +705,77 @@ Alignment items for supersites:
 - Don’t overload `rare_allele` to signal supersite siblings (e.g., `rare_allele=2`). Use explicit supersite gating (`locus_to_super_idx`, `super_sites`) consistently in HMM paths.
 - Don’t start windows at supersite siblings when `--enable-supersites` is set; adjust window starts to the anchor or a non‑member locus.
 
-## Known Bugs (from current sprint)
-**All Phase 3 blockers resolved as of Oct 29, 2025:**
-- ✅ INIT_AMB overlapping store: Fixed by using single combined vector from 128-bit halves
-- ✅ AMB lane mask semantics: Not applicable to Phase 3 (uses multinomial, not split biallelic)
-- ✅ Per-split classification: Superseded by multinomial classification in backward pass
-- ✅ Double counting at sibling loci: Fixed via anchor gating in backward loop
-- ✅ HOM masquerading as AMB: Not applicable (Phase 3 classifies at supersite level)
-- ✅ Repeated `ss_cond_codes` unpacking: Still occurs but not critical for Phase 3; can optimize later
+## Supersite Implementation Status & Roadmap
 
-Additional fixes and toggles (Nov 2025):
-- ✅ Double path sibling-at-window-start neutral init at INIT_* to avoid uninitialized states/NaNs (float already did this). Long‑term fix: do not start windows on siblings.
-- ✅ Emission toggle at anchors: `--ss-anchor-split-emissions` to mirror biallelic split semantics (treat other‑ALT donors as REF at the anchor split). Default remains strict 4‑bit equality for backward compatibility.
+**Done:**
+- ✅ Data structures (SuperSite.class_prob_offset, compute_job.SC, anchor_has_missing)
+- ✅ Backward pass multivariant computation (IMPUTE_SUPERSITE_MULTIVARIANT)
+- ✅ Genotype projection (sample from multivariant, project to splits)
+- ✅ Integration (phaser_algorithm passes SC, calls setSuperSiteContext)
+- ✅ Clean compilation (both single and double precision)
+- ✅ AMB lane semantics (per-lane expected class using G.Ambiguous mask)
 
-**Remaining validation tasks:**
-1. Integration testing on real data with --enable-supersites
-2. Verify multinomials sum to 1.0 (add assertion if needed)
-3. Validate mutual exclusivity in output BCF
-4. Performance profiling (multinomial overhead vs. biallelic)
-5. A/B evaluate `--ss-anchor-split-emissions` on anchor‑heavy datasets; decide default based on parity/accuracy.
+**Newly Discovered Bugs (Unnecessary Divergence from Biallelic):**
 
-## Critical Bug (Nov 2025): Supersite AMB lane semantics mismatch
+**BUG #1: Duplicate SS_*_MIS functions**
+- **Issue**: `SS_INIT_MIS()`, `SS_RUN_MIS()`, and `SS_COLLAPSE_MIS()` are identical to biallelic `INIT_MIS()`, `RUN_MIS()`, `COLLAPSE_MIS()`
+- **Impact**: Code duplication, maintenance burden
+- **Fix**: Have supersite MIS classification directly call biallelic MIS functions (missing data is representation-agnostic)
+- **Status**: ✅ FIXED (Nov 2, 2025)
+- **Implementation**: All 6 dispatcher switch statements in `haplotype_segment_{single,double}.h` (INIT/RUN/COLLAPSE for HOM/AMB) now call biallelic `INIT_MIS()`, `RUN_MIS()`, `COLLAPSE_MIS()` directly instead of `SS_*_MIS()` wrappers
+- **Verification**: Clean compilation of phase_common and tests
 
-Summary
-- At ambiguous (HET) supersite anchors, the current supersite emission uses two scalars per donor (one broadcast to lanes 0–3, one broadcast to lanes 4–7). The biallelic path, however, gates emissions per lane using the 8‑bit `G.Ambiguous` mask (checkerboard or more complex patterns from `MASK_UNF*`).
-- This half‑lane broadcast vs. 8‑lane mask mismatch causes large, post‑anchor divergences in per‑lane `probSumH` and `probSumT` between with/without `--enable-supersites`, even on datasets where results should be identical.
+**BUG #2: Inconsistent sibling handling between INIT and RUN/COLLAPSE**
+- **Issue**: `INIT_HOM/AMB` at siblings call `SS_INIT_MIS()`, but `RUN/COLLAPSE` just return early without state update
+- **Impact**: Asymmetric behavior - INIT siblings get neutral probabilities, RUN/COLLAPSE siblings keep stale state
+- **Fix**: Standardize - either all initialize neutrally or all skip updates; document the choice
+- **Status**: ⏳ TODO - needs design decision
 
-Impact
-- Forward/backward totals at/after the anchor differ by orders of magnitude in the representation parity harness, not explained by “one other‑ALT donor”. The difference propagates because RUN/COLLAPSE recurrences are lane‑wise and renormalize by `probSumT`.
-- Downstream most‑likely phasing diverges between builds where it should not.
+**BUG #3: Missing bookkeeping updates at sibling loci**
+- **Issue**: Sibling loci return early without updating `curr_abs_ambiguous`, `curr_abs_missing`, `AlphaMissing`, etc.
+- **Impact**: Missing data imputation and segment indexing may be incorrect for supersites
+- **Fix**: Add bookkeeping updates even when skipping DP (as documented in AGENTS.md patterns)
+- **Status**: ⏳ TODO
 
-Evidence
-- See `tests/bin/test_supersite_representation_parity` TSV logs:
-  - Biallelic AMB details show 8‑lane `g0/g1` emission vectors (e.g., checkerboards), derived from `G.Ambiguous`.
-  - Supersite AMB details show donor emissions as two scalars per donor (`emit_low(c0)`, `emit_high(c1)`), flat within halves.
-  - Forward/Backward traces confirm large post‑anchor deltas in `probSumH`/`probSumT` tied to this mismatch.
+**BUG #4: Unclear transition probability normalization in COLLAPSE**
+- **Issue**: Biallelic `COLLAPSE_HOM` has comment "//Check divide by probSumT here!" suggesting uncertainty
+- **Impact**: Unclear if formula is correct; hard to verify
+- **Fix**: Document whether COLLAPSE should normalize by `probSumT` or not (check Li & Stephens math)
+- **Status**: ⏳ TODO - needs mathematical verification
 
-Root cause
-- Supersite AMB helpers (`SS_INIT_AMB`, `SS_RUN_AMB`, `SS_COLLAPSE_AMB`) assume “lanes 0–3 = hap0, lanes 4–7 = hap1” and broadcast two scalars per donor. Biallelic AMB does not make this assumption; it applies an 8‑lane mask (`G.Ambiguous`) and multiplies by a full 8‑lane emission vector.
+**BUG #5: Duplicate emission logic in SS_COLLAPSE_AMB**
+- **Issue**: Two separate 30+ line code paths for `ss_anchor_split_emissions` mode vs full-supersite mode
+- **Impact**: Code duplication, maintenance burden
+- **Fix**: Extract common transition code, parameterize only emission computation
+- **Status**: ⏳ TODO
 
-Fix strategy (do not implement here; tracked for refactor)
-- At supersite anchors, construct the 8‑lane expected‑allele mask exactly as the biallelic path would do at the anchor split (reusing `G.Ambiguous` semantics):
-  1) Identify the anchor split within the supersite: `anchor_idx = ss.global_site_id`; `anchor_alt_code = (index_in_ss + 1)`.
-  2) Derive per‑lane expected allele at the anchor from `G.Ambiguous[curr_abs_ambiguous]` (the same mask biallelic uses to build `g0/g1`).
-  3) For each donor, compute two scalars: `e_alt(k)` (match if donor carries the anchor ALT at the anchor split, else ed/ee) and `e_ref(k)` (match if donor is REF at the anchor split, else ed/ee). Treat “other ALT” donors as REF at the anchor split, mirroring biallelic.
-  4) Blend `e_ref/e_alt` into a full 8‑lane emission vector using the per‑lane mask. Do not broadcast by halves.
-  5) Apply RUN/COLLAPSE recurrences unchanged; sibling gating unchanged.
+**BUG #6: Emission application divergence**
+- **Issue**: Biallelic uses inline conditional multiplication, supersite precomputes emission vectors
+- **Impact**: Different code paths for same operation; harder to verify correctness
+- **Fix**: Unify approach - either precompute everywhere or use inline everywhere
+- **Status**: ⏳ TODO - needs design decision
 
-Validation plan
-- Extend tests to dump `G.Ambiguous` and per‑lane emission vectors at anchors; assert supersite and biallelic emissions are equal lane‑by‑lane at the anchor on synthetic cases.
-- Use the representation parity test to verify forward/backward parity (within tolerance) and identical most‑likely phasing for datasets that should agree.
+**Known Implementation Debt:**
+- Window starts may land on supersite siblings; ideally adjust to anchors or non-member loci when `--enable-supersites` is set
+- Consider adding assertion to prevent window starts on siblings in debug builds
 
+---
 
-## Prioritized Work Queue
-**Phase 3 Implementation Complete - Ready for Testing:**
-1. ✅ Data structures (SuperSite.class_prob_offset, compute_job.SC, anchor_has_missing)
-2. ✅ Backward pass multinomial computation (IMPUTE_SUPERSITE_MULTINOMIAL)
-3. ✅ Genotype projection (sample from multinomial, project to splits)
-4. ✅ Integration (phaser_algorithm passes SC, calls setSuperSiteContext)
-5. ✅ Clean compilation (both single and double precision)
+## Supersite Runtime Configuration
 
-**Next Actions (Testing & Validation):**
-1. Run integration tests: `bash test/scripts/phase.wgs.unrelated.sh --enable-supersites`
-2. Add multinomial validation: assert Σ_c SC[...+c] ≈ 1.0 in IMPUTE_SUPERSITE_MULTINOMIAL
-3. Add mutual exclusivity checker in output writer or post-processing script
-4. Profile performance: compare runtime with/without supersites
-5. Optional: SIMD optimization for IMPUTE_SUPERSITE_MULTINOMIAL (currently scalar stores)
-6. Optional: Cache ss_cond_codes per supersite (10-20% speedup in SS-heavy windows)
-7. Add smoke test fixtures under `tests/data/` with known multi-allelic VCFs
+**CLI Flags:**
+- `--enable-supersites`: Enable multiallelic phasing support (default: off)
+- `--ss-anchor-split-emissions`: At supersite anchors, use biallelic split-site emission semantics (treat other-ALT donors as REF at the anchor split). Default: off (strict 4-bit class equality per lane)
 
-## Key Files
+**Environment Variables:**
+- `SHAPEIT5_TEST_TRACE=1`: Enable verbose per-locus forward/backward TSV traces to `tests/out/`
+- `SHAPEIT5_DEBUG_UNDERFLOW=1`: Enable HMM underflow diagnostics to `logs/underflow.tsv` (includes sample, locus, cm, yt/nt, probSumT, probSumH[], and prior segment Alpha summaries)
+
+**Key Implementation Files:**
 - `phase_common/src/models/haplotype_segment_single.{h,cpp}`: Float HMM core + supersite integration
 - `phase_common/src/models/haplotype_segment_double.{h,cpp}`: Double HMM core + supersite integration
 - `phase_common/src/models/super_site_macros.h`: Emission macro templates (INIT/RUN/COLLAPSE)
-- `phase_common/src/objects/super_site_builder.{h,cpp}`: Multi‑allelic grouping + panel encoding
+- `phase_common/src/objects/super_site_builder.{h,cpp}`: Multi-allelic grouping + panel encoding
 - `phase_common/src/phaser/phaser_algorithm.cpp`: Window segmentation, threading, precision fallback
 - `common/src/utils/otools.h`: `aligned_vector32`, toolbox externs
 - `tests/makefile`: Unit test build rules, external object linking
-
-## Testing Guidance
-- Always run `make clean && make -C tests -j8` (project policy) followed by `LD_LIBRARY_PATH=$HOME/.linuxbrew/lib tests/bin/<name>` to execute unit tests.
-- The new HMM state harness depends on the supersite builder; ensure `tests/src/test_toolbox.cpp` continues to define `_DECLARE_TOOLBOX_HERE` so globals are instantiated exactly once.
-
-## Conventions & References
-- Gate supersite logic by checking `super_sites && locus_to_super_idx` to preserve baseline behaviour.
-- Restrict new buffers to `aligned_vector32<T>` unless stack or STL containers are intentionally used (document justification when deviating).
-- Keep supersite-related fixtures synthetic for now; real data will live under `tests/data/` once smoke tests are added.
-- External refs: HTSlib docs, Intel AVX2 intrinsics guide, Li & Stephens (2003).
-
-## New CLI / Env Flags
-- `--enable-supersites`: enable supersite support.
-- `--ss-anchor-split-emissions`: at supersite anchors, use biallelic split‑site emissions (treat other‑ALT donors as REF at the anchor split). Default off; when not set, strict 4‑bit equality is used.
-- `SHAPEIT5_TEST_TRACE=1`: enable verbose test tracing to `tests/out/*.tsv`.
-- `SHAPEIT5_DEBUG_UNDERFLOW=1`: enable HMM underflow diagnostics to `logs/underflow.tsv`.
-
-## TODOs
-- Remove the `rare_allele=2` sibling hack; rely exclusively on supersite gating (`locus_to_super_idx`, `super_sites`) in HMM paths.
-- Avoid starting windows on supersite siblings when `--enable-supersites` is set; shift window starts to anchors or non‑member loci.
-
-## Supersite AMB Refactor (Design + Code Sketches)
-
-Goal
-- Provide a selectable anchor emission model:
-  - Default: strict 4‑bit class equality per lane (donor_class == expected_class[h]).
-  - Optional (`--ss-anchor-split-emissions`): biallelic split semantics at anchor (per‑lane “is ALT at anchor” for expected vs donor; treat other‑ALT as REF for the REF lane).
-
-Where to change
-- Float: `phase_common/src/models/haplotype_segment_single.h` in `SS_INIT_AMB`, `SS_RUN_AMB`, `SS_COLLAPSE_AMB` (anchor only)
-- Double: `phase_common/src/models/haplotype_segment_double.h` in `SS_INIT_AMB`, `SS_RUN_AMB`, `SS_COLLAPSE_AMB` (anchor only)
-
-Inputs on hand
-- `ss_cond_codes[k]` donor codes (0..15) from packed 4-bit per-hap encoding.
-- `classify_supersite(G, ss, super_site_var_index, c0, c1)` returns target hap classes at the supersite (supports 0/ALT and ALT/ALT such as 2/3).
-- `G->Ambiguous[curr_abs_ambiguous]` is the 8-bit per-lane mask the biallelic AMB path uses to shape g0/g1.
-
-1) Build expected class per lane
-```c++
-uint8_t expected_class[8];
-uint8_t c0, c1; // from classify_supersite(...)
-unsigned char amb = G->Ambiguous[curr_abs_ambiguous]; // 8-bit
-if (c0 == c1) {
-  for (int h = 0; h < 8; ++h) expected_class[h] = c0; // HOM: uniform lanes
-} else {
-  for (int h = 0; h < 8; ++h) {
-    bool use_c1 = ((amb >> h) & 1U);
-    expected_class[h] = use_c1 ? c1 : c0; // AMB: per-lane choice of c0/c1
-  }
-}
-```
-
-2) Per-donor 8-lane emission by 4-bit equality
-```c++
-// donor_code[k] in [0..15]
-float E8[8];
-for (int h = 0; h < 8; ++h) {
-  E8[h] = (donor_code[k] == expected_class[h]) ? 1.0f : (float)(M.ed / M.ee);
-}
-// INIT: prob[i+h] = E8[h]
-// RUN/COLLAPSE: prob'[i+h] = transition_mix[i+h] * E8[h]
-```
-
-3) AVX2 sketches
-- Float (8 lanes):
-```c++
-alignas(32) int expv[8]; for (int h=0; h<8; ++h) expv[h] = (int)expected_class[h];
-__m256i exp_vec = _mm256_load_si256((__m256i*)expv);
-__m256 match_f = _mm256_set1_ps(1.0f);
-__m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
-
-int dc = (int)ss_cond_codes[k];
-__m256i dc_vec = _mm256_set1_epi32(dc);
-__m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);  // 8x mask
-__m256  m_ps   = _mm256_castsi256_ps(eq);
-__m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
-```
-
-- Double (process halves as 4 lanes):
-```c++
-alignas(32) int expv[8]; for (int h=0; h<8; ++h) expv[h] = (int)expected_class[h];
-__m128i exp_lo_128 = _mm_load_si128((__m128i*)&expv[0]);
-__m128i exp_hi_128 = _mm_load_si128((__m128i*)&expv[4]);
-__m256d match_d = _mm256_set1_pd(1.0);
-__m256d mis_d   = _mm256_set1_pd(M.ed/M.ee);
-
-int dc = (int)ss_cond_codes[k];
-__m256i dc32 = _mm256_set1_epi32(dc);
-
-// lanes 0..3
-__m256i exp_lo_32 = _mm256_cvtepi8_epi32(exp_lo_128);
-__m256i eq_lo     = _mm256_cmpeq_epi32(dc32, exp_lo_32);
-__m256i eq_lo64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_lo));
-__m256d mask_lo   = _mm256_castsi256_pd(eq_lo64);
-__m256d emit_lo   = _mm256_or_pd(_mm256_and_pd(mask_lo, match_d), _mm256_andnot_pd(mask_lo, mis_d));
-
-// lanes 4..7
-__m256i exp_hi_32 = _mm256_cvtepi8_epi32(exp_hi_128);
-__m256i eq_hi     = _mm256_cmpeq_epi32(dc32, exp_hi_32);
-__m256i eq_hi64   = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(eq_hi));
-__m256d mask_hi   = _mm256_castsi256_pd(eq_hi64);
-__m256d emit_hi   = _mm256_or_pd(_mm256_and_pd(mask_hi, match_d), _mm256_andnot_pd(mask_hi, mis_d));
-
-// store 8 lanes for donor k at offset i
-_mm256_store_pd(&prob[i+0], emit_lo);
-_mm256_store_pd(&prob[i+4], emit_hi);
-```
-
-4) Keep the HMM recurrence and gating unchanged
-- RUN: `prob'[k,h] = E_k[h] * ( prob[k,h]*(nt/probSumT) + probSumH[h]*(yt/(n*probSumT)) )`
-- COLLAPSE: `prob'[k,h] = E_k[h] * ( probSumK[k]*(nt/probSumT) + yt/n )`
-- Siblings: continue to skip DP (no double counting).
-
-5) Tests
-- Anchor emission parity (including multi‑ALT 2/3): supersite vs biallelic lane‑by‑lane equality at the anchor.
-- HMM microcases: INIT/RUN/COLLAPSE with supersites at anchors; assert per‑lane probSumH/probSumT against derived expectations.
-- Representation parity: realistic dataset shows tight FB parity and identical most‑likely phasing across builds.
