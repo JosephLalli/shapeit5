@@ -726,10 +726,13 @@ Alignment items for supersites:
 - **Verification**: Clean compilation of phase_common and tests
 
 **BUG #2: Inconsistent sibling handling between INIT and RUN/COLLAPSE**
-- **Issue**: `INIT_HOM/AMB` at siblings call `SS_INIT_MIS()`, but `RUN/COLLAPSE` just return early without state update
+- **Issue**: `INIT_HOM/AMB` at siblings call `INIT_MIS()`, but `RUN/COLLAPSE` just return early without state update
 - **Impact**: Asymmetric behavior - INIT siblings get neutral probabilities, RUN/COLLAPSE siblings keep stale state
-- **Fix**: Standardize - either all initialize neutrally or all skip updates; document the choice
-- **Status**: ⏳ TODO - needs design decision
+- **Fix**: Standardize - all functions now call appropriate MIS functions at siblings (uniform approach)
+- **Status**: ✅ FIXED (Nov 2, 2025)
+- **Implementation**: All RUN_HOM/AMB and COLLAPSE_HOM/AMB sibling gates now call `RUN_MIS()` and `COLLAPSE_MIS()` respectively instead of early return
+- **Rationale**: Siblings at same chromosomal position have yt≈0, so MIS functions act as identity operations (copy forward anchor probabilities). This ensures correct bookkeeping and genetic distance tracking while having negligible computational cost.
+- **Verification**: Clean compilation of phase_common and tests
 
 **BUG #3: Missing bookkeeping updates at sibling loci**
 - **Issue**: Sibling loci return early without updating `curr_abs_ambiguous`, `curr_abs_missing`, `AlphaMissing`, etc.

@@ -547,7 +547,9 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
         const SuperSite& ss = (*super_sites)[ss_idx];
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            return true; // Sibling: no-op but continue segment
+            // Sibling: treat as uninformative locus (BUG FIX #2)
+            RUN_MIS();
+            return true;
         }
         
         // Classify and dispatch to supersite logic
@@ -593,7 +595,9 @@ void haplotype_segment_single::COLLAPSE_HOM() {
         const SuperSite& ss = (*super_sites)[ss_idx];
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
+            // Sibling: treat as uninformative locus (BUG FIX #2)
+            COLLAPSE_MIS();
+            return;
         }
         
         // Classify and dispatch to supersite logic
@@ -679,7 +683,9 @@ void haplotype_segment_single::RUN_AMB() {
         const SuperSite& ss = (*super_sites)[ss_idx];
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
+            // Sibling: treat as uninformative locus (BUG FIX #2)
+            RUN_MIS();
+            return;
         }
 
         // Classify and dispatch to supersite logic
@@ -765,7 +771,9 @@ void haplotype_segment_single::COLLAPSE_AMB() {
         const SuperSite& ss = (*super_sites)[ss_idx];
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
+            // Sibling: treat as uninformative locus (BUG FIX #2)
+            COLLAPSE_MIS();
+            return;
         }
 
         // Classify and dispatch to supersite logic

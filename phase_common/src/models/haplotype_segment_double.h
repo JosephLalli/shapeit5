@@ -108,7 +108,7 @@ private:
 	void COLLAPSE_AMB();
 	void COLLAPSE_MIS();
 	
-	// Supersite-specific helper functions (Phase 2 refactoring)
+	// Supersite-specific helper functions
 	void SS_INIT_HOM();
 	void SS_INIT_AMB();
 	void SS_INIT_MIS();
@@ -119,7 +119,7 @@ private:
 	void SS_COLLAPSE_AMB();
 	void SS_COLLAPSE_MIS();
 	
-	// Phase 3: caching helper
+	// Caching helper
 	void ss_load_cond_codes(const SuperSite& ss, int ss_idx);
 	
 	void SUMK();
@@ -693,7 +693,9 @@ bool haplotype_segment_double::RUN_HOM(char rare_allele) {
         
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            return true; // Sibling: no-op but continue segment
+            // Sibling: treat as uninformative locus (BUG FIX #2)
+            RUN_MIS();
+            return true;
         }
         
         // Classify and dispatch to SS_* helpers
@@ -752,7 +754,9 @@ void haplotype_segment_double::COLLAPSE_HOM() {
         
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
+            // Sibling: treat as uninformative locus (BUG FIX #2)
+            COLLAPSE_MIS();
+            return;
         }
         
         // Classify and dispatch to SS_* helpers
@@ -858,7 +862,9 @@ void haplotype_segment_double::RUN_AMB() {
         
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
+            // Sibling: treat as uninformative locus (BUG FIX #2)
+            RUN_MIS();
+            return;
         }
         
         // Classify and dispatch to SS_* helpers
@@ -917,7 +923,9 @@ void haplotype_segment_double::COLLAPSE_AMB() {
         
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            return; // Sibling: no-op
+            // Sibling: treat as uninformative locus (BUG FIX #2)
+            COLLAPSE_MIS();
+            return;
         }
         
         // Classify and dispatch to SS_* helpers
