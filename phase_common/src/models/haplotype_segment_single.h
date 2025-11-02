@@ -613,7 +613,13 @@ void haplotype_segment_single::COLLAPSE_HOM() {
     // Biallelic path
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
     __m256 _sum = _mm256_set1_ps(0.0f);
-    __m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);					//Check divide by probSumT here!
+    // BUG #4 EXPERIMENTAL: Test normalization behavior
+    // Default (env not set): _tFreq = yt / n_cond_haps (current behavior)
+    // With SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION=1: _tFreq = (yt * probSumT) / n_cond_haps
+    extern bool normalize_collapse_transition_enabled();
+    __m256 _tFreq = normalize_collapse_transition_enabled() 
+        ? _mm256_set1_ps((yt * probSumT) / n_cond_haps)
+        : _mm256_set1_ps(yt / n_cond_haps);
     __m256 _nt = _mm256_set1_ps(nt / probSumT);
     __m256 _mismatch = _mm256_set1_ps(M.ed/M.ee);
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
@@ -839,7 +845,11 @@ void haplotype_segment_single::RUN_MIS() {
 inline
 void haplotype_segment_single::COLLAPSE_MIS() {
 	__m256 _sum = _mm256_set1_ps(0.0f);
-	__m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
+	// BUG #4 EXPERIMENTAL: Test normalization behavior
+	extern bool normalize_collapse_transition_enabled();
+	__m256 _tFreq = normalize_collapse_transition_enabled()
+	    ? _mm256_set1_ps((yt * probSumT) / n_cond_haps)
+	    : _mm256_set1_ps(yt / n_cond_haps);
 	__m256 _nt = _mm256_set1_ps(nt / probSumT);
 	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
 		__m256 _prob = _mm256_set1_ps(probSumK[k]);

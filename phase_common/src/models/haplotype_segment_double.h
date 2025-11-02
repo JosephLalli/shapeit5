@@ -774,7 +774,11 @@ void haplotype_segment_double::COLLAPSE_HOM() {
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
     __m256d _sum0 = _mm256_set1_pd(0.0);
     __m256d _sum1 = _mm256_set1_pd(0.0);
-    __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);					//Check divide by probSumT here!
+    // BUG #4 EXPERIMENTAL: Test normalization behavior
+    extern bool normalize_collapse_transition_enabled_d();
+    __m256d _tFreq = normalize_collapse_transition_enabled_d()
+        ? _mm256_set1_pd((yt * probSumT) / n_cond_haps)
+        : _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
     __m256d _mismatch = _mm256_set1_pd(M.ed/M.ee);
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
@@ -1010,7 +1014,11 @@ inline
 void haplotype_segment_double::COLLAPSE_MIS() {
 	__m256d _sum0 = _mm256_set1_pd(0.0);
 	__m256d _sum1 = _mm256_set1_pd(0.0);
-	__m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
+	// BUG #4 EXPERIMENTAL: Test normalization behavior
+	extern bool normalize_collapse_transition_enabled_d();
+	__m256d _tFreq = normalize_collapse_transition_enabled_d()
+	    ? _mm256_set1_pd((yt * probSumT) / n_cond_haps)
+	    : _mm256_set1_pd(yt / n_cond_haps);
 	__m256d _nt = _mm256_set1_pd(nt / probSumT);
 	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
 		__m256d _prob0 = _mm256_set1_pd(probSumK[k]);

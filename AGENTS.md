@@ -743,8 +743,18 @@ Alignment items for supersites:
 **BUG #4: Unclear transition probability normalization in COLLAPSE**
 - **Issue**: Biallelic `COLLAPSE_HOM` has comment "//Check divide by probSumT here!" suggesting uncertainty
 - **Impact**: Unclear if formula is correct; hard to verify
-- **Fix**: Document whether COLLAPSE should normalize by `probSumT` or not (check Li & Stephens math)
-- **Status**: ⏳ TODO - needs mathematical verification
+- **Status**: ⚠️ **EXPERIMENTAL FLAG ADDED** - needs empirical validation
+- **Investigation**: Mathematical analysis suggests current formula (no normalization) is likely correct because:
+  - Switching represents uniform draw over K donors (independent of prev probability mass)
+  - Total probability conserved: Σ_k[probSumK[k]*(nt/probSumT) + yt/K] = nt + yt = 1.0
+  - However, asymmetry with RUN functions is visually suspicious
+- **Experimental flag**: `SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION=1` enables alternative normalization
+  - Default (env not set): `_tFreq = yt / n_cond_haps` (current behavior)
+  - With flag: `_tFreq = (yt * probSumT) / n_cond_haps` (normalized like RUN)
+- **TODO**: 
+  - Run accuracy benchmarks with/without flag to determine optimal behavior
+  - **Remove flag and hardcode optimal behavior before release**
+  - Replace comment with clear mathematical explanation
 
 **BUG #5: Duplicate emission logic in SS_COLLAPSE_AMB**
 - **Issue**: Two separate 30+ line code paths for `ss_anchor_split_emissions` mode vs full-supersite mode
@@ -773,6 +783,12 @@ Alignment items for supersites:
 **Environment Variables:**
 - `SHAPEIT5_TEST_TRACE=1`: Enable verbose per-locus forward/backward TSV traces to `tests/out/`
 - `SHAPEIT5_DEBUG_UNDERFLOW=1`: Enable HMM underflow diagnostics to `logs/underflow.tsv` (includes sample, locus, cm, yt/nt, probSumT, probSumH[], and prior segment Alpha summaries)
+- **`SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION=1`**: **⚠️ EXPERIMENTAL - REMOVE BEFORE RELEASE** 
+  - Enables alternative COLLAPSE transition normalization for Bug #4 testing
+  - Default (not set): `_tFreq = yt / K` (current behavior, likely correct)
+  - With flag: `_tFreq = (yt * probSumT) / K` (symmetric with RUN functions)
+  - Purpose: Empirically determine which formula produces more accurate phasing
+  - See Bug #4 in "Known Bugs" section for mathematical analysis
 
 **Key Implementation Files:**
 - `phase_common/src/models/haplotype_segment_single.{h,cpp}`: Float HMM core + supersite integration

@@ -45,6 +45,17 @@ static void ensure_logs_dir() {
         mkdir("logs", 0777);
     }
 }
+
+// EXPERIMENTAL: COLLAPSE transition normalization testing (SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION)
+// TODO: Remove before release after determining optimal behavior (see Bug #4)
+static bool normalize_collapse_transition_enabled() {
+    static int flag = -1;
+    if (flag < 0) {
+        const char* env = std::getenv("SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION");
+        flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+    }
+    return flag == 1;
+}
 } // namespace
 
 haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M,
@@ -55,6 +66,9 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
     const std::vector<int>* _super_site_var_index) :
     G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site),
     locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), super_site_var_index(_super_site_var_index), cond_idx(&idxH) {
+	// Initialize experimental flags
+	init_collapse_normalization();
+	
 	segment_first = W.start_segment;
 	segment_last = W.stop_segment;
 	locus_first = W.start_locus;
