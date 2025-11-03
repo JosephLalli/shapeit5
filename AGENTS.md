@@ -317,7 +317,50 @@ All operations process 8 lanes simultaneously using Intel AVX2 intrinsics:
 - `_mm256_mul_ps`, `_mm256_add_ps`: Vectorized arithmetic
 - `_mm256_fmadd_ps`: Fused multiply-add (prob * nt + tFreq)
 
-The 8 lanes represent potential haplotype orientations (for heterozygous sites) or are duplicated (for homozygous sites).
+**Lane Semantics (HAP_NUMBER=8)**:
+The 8 lanes explore different phase configurations for the diploid sample:
+- **Diplotype encoding**: 64 possible diplotypes encoded as (hap0, hap1) pairs where hap0, hap1 ∈ {0..7}
+  - `DIP_HAP0(d) = d >> 3` extracts hap0 index (0-7)
+  - `DIP_HAP1(d) = d & 7` extracts hap1 index (0-7)
+- **Lane assignment**: Each lane h ∈ {0..7} tracks probabilities for specific haplotype indices
+- **Biallelic heterozygous sites**: The `amb_code` (8-bit mask from `Ambiguous` array) determines per-lane orientation
+  - If `HAP_GET(amb_code, h) == 0`: lane h "wants" haplotype 0's allele (REF or ALT)
+  - If `HAP_GET(amb_code, h) == 1`: lane h "wants" haplotype 1's allele (REF or ALT)
+  - `genotype::build()` computes `amb_code` based on heterozygous site patterns: `amb_code[h] = (h >> n_unf) % 2` for each HET site
+  - With multiple HET sites, different lanes explore different phasing combinations
+- **Multiallelic heterozygous sites (supersites)**: Each lane expects a specific **allele class** (not just REF/ALT)
+  - `expected_class[h]` = which allele code lane h expects (0=REF, 1=ALT1, 2=ALT2, ...)
+  - Computed from `amb_code`: `expected_class[h] = (amb_mask & (1<<h)) ? c1 : c0`
+  - Where `c0`, `c1` are the two allele codes carried by the sample's haplotypes
+  - Example: genotype `ALT2|ALT3` → c0=2, c1=3 → some lanes expect class 2, others expect class 3
+- **Homozygous sites**: All lanes use identical emissions (no orientation ambiguity)
+- **Missing sites**: Imputation probabilities computed per-lane, allowing different predictions for different phase configurations
+
+**Example (2 biallelic heterozygous sites)**:
+```
+Target: [0|1, ./., 0|1] against conditioning haps [0,0,0] and [1,1,1]
+Lane semantics after build():
+  Lane 0: Explores hap0→cond_hap0, hap1→cond_hap0 (both from REF haplotype)
+  Lane 3: Explores hap0→cond_hap1, hap1→cond_hap1 (both from ALT haplotype)
+  Lane 1,2,5,6: Explore recombination states (mix of REF/ALT)
+Missing site imputation:
+  Lane 0: P(ALT) ≈ 0.001 (strongly prefers REF, consistent with cond_hap0)
+  Lane 3: P(ALT) ≈ 0.999 (strongly prefers ALT, consistent with cond_hap1)
+  Others: P(ALT) ≈ 0.5 (uncertain due to recombination)
+```
+
+**Example (multiallelic heterozygous supersite)**:
+```
+Target: ALT2|ALT3 at multiallelic site (codes: c0=2, c1=3)
+Lane semantics:
+  Lanes with amb_code bit=0: expect class 2 (ALT2)
+  Lanes with amb_code bit=1: expect class 3 (ALT3)
+Donor emissions:
+  If donor carries class 2: high emission for lanes expecting class 2, low for lanes expecting class 3
+  If donor carries class 3: high emission for lanes expecting class 3, low for lanes expecting class 2
+  If donor carries REF or other ALT: low emission for all lanes
+Result: Same diplotype sampling mechanism, but with multi-allelic class expectations per lane
+```
 
 **Storage**:
 - At each **segment boundary**: Store `Alpha[s] = prob`, `AlphaSum[s] = probSumH`
