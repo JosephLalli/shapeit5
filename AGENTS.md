@@ -758,364 +758,65 @@ Alignment items for supersites:
 
 **8 different phase configuration hypotheses** for how heterozygous sites within a segment might phase together.
 
-#### Common Misconception vs. Reality
-
-**❌ WRONG: "Each lane is a haplotype"**
-```
-Lane 0 = haplotype 0
-Lane 1 = haplotype 1
-Lane 2 = haplotype 2
-...
-Lane 7 = haplotype 7
-```
-This is NOT how it works! There are only 2 haplotypes (maternal and paternal).
-
-**✓ CORRECT: "Each lane is a hypothesis about phase configurations"**
-```
-Lane 0 = hypothesis: "all HET sites phase as hap0|hap1"
-Lane 1 = hypothesis: "1st HET phases as hap1|hap0, others as hap0|hap1"
-Lane 2 = hypothesis: "2nd HET phases as hap1|hap0, others as hap0|hap1"
-...and so on
-```
-
-#### What This Means Concretely
-
-Imagine you have a segment with **2 heterozygous SNPs**:
-- Position 1000: genotype C|T (heterozygous)
-- Position 2000: genotype A|G (heterozygous)
-
-**You don't know which alleles go together on the same chromosome**, so you have 4 possibilities:
-1. Chromosome from mom: C-A, Chromosome from dad: T-G (phase: 0|1 at both sites)
-2. Chromosome from mom: C-G, Chromosome from dad: T-A (phase: 0|1 at pos 1000, 1|0 at pos 2000)
-3. Chromosome from mom: T-A, Chromosome from dad: C-G (phase: 1|0 at pos 1000, 0|1 at pos 2000)
-4. Chromosome from mom: T-G, Chromosome from dad: C-A (phase: 1|0 at both sites)
-
-**The 8 lanes explore these 4 possibilities** (plus 4 redundant configurations):
-- **Lane 0**: Both sites phase 0|1 → hypothesis #1 above
-- **Lane 1**: Pos 1000 phases 1|0, pos 2000 phases 0|1 → hypothesis #3 above
-- **Lane 2**: Pos 1000 phases 0|1, pos 2000 phases 1|0 → hypothesis #2 above
-- **Lane 3**: Both sites phase 1|0 → hypothesis #4 above
-- Lanes 4-7: Redundant for only 2 HET sites
-
-The HMM computes probabilities for each hypothesis based on how well they match the donor haplotypes in the reference panel.
-
----
-
 ### Mathematical Foundation
 
 #### Diplotype Encoding (64 possible states)
+Each segment has a `Diplotypes[s]` bit mask encoding which of 64 possible diplotype configurations are valid:
+- Each diplotype d ∈ {0..63} encodes a pair: `(hap0, hap1)` where hap0, hap1 ∈ {0..7}
+- `DIP_HAP0(d) = d >> 3` extracts hap0 index (which of 8 lanes represents haplotype 0)
+- `DIP_HAP1(d) = d & 7` extracts hap1 index (which of 8 lanes represents haplotype 1)
+- **Key insight**: A diplotype maps **two of the 8 lanes** to the two haplotypes
 
-**The Problem**: At each segment boundary, we need to track which phase configurations are still plausible.
+#### Lane-to-Phase Pattern Mapping (Heterozygous Sites)
+Within a segment containing n_het heterozygous sites (where n_het ≤ 3):
+- Each lane h ∈ {0..7} represents a specific **binary pattern** of phase configurations
+- For HET site i within the segment: lane h's phase is determined by bit (h >> i) & 1
+- This creates 2^n_het unique phase configurations across the n_het sites
 
-**The Solution**: Use a 64-bit mask where each bit represents one of 64 possible "diplotypes."
+**Example with 2 heterozygous sites**:
+```
+Segment contains: [HET_site_1, HET_site_2]
 
-**Diplotype Definition**: A diplotype d ∈ {0..63} encodes which **two lanes** represent the two haplotypes:
+Lane 0 (binary 000): HET1 phase bit=0, HET2 phase bit=0 → both sites prefer haplotype 0's allele
+Lane 1 (binary 001): HET1 phase bit=1, HET2 phase bit=0 → HET1 prefers hap1, HET2 prefers hap0
+Lane 2 (binary 010): HET1 phase bit=0, HET2 phase bit=1 → HET1 prefers hap0, HET2 prefers hap1
+Lane 3 (binary 011): HET1 phase bit=1, HET2 phase bit=1 → both sites prefer haplotype 1's allele
+Lanes 4-7: unused (only 2^2 = 4 configurations needed)
+```
+
+#### How Ambiguous Array Encodes This
+In `genotype_build.cpp`, the `Ambiguous[amb_idx]` byte is constructed as:
 ```cpp
-#define DIP_HAP0(d)  ((d) >> 3)  // Bits 5-3: which lane (0-7) represents haplotype 0
-#define DIP_HAP1(d)  ((d) & 7)   // Bits 2-0: which lane (0-7) represents haplotype 1
-```
-
-**Example Diplotypes**:
-```
-Diplotype  0: (hap0=lane0, hap1=lane0) → 0>>3=0, 0&7=0
-Diplotype  1: (hap0=lane0, hap1=lane1) → 1>>3=0, 1&7=1
-Diplotype  9: (hap0=lane1, hap1=lane1) → 9>>3=1, 9&7=1
-Diplotype 27: (hap0=lane3, hap1=lane3) → 27>>3=3, 27&7=3
-Diplotype 63: (hap0=lane7, hap1=lane7) → 63>>3=7, 63&7=7
-```
-
-**Why 64 configurations?** Because there are 8 lanes, and we need to pick 2 of them (with replacement) for the two haplotypes: 8 × 8 = 64.
-
-**How Diplotypes Map to Lanes**: A diplotype tells you "if you sampled this configuration, go look at lane X for haplotype 0's alleles and lane Y for haplotype 1's alleles."
-
-#### Concrete Example: Segment with 1 HET Site
-
-```
-Segment contains one heterozygous site: position 5000, genotype A|T
-
-After HMM runs, we have 8 lanes with different probabilities:
-  Lane 0: prob = 0.4 (hypothesis: this site is phased A|T, i.e., hap0=A, hap1=T)
-  Lane 1: prob = 0.05 (hypothesis: this site is phased T|A, i.e., hap0=T, hap1=A)
-  Lanes 2-7: prob ≈ 0 (unused for single HET site)
-
-Valid diplotypes (encoded in Diplotypes[s] bitmask):
-  - Diplotype 0: (lane0, lane0) → both haplotypes from lane 0 → A|A (INVALID - we know it's heterozygous!)
-  - Diplotype 1: (lane0, lane1) → hap0 from lane 0 (A), hap1 from lane 1 (A) → A|A (INVALID)
-  - Diplotype 8: (lane1, lane0) → hap0 from lane 1 (T), hap1 from lane 0 (T) → T|T (INVALID)
-  - Diplotype 9: (lane1, lane1) → both haplotypes from lane 1 → T|T (INVALID)
-  
-  ACTUALLY VALID (after applying MASK_UNF0):
-  - Diplotype 1: (lane0, lane1) → A|T ✓
-  - Diplotype 8: (lane1, lane0) → T|A ✓ (same genotype, different phase)
-
-The Diplotypes[s] bitmask has bits 1 and 8 set, all others cleared.
-This enforces that we can't sample diplotypes that would give us homozygous genotypes.
-```
-
-**Key Insight**: Diplotypes don't directly encode alleles! They encode **which lanes to consult** for each haplotype's alleles. The lanes themselves hold the phase configuration hypotheses.
-
----
-
-### Lane-to-Phase Pattern Mapping (Binary Encoding)
-
-**The Encoding Formula**: For heterozygous site at position `n_unf` in the segment (where n_unf is 0 for 1st HET, 1 for 2nd HET, etc.):
-```cpp
-lane_h_phase_bit = (h >> n_unf) % 2
-```
-
-This creates a **binary counter pattern** where each lane's index encodes a unique combination of phase choices.
-
-#### Visual Representation: 3 HET Sites
-
-```
-Lane Index (h)  |  Binary  | Phase at HET0 | Phase at HET1 | Phase at HET2
-                           |  ((h>>0)%2)  |  ((h>>1)%2)  |  ((h>>2)%2)
-----------------|----------|---------------|---------------|---------------
-Lane 0          |   000    |      0        |      0        |      0
-Lane 1          |   001    |      1        |      0        |      0
-Lane 2          |   010    |      0        |      1        |      0
-Lane 3          |   011    |      1        |      1        |      0
-Lane 4          |   100    |      0        |      0        |      1
-Lane 5          |   101    |      1        |      0        |      1
-Lane 6          |   110    |      0        |      1        |      1
-Lane 7          |   111    |      1        |      1        |      1
-```
-
-**Reading the Table**:
-- Lane 0 (binary 000): All three HET sites have phase bit = 0
-- Lane 7 (binary 111): All three HET sites have phase bit = 1
-- Lane 3 (binary 011): HET0 has bit=1, HET1 has bit=1, HET2 has bit=0
-
-**What does "phase bit = 0" mean?**
-- 0 = "at this HET site, this lane's hypothesis is that the allele comes from haplotype 0"
-- 1 = "at this HET site, this lane's hypothesis is that the allele comes from haplotype 1"
-
-#### Concrete Example: 2 HET Sites
-
-```
-Segment: [Pos 1000: C|T, Pos 2000: A|G]
-
-Lane 0 (binary 00):
-  - At pos 1000: expects hap0's allele (C) for this phase configuration
-  - At pos 2000: expects hap0's allele (A) for this phase configuration
-  - Hypothesis: "hap0 = C-A, hap1 = T-G"
-
-Lane 1 (binary 01):
-  - At pos 1000: expects hap1's allele (T) for this phase configuration
-  - At pos 2000: expects hap0's allele (A) for this phase configuration
-  - Hypothesis: "hap0 = T-A, hap1 = C-G"
-
-Lane 2 (binary 10):
-  - At pos 1000: expects hap0's allele (C)
-  - At pos 2000: expects hap1's allele (G)
-  - Hypothesis: "hap0 = C-G, hap1 = T-A"
-
-Lane 3 (binary 11):
-  - At pos 1000: expects hap1's allele (T)
-  - At pos 2000: expects hap1's allele (G)
-  - Hypothesis: "hap0 = T-G, hap1 = C-A"
-```
-
-**Important**: Each lane doesn't have a fixed haplotype assignment! Lane 0 expects "hap0's allele" at pos 1000 (which is C) but if we're at a different segment or different site, "hap0's allele" might be different.
-
----
-
-### Ambiguous Array Encoding: How `((h>>n_unf)%2)` Creates Binary Patterns
-
-The `Ambiguous` array is constructed **once per heterozygous site** during `genotype::build()`:
-
-```cpp
-// For each heterozygous site at position n_unf in the segment:
 for (unsigned int h = 0; h < HAP_NUMBER; h++) {
-    bool allele = ((h >> n_unf) % 2);  // Extract bit n_unf from lane index h
+    bool allele = ((h>>n_unf)%2);  // Extract bit (n_unf) from lane index h
     if (allele) HAP_SET(Ambiguous[amb_idx], h);
 }
 ```
+This means:
+- For HET site at position n_unf=0: lanes {1,3,5,7} get bit set (pattern: 01010101)
+- For HET site at position n_unf=1: lanes {2,3,6,7} get bit set (pattern: 00110011)
+- For HET site at position n_unf=2: lanes {4,5,6,7} get bit set (pattern: 00001111)
 
-#### Step-by-Step Breakdown
+**Semantic Interpretation**:
+- `HAP_GET(amb_code, h) == 0` → lane h's hypothesis is that this HET site phases with haplotype 0
+- `HAP_GET(amb_code, h) == 1` → lane h's hypothesis is that this HET site phases with haplotype 1
 
-**For n_unf = 0 (first HET site in segment)**:
-```
-h=0: (0 >> 0) % 2 = 0 % 2 = 0 → bit NOT set
-h=1: (1 >> 0) % 2 = 1 % 2 = 1 → bit SET
-h=2: (2 >> 0) % 2 = 2 % 2 = 0 → bit NOT set
-h=3: (3 >> 0) % 2 = 3 % 2 = 1 → bit SET
-h=4: (4 >> 0) % 2 = 4 % 2 = 0 → bit NOT set
-h=5: (5 >> 0) % 2 = 5 % 2 = 1 → bit SET
-h=6: (6 >> 0) % 2 = 6 % 2 = 0 → bit NOT set
-h=7: (7 >> 0) % 2 = 7 % 2 = 1 → bit SET
-
-Result: Ambiguous[amb_idx] = 0b10101010 (bits 1,3,5,7 set)
-```
-
-**For n_unf = 1 (second HET site in segment)**:
-```
-h=0: (0 >> 1) % 2 = 0 % 2 = 0 → bit NOT set
-h=1: (1 >> 1) % 2 = 0 % 2 = 0 → bit NOT set
-h=2: (2 >> 1) % 2 = 1 % 2 = 1 → bit SET
-h=3: (3 >> 1) % 2 = 1 % 2 = 1 → bit SET
-h=4: (4 >> 1) % 2 = 2 % 2 = 0 → bit NOT set
-h=5: (5 >> 1) % 2 = 2 % 2 = 0 → bit NOT set
-h=6: (6 >> 1) % 2 = 3 % 2 = 1 → bit SET
-h=7: (7 >> 1) % 2 = 3 % 2 = 1 → bit SET
-
-Result: Ambiguous[amb_idx] = 0b11001100 (bits 2,3,6,7 set)
-```
-
-**For n_unf = 2 (third HET site in segment)**:
-```
-h=0: (0 >> 2) % 2 = 0 % 2 = 0 → bit NOT set
-h=1: (1 >> 2) % 2 = 0 % 2 = 0 → bit NOT set
-h=2: (2 >> 2) % 2 = 0 % 2 = 0 → bit NOT set
-h=3: (3 >> 2) % 2 = 0 % 2 = 0 → bit NOT set
-h=4: (4 >> 2) % 2 = 1 % 2 = 1 → bit SET
-h=5: (5 >> 2) % 2 = 1 % 2 = 1 → bit SET
-h=6: (6 >> 2) % 2 = 1 % 2 = 1 → bit SET
-h=7: (7 >> 2) % 2 = 1 % 2 = 1 → bit SET
-
-Result: Ambiguous[amb_idx] = 0b11110000 (bits 4,5,6,7 set)
-```
-
-#### How This Gets Used in HMM
-
-When processing a heterozygous site during forward/backward pass:
-
-```cpp
-unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
-
-// Example: if this is the 2nd HET site (amb_code = 0b11001100)
-for (int h = 0; h < HAP_NUMBER; h++) {
-    bool bit_set = HAP_GET(amb_code, h);  // Extract bit h
-    
-    // h=0: bit_set = 0 → this lane expects haplotype 0's allele at this site
-    // h=1: bit_set = 0 → this lane expects haplotype 0's allele
-    // h=2: bit_set = 1 → this lane expects haplotype 1's allele at this site
-    // h=3: bit_set = 1 → this lane expects haplotype 1's allele
-    // ...and so on
-}
-```
-
-**Why This Works**: The bit pattern encodes **for each lane, which haplotype's allele should be expected at this specific HET site**, based on that lane's overall phase configuration hypothesis.
-
----
-
-### Why Biallelic Works: The `_emit[ah]` Array Indexing
-
-#### The Biallelic Emission Model
-
-For a **biallelic heterozygous site** with genotype 0|1 (REF|ALT):
-
-**Step 1: Build per-lane emission expectations**
+#### How Biallelic INIT_AMB/RUN_AMB Works Correctly
 ```cpp
 unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
 for (int h = 0; h < HAP_NUMBER; h++) {
-    // If lane expects hap1's allele: REF is a mismatch, ALT is a match
-    g0[h] = HAP_GET(amb_code, h) ? M.ed/M.ee : 1.0f;  // Emission if donor has REF
-    g1[h] = HAP_GET(amb_code, h) ? 1.0f : M.ed/M.ee;  // Emission if donor has ALT
+    g0[h] = HAP_GET(amb_code,h) ? M.ed/M.ee : 1.0f;  // If lane expects hap1's allele: mismatch for REF
+    g1[h] = HAP_GET(amb_code,h) ? 1.0f : M.ed/M.ee;  // If lane expects hap1's allele: match for ALT
 }
+// Then for each donor k with allele ah:
+__m256 _prob = _emit[ah];  // Use g0 if donor has REF (ah=0), g1 if donor has ALT (ah=1)
 ```
 
-**Example with amb_code = 0b10101010 (first HET site)**:
-```
-Lane 0: HAP_GET(amb_code, 0) = 0 → expects hap0's allele
-  - If donor has REF (which is hap0's allele): g0[0] = 1.0 (match!)
-  - If donor has ALT (which is hap1's allele): g1[0] = 0.001 (mismatch)
-
-Lane 1: HAP_GET(amb_code, 1) = 1 → expects hap1's allele
-  - If donor has REF (which is hap0's allele): g0[1] = 0.001 (mismatch)
-  - If donor has ALT (which is hap1's allele): g1[1] = 1.0 (match!)
-```
-
-**Step 2: Apply emissions based on donor's allele**
-```cpp
-__m256 _emit[2];
-_emit[0] = _mm256_loadu_ps(&g0[0]);  // Load 8 floats: emissions if donor has REF
-_emit[1] = _mm256_loadu_ps(&g1[0]);  // Load 8 floats: emissions if donor has ALT
-
-for (int k = 0; k < n_cond_haps; k++) {
-    bool ah = Hvar.get(curr_rel_locus, k);  // Donor k's allele: 0 or 1
-    __m256 _prob = _emit[ah];  // Index into emission array!
-    // ... apply to prob[k*8 + 0..7]
-}
-```
-
-#### Why Binary Indexing Works
-
-**The Key**: For biallelic sites, there are exactly **2 possible donor alleles** (REF=0, ALT=1), which perfectly maps to **2 emission vectors** (g0, g1).
-
-**The Matching**:
-- Donor allele 0 (REF) → use `_emit[0]` → gives per-lane emissions for "donor has hap0's allele"
-- Donor allele 1 (ALT) → use `_emit[1]` → gives per-lane emissions for "donor has hap1's allele"
-
-**Concrete Example**:
-```
-Site: genotype 0|1, amb_code = 0b10101010
-
-Donor A has allele 0 (REF):
-  _emit[0] = [1.0, 0.001, 1.0, 0.001, 1.0, 0.001, 1.0, 0.001]
-  Lane 0 gets 1.0 (match - lane expects hap0=REF)
-  Lane 1 gets 0.001 (mismatch - lane expects hap1=ALT)
-  Lane 2 gets 1.0 (match - lane expects hap0=REF)
-  ...and so on
-
-Donor B has allele 1 (ALT):
-  _emit[1] = [0.001, 1.0, 0.001, 1.0, 0.001, 1.0, 0.001, 1.0]
-  Lane 0 gets 0.001 (mismatch - lane expects hap0=REF, donor has ALT)
-  Lane 1 gets 1.0 (match - lane expects hap1=ALT, donor has ALT)
-  ...and so on
-```
-
-#### Why This Breaks for Multiallelic
-
-**The Problem**: Multiallelic sites have **C > 2 possible alleles**, not just 2.
-
-**Example**: Genotype ALT2|ALT3 (c0=2, c1=3) at a 5-allele site (REF, ALT1, ALT2, ALT3, ALT4).
-
-**What we'd need**:
-```cpp
-// For 5 alleles, we'd need 5 emission vectors:
-_emit[0] = emissions if donor has REF
-_emit[1] = emissions if donor has ALT1
-_emit[2] = emissions if donor has ALT2  ← hap0's allele
-_emit[3] = emissions if donor has ALT3  ← hap1's allele
-_emit[4] = emissions if donor has ALT4
-
-// Then index by donor's allele code (0-4):
-int donor_code = getSuperSiteCode(k);  // Returns 0, 1, 2, 3, or 4
-__m256 _prob = _emit[donor_code];  // This works!
-```
-
-**BUT**: We can't precompute these emission vectors because **we don't know which allele each lane expects**!
-
-**Why not?**
-- For biallelic 0|1: 
-  - Lanes with amb_bit=0 expect allele 0 (REF)
-  - Lanes with amb_bit=1 expect allele 1 (ALT)
-  - **Only 2 possibilities**, directly encoded in amb_code
-
-- For multiallelic ALT2|ALT3:
-  - Lanes with amb_bit=0 should expect allele 2 (ALT2, hap0's allele)
-  - Lanes with amb_bit=1 should expect allele 3 (ALT3, hap1's allele)
-  - **But amb_code only encodes binary (0 or 1), not allele classes (2 or 3)!**
-  - We'd need to encode "lane 0 expects class 2, lane 1 expects class 3, ..." but we only have 1 bit per lane!
-
-**Current broken code tries this**:
-```cpp
-// INCORRECT: assigns expected_class per lane
-for (int h = 0; h < HAP_NUMBER; h++) {
-    bool use_c1 = ((amb_mask >> h) & 1U);
-    expected_class[h] = use_c1 ? c1 : c0;  // Assigns class 2 or 3
-}
-
-// Then for each donor, checks if donor_code == expected_class[h]
-// This treats expected_class[h] as if it's the lane's fixed allele
-// But lanes don't have fixed alleles! They have phase configuration hypotheses!
-```
-
-**The Real Issue**: 
-- Binary amb_code can only distinguish 2 states per lane
-- Multiallelic needs to distinguish C states per lane
-- **Architectural mismatch: need C bits per lane, but only have 1 bit per lane**
+**Why this works for biallelic**:
+- Biallelic sites have exactly 2 alleles: REF (0) and ALT (1)
+- Donor allele ah ∈ {0, 1} directly indexes which emission vector to use
+- Each lane h gets emission based on whether it expects hap0's allele or hap1's allele
+- For a 0|1 genotype: some lanes explore 0|1 phase, others explore 1|0 phase
 
 ---
 
@@ -1528,6 +1229,268 @@ The current architecture has an **irreconcilable conflict**:
 **Known Implementation Debt:**
 - Window starts may land on supersite siblings; ideally adjust to anchors or non-member loci when `--enable-supersites` is set
 - Consider adding assertion to prevent window starts on siblings in debug builds
+
+---
+
+## TODO: Scaffolding Support for Supersites
+
+### Overview
+SHAPEIT5 supports trio/duo scaffolding (`--pedigree` option) where known parent-child relationships are used to phase heterozygous sites. This feature currently assumes biallelic variants and will require significant modification to support multiallelic supersites.
+
+### Current Scaffolding Implementation (`genotype_mendel.cpp`)
+
+**Trio Scaffolding Logic:**
+```cpp
+if (VAR_GET_HET(child)) {
+    if (VAR_GET_HOM(father) && VAR_GET_HOM(mother)) {
+        // Both parents homozygous → determine phase from parent alleles
+        bool fath0 = VAR_GET_HAP0(father);
+        bool moth0 = VAR_GET_HAP0(mother);
+        if (fath0 != moth0) {
+            VAR_SET_SCA(child);  // Set to scaffold (phased)
+            // Copy parent alleles to child haplotypes
+        }
+    } else if (VAR_GET_HOM(father)) {
+        // Only father homozygous → father's allele goes to one haplotype
+    }
+}
+```
+
+**Key Assumption:** Biallelic encoding where HET means 0/1 or 1/0, and HAP0/HAP1 bits directly encode the allele values.
+
+### Pain Points for Multiallelic Support
+
+#### 1. **Allele Code Mapping Across Family Members**
+
+**Problem:** Parent and child may have different split representations of the same multiallelic site.
+
+**Example Scenario:**
+```
+Position 1000: REF=A, ALT1=T, ALT2=G, ALT3=C
+
+Father: A/T (codes: 0,1)
+  - Split 1 (A/T): 0/1 → HET
+  - Split 2 (A/G): 0/0 → HOM
+  - Split 3 (A/C): 0/0 → HOM
+
+Mother: G/G (codes: 2,2)
+  - Split 1 (A/T): 0/0 → HOM
+  - Split 2 (A/G): 1/1 → HOM
+  - Split 3 (A/C): 0/0 → HOM
+
+Child: T/G (codes: 1,2) - inherits T from father, G from mother
+  - Split 1 (A/T): 0/1 → HET
+  - Split 2 (A/G): 0/1 → HET
+  - Split 3 (A/C): 0/0 → HOM
+```
+
+**Challenge:** Current code compares `VAR_GET_HOM(parent)` at each split independently, but we need to:
+- Identify that this is the same multiallelic site across family members
+- Translate allele codes between different individuals' split representations
+- Determine inheritance pattern at the multiallelic level, not per-split
+
+#### 2. **Mendelian Violation Detection**
+
+**Problem:** Need to detect impossible inheritance patterns at multiallelic sites.
+
+**Valid vs Invalid Inheritance:**
+
+✅ **Valid (biallelic):**
+- Father: 0/0, Mother: 0/0 → Child: 0/0 ✓
+- Father: 0/1, Mother: 0/0 → Child: 0/0 or 0/1 ✓
+- Father: 0/0, Mother: 0/0 → Child: 0/1 ✗ (violation)
+
+✅ **Valid (multiallelic):**
+- Father: ALT1/ALT1 (1,1), Mother: ALT2/ALT2 (2,2) → Child: ALT1/ALT2 (1,2) ✓
+- Father: REF/ALT1 (0,1), Mother: ALT2/ALT3 (2,3) → Child: ALT1/ALT2 (1,2) ✓
+
+✗ **Invalid (multiallelic):**
+- Father: ALT1/ALT1 (1,1), Mother: ALT2/ALT2 (2,2) → Child: REF/ALT3 (0,3) ✗
+- Father: REF/REF (0,0), Mother: REF/REF (0,0) → Child: ALT1/ALT2 (1,2) ✗
+
+**Challenge:** Current biallelic logic uses simple HAP bit comparisons. Multiallelic requires:
+- Checking if child's allele codes are subset of union(father_codes, mother_codes)
+- Handling de novo mutations (child has allele not in either parent)
+- Counting violations at the multiallelic level, not per-split
+
+#### 3. **Scaffold Bit Setting Across Splits**
+
+**Problem:** When scaffolding succeeds, need to mark ALL member splits as scaffolded, not just anchor.
+
+**Current Behavior (biallelic):**
+```cpp
+VAR_SET_SCA(MOD2(v), Variants[DIV2(v)]);  // Set single variant
+VAR_SET_HAP0(...);  // Set haplotype 0 allele
+VAR_CLR_HAP1(...);  // Clear haplotype 1 allele
+```
+
+**Required Behavior (multiallelic):**
+- Determine which allele code child inherits from each parent (e.g., child gets code 1 from father, code 2 from mother)
+- Set SCA bit at **anchor** position
+- Set HAP0/HAP1 bits at **appropriate member splits** based on allele codes
+- Example: If child is 1|2, set HAP0 at split 1, set HAP1 at split 2, clear all others
+
+**Challenge:** Need atomic scaffolding operation across all supersite members.
+
+#### 4. **Partial Scaffolding Scenarios**
+
+**Problem:** One parent may be heterozygous at different splits than the child.
+
+**Example:**
+```
+Father: ALT1/ALT2 (1,2)
+  - Split 1: 0/1 → HET
+  - Split 2: 0/1 → HET
+
+Child: ALT1/ALT3 (1,3)
+  - Split 1: 0/1 → HET
+  - Split 3: 0/1 → HET
+```
+
+**Current biallelic approach:** "If one parent is HOM, scaffold from that parent"
+
+**Multiallelic challenge:**
+- Father has ALT1 and ALT2; child has ALT1 and ALT3
+- Child's ALT1 must come from father (successful constraint)
+- Child's ALT3 cannot come from father → must come from mother
+- Need partial scaffolding: constrain one haplotype, leave other ambiguous
+
+#### 5. **genotype::build() Integration**
+
+**Problem:** If we update anchor HET bits to reflect multiallelic heterozygosity, scaffolded sites need special handling.
+
+**Proposed Anchor HET Update:**
+```cpp
+// After buildSuperSites(), update anchor HET bits based on multiallelic genotype
+if (multiallelic_genotype_is_HET) {
+    VAR_SET_HET(anchor);
+}
+```
+
+**Scaffolding Interaction:**
+- Scaffolding runs AFTER VCF reading but BEFORE genotype::build()
+- If scaffold sets anchor to SCA, should we still set HET bit?
+- Or should SCA take precedence (scaffolded sites are "known" phase)?
+
+**Decision needed:** Should scaffold sites be excluded from HET bit update?
+
+#### 6. **getSampleSuperSiteAlleleCode() Correctness After Scaffolding**
+
+**Current Behavior:**
+```cpp
+uint8_t getSampleSuperSiteAlleleCode(const genotype* G, const SuperSite& ss, 
+                                     const std::vector<int>& super_site_var_index, int hap) {
+    for (uint32_t i = 0; i < ss.var_count; ++i) {
+        int v_idx = super_site_var_index[ss.var_start + i];
+        bool carries = (hap == 0) ? VAR_GET_HAP0(v_idx, v) : VAR_GET_HAP1(v_idx, v);
+        if (carries) return static_cast<uint8_t>(i + 1);  // Return ALT index
+    }
+    return SUPERSITE_CODE_REF;
+}
+```
+
+**After Scaffolding:**
+- Scaffolding sets HAP0/HAP1 bits at specific splits
+- `getSampleSuperSiteAlleleCode()` scans all splits to find which carries ALT
+- **This should still work correctly** ✓
+
+**But verify:** If child is scaffolded as 1|2:
+- Split 1 has HAP0=1, HAP1=0 → hap0 scan returns code 1 ✓
+- Split 2 has HAP0=0, HAP1=1 → hap1 scan returns code 2 ✓
+
+#### 7. **Haploid Sample Handling**
+
+**Current Code (`genotype_reader_reading.cpp`):**
+```cpp
+if (options.count("haploids")) {
+    G.resetHaploidHeterozgotes(readerH.samples);
+}
+```
+
+**Challenge:** Haploid samples can't be heterozygous at multiallelic sites either.
+- Need to ensure haploid samples don't get marked as HET at supersite anchors
+- Or, ensure scaffolding logic skips haploid samples at supersites
+
+### Implementation Strategy
+
+#### Phase 1: Detection and Validation
+1. **Detect supersite trio inconsistencies**
+   - Add supersite check in `scaffoldTrio()`: `if (locus_to_super_idx && (*locus_to_super_idx)[v] >= 0)`
+   - For supersites, retrieve allele codes for all three family members
+   - Validate Mendelian consistency at multiallelic level
+   - Count violations separately (biallelic vs multiallelic)
+
+2. **Short-term fix: Skip scaffolding at supersites**
+   ```cpp
+   for (int v = 0; v < n_variants; v++) {
+       // Skip all supersite members
+       if (locus_to_super_idx && (*locus_to_super_idx)[v] >= 0) continue;
+       
+       // Existing biallelic scaffolding logic
+   }
+   ```
+
+#### Phase 2: Multiallelic-Aware Scaffolding
+1. **Create `scaffoldSuperSiteTrio()` function**
+   - Input: SuperSite, child genotype, father genotype, mother genotype
+   - Retrieve allele codes for all three individuals
+   - Compute valid inheritance combinations
+   - Return: (success, child_hap0_code, child_hap1_code)
+
+2. **Implement allele code translation**
+   - Map parent allele codes to child's split representation
+   - Handle cases where parent lacks certain ALT alleles
+
+3. **Atomic scaffold operation**
+   - Set SCA bit at anchor
+   - Set HAP0/HAP1 bits at appropriate member splits
+   - Clear HAP bits at non-inherited splits
+
+#### Phase 3: Integration
+1. **Update genotype::build() to handle scaffolded supersites**
+   - Don't update HET bit for scaffolded sites (SCA takes precedence)?
+   - Or, update HET bit but ensure build() logic handles SCA+HET correctly?
+
+2. **Extend haplotype_set::updateHaplotypes()**
+   - Ensure scaffolded supersite haplotypes are correctly written to panel
+
+3. **Add comprehensive tests**
+   - Trio with multiallelic sites (valid inheritance)
+   - Mendelian violations at multiallelic sites
+   - Mixed biallelic/multiallelic trios
+
+### Open Questions
+1. **How should scaffold file support multiallelic representations?**
+   - Currently scaffold file provides biallelic phased genotypes
+   - Would need to specify multiallelic allele codes in scaffold format
+
+### Files Requiring Modification
+
+1. **`genotype_mendel.cpp`**: Core scaffolding logic
+   - `scaffoldTrio()`, `scaffoldDuoFather()`, `scaffoldDuoMother()`
+   - Add supersite detection and handling
+
+2. **`genotype_reader_reading.cpp`**: Scaffold file reading
+   - May need to handle multiallelic scaffold representations
+
+3. **`super_site_accessor.h`**: Add helper functions
+   - `validateSuperSiteMendelianInheritance()`
+   - `scaffoldSuperSite()`
+
+4. **`phaser_initialise.cpp`**: Integration
+   - Ensure scaffolding runs before `updateSuperSiteAnchorHetBits()` (if implemented)
+
+5. **Tests**: Add trio scaffolding test cases
+   - `tests/data/trio_multiallelic.vcf`
+   - Validation scripts
+
+### Priority
+
+- **Short-term (P0)**: Add skip logic to prevent incorrect scaffolding at supersites
+- **Medium-term (P1)**: Implement multiallelic-aware trio validation and Mendelian violation detection
+- **Long-term (P2)**: Full multiallelic scaffolding support with allele code translation
+
+**Status**: 📋 **TODO** - Not yet implemented; currently biallelic-only scaffolding would produce incorrect results at supersites
 
 ---
 

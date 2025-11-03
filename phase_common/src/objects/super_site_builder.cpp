@@ -24,9 +24,11 @@
 #include <models/super_site_accessor.h>
 #include <containers/variant_map.h>
 #include <containers/conditioning_set/conditioning_set_header.h>
+#include <containers/genotype_set.h>
 #include <map>
 #include <algorithm>
 #include <utility>
+#include <cassert>
 
 // Build super-sites by collapsing split biallelic records at identical (chr,bp)
 // positions into multi-allelic "super-sites" and packing per-haplotype 4-bit codes.
@@ -110,6 +112,33 @@ void buildSuperSites(
             current_panel_offset += n_bytes;
 
             super_sites_out.push_back(ss);
+        }
+    }
+}
+
+// Update anchor variant encoding to reflect supersite genotype status
+// Must be called after setSuperSiteContext() and before genotype::build()
+void updateSuperSiteAnchorEncoding(genotype_set& G,
+                                   const std::vector<SuperSite>& super_sites,
+                                   const std::vector<int>& super_site_var_index)
+{
+    // Update anchor encoding for all samples
+    for (unsigned int i = 0; i < G.n_ind; i++) {
+        genotype* g = G.vecG[i];
+        
+        // Supersite context must be set before calling this function
+        assert(g->super_sites && g->locus_to_super_idx && g->super_site_var_index);
+        
+        // Update anchor encoding for heterozygous multiallelic sites only
+        // (HOM and MIS anchors are already correct from VCF reading)
+        for (size_t ss_idx = 0; ss_idx < super_sites.size(); ++ss_idx) {
+            const SuperSite& ss = super_sites[ss_idx];
+            
+            // Only heterozygous multiallelic sites need correction
+            // (e.g., ALT2|ALT3 appears as 0/0 at anchor but is actually HET)
+            if (isSuperSiteHeterozygous(g, ss, super_site_var_index)) {
+                VAR_SET_HET(MOD2(ss.global_site_id), g->Variants[DIV2(ss.global_site_id)]);
+            }
         }
     }
 }

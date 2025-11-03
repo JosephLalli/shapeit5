@@ -27,6 +27,7 @@
 #define MASK_UNF2	0x0F0F0F0FF0F0F0F0UL
 
 #include <objects/genotype/genotype_header.h>
+#include <models/super_site_accessor.h>
 
 using namespace std;
 
@@ -44,25 +45,38 @@ uint32_t genotype::setHetsAsMissing() {
 void genotype::build() {
 	//1. Count number of segments
 	unsigned n_rel_unf = 0, n_rel_var = 0, n_rel_sca = 0, n_abs_seg = 0, n_abs_amb = 0, n_rel_amb = 0, n_abs_mis = 0;
+	unsigned var_len = 0;
+	
 	for (unsigned int v = 0 ; v < n_variants ;) {
 		bool f_sca = VAR_GET_SCA(MOD2(v), Variants[DIV2(v)]);
 		bool f_het = VAR_GET_HET(MOD2(v), Variants[DIV2(v)]);
 		bool f_mis = VAR_GET_MIS(MOD2(v), Variants[DIV2(v)]);
+		bool f_ss = VAR_IS_SS_ANCHOR(super_sites, locus_to_super_idx, v);
+		
+		// Determine how many variants to process (1 for normal, var_count for supersite anchor)
+		if (f_ss) {
+			int ss_idx = (*locus_to_super_idx)[v];
+			var_len = (*super_sites)[ss_idx].var_count;
+		} else {
+			var_len = 1;
+		}
+		
 		unsigned int predicted_unfold = n_rel_unf + f_het + (n_rel_sca||f_sca);
-		if (predicted_unfold == 4 || (n_rel_var == std::numeric_limits< unsigned short >::max()) || (n_rel_amb == MAX_AMB)) {
+		if (predicted_unfold == 4 || (n_rel_var >= (std::numeric_limits<unsigned short>::max() - var_len + 1)) || (n_rel_amb == MAX_AMB)) {
+			// Segment boundary
 			n_rel_unf = 0;
 			n_rel_sca = 0;
 			n_rel_var = 0;
 			n_rel_amb = 0;
-			n_abs_seg ++;
+			n_abs_seg++;
 		} else {
 			n_rel_unf += f_het;
 			n_rel_sca += f_sca;
 			n_abs_amb += (f_het||f_sca);
 			n_rel_amb += (f_het||f_sca);
 			n_abs_mis += f_mis;
-			n_rel_var ++;
-			v++;
+			n_rel_var += var_len;
+			v += var_len;
 		}
 	}
 	n_segments = n_abs_seg + 1;
@@ -72,27 +86,38 @@ void genotype::build() {
 	//2. Build Segments
 	n_rel_unf = 0; n_rel_var = 0; n_rel_sca = 0; n_abs_seg = 0; n_abs_amb = 0; n_rel_amb = 0; n_abs_mis = 0;
 	Lengths = vector < unsigned short > (n_segments, 0U);
+	
 	for (unsigned int v = 0 ; v < n_variants ;) {
-		bool f_sca = VAR_GET_SCA(MOD2(v),Variants[DIV2(v)]);
-		bool f_het = VAR_GET_HET(MOD2(v),Variants[DIV2(v)]);
-		bool f_mis = VAR_GET_MIS(MOD2(v),Variants[DIV2(v)]);
+		bool f_sca = VAR_GET_SCA(MOD2(v), Variants[DIV2(v)]);
+		bool f_het = VAR_GET_HET(MOD2(v), Variants[DIV2(v)]);
+		bool f_mis = VAR_GET_MIS(MOD2(v), Variants[DIV2(v)]);
+		bool f_ss = VAR_IS_SS_ANCHOR(super_sites, locus_to_super_idx, v);
+		
+		// Determine how many variants to process (1 for normal, var_count for supersite anchor)
+		if (f_ss) {
+			int ss_idx = (*locus_to_super_idx)[v];
+			var_len = (*super_sites)[ss_idx].var_count;
+		} else {
+			var_len = 1;
+		}
 
 		unsigned int predicted_unfold = n_rel_unf + f_het + (n_rel_sca||f_sca);
-		if (predicted_unfold == 4 || (n_rel_var == std::numeric_limits< unsigned short >::max()) || (n_rel_amb == MAX_AMB)) {
+		if (predicted_unfold == 4 || (n_rel_var >= (std::numeric_limits<unsigned short>::max() - var_len + 1)) || (n_rel_amb == MAX_AMB)) {
+			// Segment boundary
 			Lengths[n_abs_seg] = n_rel_var;
 			n_rel_unf = 0;
 			n_rel_sca = 0;
 			n_rel_var = 0;
 			n_rel_amb = 0;
-			n_abs_seg ++;
+			n_abs_seg++;
 		} else {
 			n_rel_unf += f_het;
 			n_rel_sca += f_sca;
 			n_abs_amb += (f_het||f_sca);
 			n_rel_amb += (f_het||f_sca);
 			n_abs_mis += f_mis;
-			n_rel_var ++;
-			v++;
+			n_rel_var += var_len;
+			v += var_len;
 		}
 	}
 	Lengths[n_abs_seg] = n_rel_var;
@@ -104,6 +129,7 @@ void genotype::build() {
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
 			bool f_sca = VAR_GET_SCA(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
 			bool f_het = VAR_GET_HET(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
+			
 			if (f_sca) {
 				for (unsigned int h = 0 ; h < HAP_NUMBER ; h ++) {
 					bool allele = (h%2)?VAR_GET_HAP1(MOD2(vabs+vrel), Variants[DIV2(vabs+vrel)]):VAR_GET_HAP0(MOD2(vabs+vrel), Variants[DIV2(vabs+vrel)]);
@@ -117,6 +143,7 @@ void genotype::build() {
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
 			bool f_sca = VAR_GET_SCA(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
 			bool f_het = VAR_GET_HET(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
+			
 			if (f_het) {
 				for (unsigned int h = 0 ; h < HAP_NUMBER ; h ++) {
 					bool allele = ((h>>n_unf)%2);
@@ -136,6 +163,7 @@ void genotype::build() {
 		Diplotypes[s]=n_unf?MASK_SCAF:MASK_INIT;
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
 			bool f_het = VAR_GET_HET(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
+			
 			if (f_het) {
 				switch (n_unf) {
 				case 0: Diplotypes[s] &= MASK_UNF0; break;

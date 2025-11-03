@@ -106,13 +106,11 @@ void phaser::read_files_and_initialise() {
 
 	if (!options.count("pbwt-disable-init")) H.solve(&G);
 
-	//step8: Initialize genotype structures
-	genotype_builder(G, options["thread"].as < int > ()).build();
-
-	//step9: Build super-sites for multiallelic positions (one-time, before iterations)
+	//step8: Build super-sites for multiallelic positions (one-time, before genotype building)
 	// This collapses split biallelic records at identical (chr,bp) positions into
 	// super-sites and packs per-haplotype codes (2 codes per byte).
 	// Uses global panel order (H.n_hap), independent of per-window conditioning sets.
+	// MUST be done before genotype_builder so build() can use locus_to_super_idx for segment boundaries.
 	if (enable_supersites) {
 		vrb.title("Building super-sites");
 		
@@ -138,7 +136,19 @@ void phaser::read_files_and_initialise() {
 		
 		vrb.bullet("Built " + stb.str(super_sites.size()) + " super-sites covering " + 
 		           stb.str(std::count(is_super_site.begin(), is_super_site.end(), true)) + " variant positions");
+		
+		// Set supersite context for all genotypes BEFORE building segments
+		for (unsigned int i = 0; i < G.n_ind; i++) {
+			G.vecG[i]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr);
+		}
+		
+		// Update anchor variant encoding to reflect supersite genotype status
+		// This must run after context is set but before segment building
+		updateSuperSiteAnchorEncoding(G, super_sites, super_site_var_index);
 	}
+
+	//step9: Initialize genotype structures
+	genotype_builder(G, options["thread"].as < int > ()).build();
 
 	//step10: Allocate data structures for computations
 	unsigned int max_number_transitions = G.largestNumberOfTransitions();

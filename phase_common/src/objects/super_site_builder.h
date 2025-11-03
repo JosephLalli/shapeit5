@@ -30,6 +30,7 @@
 // Forward declarations (these types will be defined in the actual codebase)
 class variant_map;
 class conditioning_set;
+class genotype_set;
 
 // ============================================================================
 // Super-Site Detection and Construction
@@ -44,5 +45,11 @@ void buildSuperSites(
     std::vector<int>& locus_to_super_idx_out,
     std::vector<int>& super_site_var_index_out,
     std::vector<uint8_t>& sample_supersite_genotypes_out);
+
+// Update anchor variant encoding to reflect supersite genotype status
+// Must be called after setSuperSiteContext() and before genotype::build()
+void updateSuperSiteAnchorEncoding(genotype_set& G,
+                                   const std::vector<SuperSite>& super_sites,
+                                   const std::vector<int>& super_site_var_index);
 
 #endif // _SUPER_SITE_BUILDER_H

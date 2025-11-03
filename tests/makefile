@@ -48,7 +48,8 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_perf_smoke \
     $(bindir)/test_supersite_combine \
     $(bindir)/test_supersite_representation_parity \
-    $(bindir)/test_supersite_expansion_parity
+    $(bindir)/test_supersite_expansion_parity \
+    $(bindir)/test_segment_boundary_multiallelic
 #    $(bindir)/test_supersite_expected_codes  # TODO: File missing, commented out for now
 
 # Default goal: only build test binaries (do not build bin/tests)
@@ -123,6 +124,9 @@ $(bindir)/test_forward_backward_comprehensive: $(objdir)/test_forward_backward_c
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_packing_format_diagnostic: $(objdir)/test_packing_format_diagnostic.o
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_segment_boundary_multiallelic: $(objdir)/test_segment_boundary_multiallelic.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_supersite_expected_codes: $(objdir)/test_supersite_expected_codes.o
@@ -206,6 +210,9 @@ $(objdir)/test_supersite_representation_parity.o: src/test_supersite_representat
 	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/test_supersite_expansion_parity.o: src/test_supersite_expansion_parity.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+$(objdir)/test_segment_boundary_multiallelic.o: src/test_segment_boundary_multiallelic.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/test_supersite_expected_codes.o: src/test_supersite_expected_codes.cpp
