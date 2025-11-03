@@ -151,6 +151,71 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				m++;
 			}
 			if (VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)])) {
+				// Recompute ss_idx for this specific variant
+				int ss_idx_amb = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
+				
+				// Check if this is a heterozygous supersite
+				if (ss_idx_amb >= 0 && super_sites && super_site_var_index) {
+					const SuperSite& ss = (*super_sites)[ss_idx_amb];
+					
+					if (vabs == ss.global_site_id) {
+						// This is a heterozygous supersite anchor
+						// Determine which allele class each sampled lane represents
+						
+						// Get the current allele codes from the Variants data
+						uint8_t current_c0 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 0);
+						uint8_t current_c1 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 1);
+						
+						// The Ambiguous array tells us the phase orientation for this site
+						// Use it to determine which allele goes to which lane
+						unsigned char amb_code = Ambiguous[a];
+						
+						// Determine which allele class each sampled lane should get
+						// If HAP_GET(amb_code, hap) == 0, this lane gets c0's allele
+						// If HAP_GET(amb_code, hap) == 1, this lane gets c1's allele
+						uint8_t class0 = HAP_GET(amb_code, hap0) ? current_c1 : current_c0;
+						uint8_t class1 = HAP_GET(amb_code, hap1) ? current_c1 : current_c0;
+						
+						// Project to all splits based on sampled classes
+						for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+							unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
+							uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
+							
+							// Set hap0
+							if (class0 == alt_class) {
+								VAR_SET_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+							} else {
+								VAR_CLR_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+							}
+							
+							// Set hap1
+							if (class1 == alt_class) {
+								VAR_SET_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+							} else {
+								VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+							}
+						}
+						
+						// Skip siblings: advance vabs to last member, adjust vrel accordingly
+						unsigned int last_member_vabs = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
+						unsigned int skip_count = last_member_vabs - vabs;
+						vabs = last_member_vabs;
+						vrel += skip_count;
+						a++;  // One ambiguous event per supersite
+						continue;
+					} else {
+						// This is a sibling of a supersite (not the anchor)
+						// Check if vabs is within this supersite's member range
+						unsigned int first_member = ss.global_site_id;
+						unsigned int last_member = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
+						if (vabs > first_member && vabs <= last_member) {
+							// Skip this sibling - it was already handled at the anchor
+							continue;
+						}
+					}
+				}
+				
+				// Normal biallelic heterozygous site
 				HAP_GET(Ambiguous[a], hap0)?VAR_SET_HAP0(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP0(MOD2(vabs),Variants[DIV2(vabs)]);
 				HAP_GET(Ambiguous[a], hap1)?VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
 				a++;

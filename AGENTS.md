@@ -745,8 +745,708 @@ for (ai in 0..n_alts) {
 - Do preserve AMB lane semantics from biallelic code; avoid half-lane logic divergence.
 
 Alignment items for supersites:
-- Don’t overload `rare_allele` to signal supersite siblings (e.g., `rare_allele=2`). Use explicit supersite gating (`locus_to_super_idx`, `super_sites`) consistently in HMM paths.
-- Don’t start windows at supersite siblings when `--enable-supersites` is set; adjust window starts to the anchor or a non‑member locus.
+- Don't overload `rare_allele` to signal supersite siblings (e.g., `rare_allele=2`). Use explicit supersite gating (`locus_to_super_idx`, `super_sites`) consistently in HMM paths.
+- Don't start windows at supersite siblings when `--enable-supersites` is set; adjust window starts to the anchor or a non‑member locus.
+
+---
+
+## 8-Lane System: Correct Semantics (CRITICAL)
+
+### What the 8 Lanes Actually Represent
+
+**FUNDAMENTAL CONCEPT**: The 8 lanes are **NOT** 8 independent haplotypes or direct indices into diplotypes. Instead, they represent:
+
+**8 different phase configuration hypotheses** for how heterozygous sites within a segment might phase together.
+
+#### Common Misconception vs. Reality
+
+**❌ WRONG: "Each lane is a haplotype"**
+```
+Lane 0 = haplotype 0
+Lane 1 = haplotype 1
+Lane 2 = haplotype 2
+...
+Lane 7 = haplotype 7
+```
+This is NOT how it works! There are only 2 haplotypes (maternal and paternal).
+
+**✓ CORRECT: "Each lane is a hypothesis about phase configurations"**
+```
+Lane 0 = hypothesis: "all HET sites phase as hap0|hap1"
+Lane 1 = hypothesis: "1st HET phases as hap1|hap0, others as hap0|hap1"
+Lane 2 = hypothesis: "2nd HET phases as hap1|hap0, others as hap0|hap1"
+...and so on
+```
+
+#### What This Means Concretely
+
+Imagine you have a segment with **2 heterozygous SNPs**:
+- Position 1000: genotype C|T (heterozygous)
+- Position 2000: genotype A|G (heterozygous)
+
+**You don't know which alleles go together on the same chromosome**, so you have 4 possibilities:
+1. Chromosome from mom: C-A, Chromosome from dad: T-G (phase: 0|1 at both sites)
+2. Chromosome from mom: C-G, Chromosome from dad: T-A (phase: 0|1 at pos 1000, 1|0 at pos 2000)
+3. Chromosome from mom: T-A, Chromosome from dad: C-G (phase: 1|0 at pos 1000, 0|1 at pos 2000)
+4. Chromosome from mom: T-G, Chromosome from dad: C-A (phase: 1|0 at both sites)
+
+**The 8 lanes explore these 4 possibilities** (plus 4 redundant configurations):
+- **Lane 0**: Both sites phase 0|1 → hypothesis #1 above
+- **Lane 1**: Pos 1000 phases 1|0, pos 2000 phases 0|1 → hypothesis #3 above
+- **Lane 2**: Pos 1000 phases 0|1, pos 2000 phases 1|0 → hypothesis #2 above
+- **Lane 3**: Both sites phase 1|0 → hypothesis #4 above
+- Lanes 4-7: Redundant for only 2 HET sites
+
+The HMM computes probabilities for each hypothesis based on how well they match the donor haplotypes in the reference panel.
+
+---
+
+### Mathematical Foundation
+
+#### Diplotype Encoding (64 possible states)
+
+**The Problem**: At each segment boundary, we need to track which phase configurations are still plausible.
+
+**The Solution**: Use a 64-bit mask where each bit represents one of 64 possible "diplotypes."
+
+**Diplotype Definition**: A diplotype d ∈ {0..63} encodes which **two lanes** represent the two haplotypes:
+```cpp
+#define DIP_HAP0(d)  ((d) >> 3)  // Bits 5-3: which lane (0-7) represents haplotype 0
+#define DIP_HAP1(d)  ((d) & 7)   // Bits 2-0: which lane (0-7) represents haplotype 1
+```
+
+**Example Diplotypes**:
+```
+Diplotype  0: (hap0=lane0, hap1=lane0) → 0>>3=0, 0&7=0
+Diplotype  1: (hap0=lane0, hap1=lane1) → 1>>3=0, 1&7=1
+Diplotype  9: (hap0=lane1, hap1=lane1) → 9>>3=1, 9&7=1
+Diplotype 27: (hap0=lane3, hap1=lane3) → 27>>3=3, 27&7=3
+Diplotype 63: (hap0=lane7, hap1=lane7) → 63>>3=7, 63&7=7
+```
+
+**Why 64 configurations?** Because there are 8 lanes, and we need to pick 2 of them (with replacement) for the two haplotypes: 8 × 8 = 64.
+
+**How Diplotypes Map to Lanes**: A diplotype tells you "if you sampled this configuration, go look at lane X for haplotype 0's alleles and lane Y for haplotype 1's alleles."
+
+#### Concrete Example: Segment with 1 HET Site
+
+```
+Segment contains one heterozygous site: position 5000, genotype A|T
+
+After HMM runs, we have 8 lanes with different probabilities:
+  Lane 0: prob = 0.4 (hypothesis: this site is phased A|T, i.e., hap0=A, hap1=T)
+  Lane 1: prob = 0.05 (hypothesis: this site is phased T|A, i.e., hap0=T, hap1=A)
+  Lanes 2-7: prob ≈ 0 (unused for single HET site)
+
+Valid diplotypes (encoded in Diplotypes[s] bitmask):
+  - Diplotype 0: (lane0, lane0) → both haplotypes from lane 0 → A|A (INVALID - we know it's heterozygous!)
+  - Diplotype 1: (lane0, lane1) → hap0 from lane 0 (A), hap1 from lane 1 (A) → A|A (INVALID)
+  - Diplotype 8: (lane1, lane0) → hap0 from lane 1 (T), hap1 from lane 0 (T) → T|T (INVALID)
+  - Diplotype 9: (lane1, lane1) → both haplotypes from lane 1 → T|T (INVALID)
+  
+  ACTUALLY VALID (after applying MASK_UNF0):
+  - Diplotype 1: (lane0, lane1) → A|T ✓
+  - Diplotype 8: (lane1, lane0) → T|A ✓ (same genotype, different phase)
+
+The Diplotypes[s] bitmask has bits 1 and 8 set, all others cleared.
+This enforces that we can't sample diplotypes that would give us homozygous genotypes.
+```
+
+**Key Insight**: Diplotypes don't directly encode alleles! They encode **which lanes to consult** for each haplotype's alleles. The lanes themselves hold the phase configuration hypotheses.
+
+---
+
+### Lane-to-Phase Pattern Mapping (Binary Encoding)
+
+**The Encoding Formula**: For heterozygous site at position `n_unf` in the segment (where n_unf is 0 for 1st HET, 1 for 2nd HET, etc.):
+```cpp
+lane_h_phase_bit = (h >> n_unf) % 2
+```
+
+This creates a **binary counter pattern** where each lane's index encodes a unique combination of phase choices.
+
+#### Visual Representation: 3 HET Sites
+
+```
+Lane Index (h)  |  Binary  | Phase at HET0 | Phase at HET1 | Phase at HET2
+                           |  ((h>>0)%2)  |  ((h>>1)%2)  |  ((h>>2)%2)
+----------------|----------|---------------|---------------|---------------
+Lane 0          |   000    |      0        |      0        |      0
+Lane 1          |   001    |      1        |      0        |      0
+Lane 2          |   010    |      0        |      1        |      0
+Lane 3          |   011    |      1        |      1        |      0
+Lane 4          |   100    |      0        |      0        |      1
+Lane 5          |   101    |      1        |      0        |      1
+Lane 6          |   110    |      0        |      1        |      1
+Lane 7          |   111    |      1        |      1        |      1
+```
+
+**Reading the Table**:
+- Lane 0 (binary 000): All three HET sites have phase bit = 0
+- Lane 7 (binary 111): All three HET sites have phase bit = 1
+- Lane 3 (binary 011): HET0 has bit=1, HET1 has bit=1, HET2 has bit=0
+
+**What does "phase bit = 0" mean?**
+- 0 = "at this HET site, this lane's hypothesis is that the allele comes from haplotype 0"
+- 1 = "at this HET site, this lane's hypothesis is that the allele comes from haplotype 1"
+
+#### Concrete Example: 2 HET Sites
+
+```
+Segment: [Pos 1000: C|T, Pos 2000: A|G]
+
+Lane 0 (binary 00):
+  - At pos 1000: expects hap0's allele (C) for this phase configuration
+  - At pos 2000: expects hap0's allele (A) for this phase configuration
+  - Hypothesis: "hap0 = C-A, hap1 = T-G"
+
+Lane 1 (binary 01):
+  - At pos 1000: expects hap1's allele (T) for this phase configuration
+  - At pos 2000: expects hap0's allele (A) for this phase configuration
+  - Hypothesis: "hap0 = T-A, hap1 = C-G"
+
+Lane 2 (binary 10):
+  - At pos 1000: expects hap0's allele (C)
+  - At pos 2000: expects hap1's allele (G)
+  - Hypothesis: "hap0 = C-G, hap1 = T-A"
+
+Lane 3 (binary 11):
+  - At pos 1000: expects hap1's allele (T)
+  - At pos 2000: expects hap1's allele (G)
+  - Hypothesis: "hap0 = T-G, hap1 = C-A"
+```
+
+**Important**: Each lane doesn't have a fixed haplotype assignment! Lane 0 expects "hap0's allele" at pos 1000 (which is C) but if we're at a different segment or different site, "hap0's allele" might be different.
+
+---
+
+### Ambiguous Array Encoding: How `((h>>n_unf)%2)` Creates Binary Patterns
+
+The `Ambiguous` array is constructed **once per heterozygous site** during `genotype::build()`:
+
+```cpp
+// For each heterozygous site at position n_unf in the segment:
+for (unsigned int h = 0; h < HAP_NUMBER; h++) {
+    bool allele = ((h >> n_unf) % 2);  // Extract bit n_unf from lane index h
+    if (allele) HAP_SET(Ambiguous[amb_idx], h);
+}
+```
+
+#### Step-by-Step Breakdown
+
+**For n_unf = 0 (first HET site in segment)**:
+```
+h=0: (0 >> 0) % 2 = 0 % 2 = 0 → bit NOT set
+h=1: (1 >> 0) % 2 = 1 % 2 = 1 → bit SET
+h=2: (2 >> 0) % 2 = 2 % 2 = 0 → bit NOT set
+h=3: (3 >> 0) % 2 = 3 % 2 = 1 → bit SET
+h=4: (4 >> 0) % 2 = 4 % 2 = 0 → bit NOT set
+h=5: (5 >> 0) % 2 = 5 % 2 = 1 → bit SET
+h=6: (6 >> 0) % 2 = 6 % 2 = 0 → bit NOT set
+h=7: (7 >> 0) % 2 = 7 % 2 = 1 → bit SET
+
+Result: Ambiguous[amb_idx] = 0b10101010 (bits 1,3,5,7 set)
+```
+
+**For n_unf = 1 (second HET site in segment)**:
+```
+h=0: (0 >> 1) % 2 = 0 % 2 = 0 → bit NOT set
+h=1: (1 >> 1) % 2 = 0 % 2 = 0 → bit NOT set
+h=2: (2 >> 1) % 2 = 1 % 2 = 1 → bit SET
+h=3: (3 >> 1) % 2 = 1 % 2 = 1 → bit SET
+h=4: (4 >> 1) % 2 = 2 % 2 = 0 → bit NOT set
+h=5: (5 >> 1) % 2 = 2 % 2 = 0 → bit NOT set
+h=6: (6 >> 1) % 2 = 3 % 2 = 1 → bit SET
+h=7: (7 >> 1) % 2 = 3 % 2 = 1 → bit SET
+
+Result: Ambiguous[amb_idx] = 0b11001100 (bits 2,3,6,7 set)
+```
+
+**For n_unf = 2 (third HET site in segment)**:
+```
+h=0: (0 >> 2) % 2 = 0 % 2 = 0 → bit NOT set
+h=1: (1 >> 2) % 2 = 0 % 2 = 0 → bit NOT set
+h=2: (2 >> 2) % 2 = 0 % 2 = 0 → bit NOT set
+h=3: (3 >> 2) % 2 = 0 % 2 = 0 → bit NOT set
+h=4: (4 >> 2) % 2 = 1 % 2 = 1 → bit SET
+h=5: (5 >> 2) % 2 = 1 % 2 = 1 → bit SET
+h=6: (6 >> 2) % 2 = 1 % 2 = 1 → bit SET
+h=7: (7 >> 2) % 2 = 1 % 2 = 1 → bit SET
+
+Result: Ambiguous[amb_idx] = 0b11110000 (bits 4,5,6,7 set)
+```
+
+#### How This Gets Used in HMM
+
+When processing a heterozygous site during forward/backward pass:
+
+```cpp
+unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
+
+// Example: if this is the 2nd HET site (amb_code = 0b11001100)
+for (int h = 0; h < HAP_NUMBER; h++) {
+    bool bit_set = HAP_GET(amb_code, h);  // Extract bit h
+    
+    // h=0: bit_set = 0 → this lane expects haplotype 0's allele at this site
+    // h=1: bit_set = 0 → this lane expects haplotype 0's allele
+    // h=2: bit_set = 1 → this lane expects haplotype 1's allele at this site
+    // h=3: bit_set = 1 → this lane expects haplotype 1's allele
+    // ...and so on
+}
+```
+
+**Why This Works**: The bit pattern encodes **for each lane, which haplotype's allele should be expected at this specific HET site**, based on that lane's overall phase configuration hypothesis.
+
+---
+
+### Why Biallelic Works: The `_emit[ah]` Array Indexing
+
+#### The Biallelic Emission Model
+
+For a **biallelic heterozygous site** with genotype 0|1 (REF|ALT):
+
+**Step 1: Build per-lane emission expectations**
+```cpp
+unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
+for (int h = 0; h < HAP_NUMBER; h++) {
+    // If lane expects hap1's allele: REF is a mismatch, ALT is a match
+    g0[h] = HAP_GET(amb_code, h) ? M.ed/M.ee : 1.0f;  // Emission if donor has REF
+    g1[h] = HAP_GET(amb_code, h) ? 1.0f : M.ed/M.ee;  // Emission if donor has ALT
+}
+```
+
+**Example with amb_code = 0b10101010 (first HET site)**:
+```
+Lane 0: HAP_GET(amb_code, 0) = 0 → expects hap0's allele
+  - If donor has REF (which is hap0's allele): g0[0] = 1.0 (match!)
+  - If donor has ALT (which is hap1's allele): g1[0] = 0.001 (mismatch)
+
+Lane 1: HAP_GET(amb_code, 1) = 1 → expects hap1's allele
+  - If donor has REF (which is hap0's allele): g0[1] = 0.001 (mismatch)
+  - If donor has ALT (which is hap1's allele): g1[1] = 1.0 (match!)
+```
+
+**Step 2: Apply emissions based on donor's allele**
+```cpp
+__m256 _emit[2];
+_emit[0] = _mm256_loadu_ps(&g0[0]);  // Load 8 floats: emissions if donor has REF
+_emit[1] = _mm256_loadu_ps(&g1[0]);  // Load 8 floats: emissions if donor has ALT
+
+for (int k = 0; k < n_cond_haps; k++) {
+    bool ah = Hvar.get(curr_rel_locus, k);  // Donor k's allele: 0 or 1
+    __m256 _prob = _emit[ah];  // Index into emission array!
+    // ... apply to prob[k*8 + 0..7]
+}
+```
+
+#### Why Binary Indexing Works
+
+**The Key**: For biallelic sites, there are exactly **2 possible donor alleles** (REF=0, ALT=1), which perfectly maps to **2 emission vectors** (g0, g1).
+
+**The Matching**:
+- Donor allele 0 (REF) → use `_emit[0]` → gives per-lane emissions for "donor has hap0's allele"
+- Donor allele 1 (ALT) → use `_emit[1]` → gives per-lane emissions for "donor has hap1's allele"
+
+**Concrete Example**:
+```
+Site: genotype 0|1, amb_code = 0b10101010
+
+Donor A has allele 0 (REF):
+  _emit[0] = [1.0, 0.001, 1.0, 0.001, 1.0, 0.001, 1.0, 0.001]
+  Lane 0 gets 1.0 (match - lane expects hap0=REF)
+  Lane 1 gets 0.001 (mismatch - lane expects hap1=ALT)
+  Lane 2 gets 1.0 (match - lane expects hap0=REF)
+  ...and so on
+
+Donor B has allele 1 (ALT):
+  _emit[1] = [0.001, 1.0, 0.001, 1.0, 0.001, 1.0, 0.001, 1.0]
+  Lane 0 gets 0.001 (mismatch - lane expects hap0=REF, donor has ALT)
+  Lane 1 gets 1.0 (match - lane expects hap1=ALT, donor has ALT)
+  ...and so on
+```
+
+#### Why This Breaks for Multiallelic
+
+**The Problem**: Multiallelic sites have **C > 2 possible alleles**, not just 2.
+
+**Example**: Genotype ALT2|ALT3 (c0=2, c1=3) at a 5-allele site (REF, ALT1, ALT2, ALT3, ALT4).
+
+**What we'd need**:
+```cpp
+// For 5 alleles, we'd need 5 emission vectors:
+_emit[0] = emissions if donor has REF
+_emit[1] = emissions if donor has ALT1
+_emit[2] = emissions if donor has ALT2  ← hap0's allele
+_emit[3] = emissions if donor has ALT3  ← hap1's allele
+_emit[4] = emissions if donor has ALT4
+
+// Then index by donor's allele code (0-4):
+int donor_code = getSuperSiteCode(k);  // Returns 0, 1, 2, 3, or 4
+__m256 _prob = _emit[donor_code];  // This works!
+```
+
+**BUT**: We can't precompute these emission vectors because **we don't know which allele each lane expects**!
+
+**Why not?**
+- For biallelic 0|1: 
+  - Lanes with amb_bit=0 expect allele 0 (REF)
+  - Lanes with amb_bit=1 expect allele 1 (ALT)
+  - **Only 2 possibilities**, directly encoded in amb_code
+
+- For multiallelic ALT2|ALT3:
+  - Lanes with amb_bit=0 should expect allele 2 (ALT2, hap0's allele)
+  - Lanes with amb_bit=1 should expect allele 3 (ALT3, hap1's allele)
+  - **But amb_code only encodes binary (0 or 1), not allele classes (2 or 3)!**
+  - We'd need to encode "lane 0 expects class 2, lane 1 expects class 3, ..." but we only have 1 bit per lane!
+
+**Current broken code tries this**:
+```cpp
+// INCORRECT: assigns expected_class per lane
+for (int h = 0; h < HAP_NUMBER; h++) {
+    bool use_c1 = ((amb_mask >> h) & 1U);
+    expected_class[h] = use_c1 ? c1 : c0;  // Assigns class 2 or 3
+}
+
+// Then for each donor, checks if donor_code == expected_class[h]
+// This treats expected_class[h] as if it's the lane's fixed allele
+// But lanes don't have fixed alleles! They have phase configuration hypotheses!
+```
+
+**The Real Issue**: 
+- Binary amb_code can only distinguish 2 states per lane
+- Multiallelic needs to distinguish C states per lane
+- **Architectural mismatch: need C bits per lane, but only have 1 bit per lane**
+
+---
+
+## CRITICAL BUGS IN SUPERSITE 8-LANE IMPLEMENTATION (Nov 2, 2025)
+
+### **BUG #7: Fundamental Misinterpretation of Lane Semantics for Multiallelic Sites**
+
+**Status**: ❌ **CRITICAL - BLOCKS ALL HETEROZYGOUS MULTIALLELIC PHASING**
+
+**Location**: All `SS_*_AMB` functions in `haplotype_segment_single.h` and `haplotype_segment_double.h`
+
+**The Error**:
+The supersite code interprets `amb_code` as a direct lane-to-allele-class mapping:
+```cpp
+// INCORRECT INTERPRETATION:
+uint8_t expected_class[HAP_NUMBER];
+unsigned char amb_mask = G->Ambiguous[curr_abs_ambiguous];
+for (int h = 0; h < HAP_NUMBER; ++h) {
+    bool use_c1 = ((amb_mask >> h) & 1U);
+    expected_class[h] = use_c1 ? c1 : c0;
+}
+```
+
+**What this code assumes**:
+- Each lane h directly represents a specific haplotype (0 or 1)
+- `amb_mask bit h` tells us which haplotype lane h represents
+- We can assign the allele class (c0 or c1) that lane h's haplotype carries
+
+**The actual semantics**:
+- Each lane h represents a **phase configuration hypothesis** across all HET sites in the segment
+- `amb_mask bit h` tells us whether this HET site's phase configuration in lane h aligns with hap0 or hap1
+- **We cannot assign a single "expected class" to a lane** because that lane represents a hypothesis about **multiple sites' phasing**
+
+**Why Biallelic Works But Multiallelic Fails**:
+
+For **biallelic** 0|1 genotype at a single HET site:
+- Lanes with amb_code bit=0 explore hypothesis "this site is phased as hap0=REF, hap1=ALT"
+- Lanes with amb_code bit=1 explore hypothesis "this site is phased as hap0=ALT, hap1=REF"
+- Donor with allele=0 (REF) matches lanes expecting hap0's allele (bit=0), mismatches lanes expecting hap1's allele (bit=1)
+- The `_emit[ah]` array correctly provides per-lane emissions because there are only 2 alleles
+
+For **multiallelic** ALT2|ALT3 genotype (c0=2, c1=3):
+- Lanes with amb_code bit=0 explore hypothesis "this site is phased as hap0=ALT2, hap1=ALT3"
+- Lanes with amb_code bit=1 explore hypothesis "this site is phased as hap0=ALT3, hap1=ALT2"
+- **But current code assigns**: lanes with bit=0 get expected_class=2, lanes with bit=1 get expected_class=3
+- **This breaks when**:
+  - Donor carries ALT1 (code=1): Should mismatch all lanes, but code might assign match if expected_class happens to be 1
+  - Donor carries REF (code=0): Should mismatch all lanes (neither haplotype is REF), but code treats it as distinct from both expected classes
+  - **The fundamental issue**: We're comparing 4-bit codes (0-15) when we should be considering **which allele the donor has relative to which allele the lane's hypothesis expects for that haplotype**
+
+**Impact**:
+- **All heterozygous multiallelic sites get incorrect emission probabilities**
+- Lanes that should favor certain donor haplotypes instead favor wrong donors
+- Phase configurations that match the true biological phase get lower probability than incorrect configurations
+- **Result**: Extremely high error rates (likely >50%) for all HET multiallelic supersites
+
+**Root Cause**:
+The biallelic emission model cannot be directly extended to multiallelic sites because:
+1. Biallelic: 2 alleles → can use binary indexing `_emit[ah]` where ah ∈ {0,1}
+2. Multiallelic: C alleles → cannot use binary indexing, need per-lane class expectations
+3. **The lane semantics are about phase patterns, not about individual haplotypes**
+
+---
+
+### **BUG #8: Multiallelic Sites Cannot Use Binary Phase Pattern Encoding**
+
+**Status**: ❌ **ARCHITECTURAL - REQUIRES REDESIGN**
+
+**Location**: `genotype_build.cpp`, Ambiguous array construction
+
+**The Problem**:
+The entire `Ambiguous` encoding system assumes **binary alleles**:
+```cpp
+for (unsigned int h = 0; h < HAP_NUMBER; h++) {
+    bool allele = ((h>>n_unf)%2);  // BINARY: either 0 or 1
+    if (allele) HAP_SET(Ambiguous[amb_idx], h);
+}
+```
+
+**Why this is insufficient for multiallelic**:
+- Encodes only 2 possible allele states per site (0 or 1)
+- For ALT2|ALT3 genotype, need to encode which lanes expect class 2 vs class 3
+- Current encoding loses information about **which specific ALT alleles** are involved
+- Cannot represent phase patterns like "lane 0 expects ALT2, lane 1 expects ALT3, lane 2 expects ALT2, ..."
+
+**Example Failure**:
+```
+Genotype at multiallelic site: ALT2|ALT3 (c0=2, c1=3)
+
+Current Ambiguous encoding (binary):
+  Lanes 0,2,4,6: amb_code bit=0 → assigned expected_class=2
+  Lanes 1,3,5,7: amb_code bit=1 → assigned expected_class=3
+
+What's missing:
+  - No encoding of which diplotype configurations are valid
+  - No way to represent that hap0 carries ALT2 and hap1 carries ALT3
+  - Cannot distinguish between:
+    * hap0=ALT2, hap1=ALT3 (actual genotype)
+    * hap0=ALT3, hap1=ALT2 (swapped phase)
+    * hap0=ALT2, hap1=ALT2 (homozygous, should be in HOM path)
+```
+
+**Architectural Limitation**:
+The segment/diplotype/lane system was designed for **at most 3 binary (heterozygous) sites per segment** (2^3 = 8 lanes). For multiallelic sites:
+- Need to track which of C allele classes each haplotype carries
+- Cannot represent this in 8-bit amb_code
+- Would need C^2 possible diploid configurations, not 2^n_het lane patterns
+
+---
+
+### **BUG #9: Diplotype Masks Don't Constrain Multiallelic Configurations**
+
+**Status**: ❌ **ARCHITECTURAL - MISSING VALIDATION**
+
+**Location**: `genotype_build.cpp`, Diplotypes array construction
+
+**The Issue**:
+The `Diplotypes[s]` bitmask is built based on **binary heterozygous site patterns**:
+```cpp
+for (unsigned int vrel = 0; vrel < Lengths[s]; vrel++) {
+    bool f_het = VAR_GET_HET(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
+    if (f_het) {
+        switch (n_unf) {
+        case 0: Diplotypes[s] &= MASK_UNF0; break;  // Constrains to 32 of 64 diplotypes
+        case 1: Diplotypes[s] &= MASK_UNF1; break;  // Constrains to 16 of 64 diplotypes
+        case 2: Diplotypes[s] &= MASK_UNF2; break;  // Constrains to 8 of 64 diplotypes
+        }
+    }
+    n_unf += f_het;
+}
+```
+
+**What's happening**:
+- MASK_UNF0 = 0x55AA55AA55AA55AAUL: constrains diplotypes based on 1st HET site
+- MASK_UNF1 = 0x3333CCCC3333CCCCUL: further constrains based on 2nd HET site
+- MASK_UNF2 = 0x0F0F0F0FF0F0F0F0UL: further constrains based on 3rd HET site
+- These masks ensure valid lane-to-diplotype mappings for binary alleles
+
+**What's broken for multiallelic**:
+- Multiallelic HET sites are marked as VAR_GET_HET (indistinguishable from biallelic HET)
+- The same binary masks get applied
+- **But**: A diplotype (hap0=2, hap1=3) cannot be represented in this system!
+  - `hap0=2` means "lane 2" but lanes represent phase patterns, not allele classes
+  - The diplotype masks encode **which phase configurations are valid**, not **which allele classes are valid**
+- **Result**: Invalid diplotype configurations get marked as valid, leading to incorrect sampling
+
+**Example**:
+```
+Segment with 1 biallelic HET (0|1) and 1 multiallelic HET (ALT2|ALT3):
+
+After applying masks:
+  - MASK_UNF0 applied for first HET: 32 diplotypes remain
+  - MASK_UNF1 applied for second HET: 16 diplotypes remain
+  
+But those 16 diplotypes encode phase patterns like:
+  - Diplotype 0 (0,0): both sites phase with hap0
+  - Diplotype 9 (1,1): both sites phase with hap1
+  - etc.
+
+None of these diplotypes encode "hap0 carries ALT2, hap1 carries ALT3"!
+The diplotype system is orthogonal to the allele class system.
+```
+
+---
+
+### **BUG #10: Segment Boundaries Don't Align With Multiallelic Constraints**
+
+**Status**: ❌ **ARCHITECTURAL - PHASE CORRELATION LOSS**
+
+**Location**: `genotype_build.cpp`, segment boundary logic
+
+**The Problem**:
+Segments are created based on:
+1. Reaching 4 unfolded sites (HET or SCAFFOLD)
+2. Reaching max variant count (65535)
+3. Reaching max ambiguous count (255)
+
+**For multiallelic sites**:
+- Each multiallelic anchor counts as 1 HET site (if heterozygous)
+- Segments can span multiple multiallelic sites
+- **But**: The lane system cannot track phase correlations across different multiallelic sites
+
+**Example Failure**:
+```
+Segment contains:
+  - Variant 100: biallelic 0|1
+  - Variant 101: multiallelic ALT2|ALT3 (supersite anchor)
+  - Variant 102: multiallelic ALT1|ALT4 (different supersite anchor)
+
+Lane 0's hypothesis:
+  - For variant 100: hap0=0, hap1=1
+  - For variant 101: ??? (cannot encode "hap0=ALT2, hap1=ALT3" in lane pattern)
+  - For variant 102: ??? (cannot encode "hap0=ALT1, hap1=ALT4" in lane pattern)
+
+The amb_code for variant 101 encodes a binary pattern (bit 0 = expect hap0's allele)
+But "hap0's allele" is ALT2, which is not represented anywhere in the lane system!
+```
+
+**Architectural Mismatch**:
+- Lanes represent **binary phase patterns** across HET sites
+- Multiallelic sites require **C-way allele class assignments** per haplotype
+- These two systems are fundamentally incompatible within the same segment
+
+---
+
+### **BUG #11: COLLAPSE Functions Don't Have Multiallelic Diplotype Context**
+
+**Status**: ❌ **CRITICAL - INCORRECT SEGMENT TRANSITIONS**
+
+**Location**: `SS_COLLAPSE_AMB` in `haplotype_segment_single.h`
+
+**The Issue**:
+At segment boundaries, COLLAPSE functions compute:
+```cpp
+__m256 _prob = _mm256_set1_ps(probSumK[k]);  // Sum across all diplotypes that include donor k
+```
+
+**What `probSumK[k]` represents** (from biallelic code):
+```cpp
+// In forward() when storing Alpha at segment boundary:
+for (int k = 0; k < n_cond_haps; k++) {
+    probSumK[k] = 0.0f;
+    for (int h = 0; h < HAP_NUMBER; h++) {
+        // Sum prob[k*8+h] for all lanes h that are valid in this diplotype configuration
+        probSumK[k] += prob[k*8 + h];  // (Simplified - actual code checks diplotype masks)
+    }
+}
+```
+
+**Why this breaks for multiallelic**:
+- `probSumK[k]` sums across lanes representing different **phase configuration hypotheses**
+- For multiallelic, different lanes have different `expected_class[h]` values
+- **Summing across lanes loses the allele class information**
+- When transitioning to next segment, the collapsed probability has no memory of which allele classes were involved
+
+**Example**:
+```
+Previous segment ends at multiallelic site with genotype ALT2|ALT3:
+  - Lane 0-3 had expected_class = {2,3,2,3,...}
+  - Lane 4-7 had expected_class = {3,2,3,2,...}
+  - probSumK[k] = sum of all 8 lanes for donor k
+  - This sum mixes lanes expecting different allele classes!
+
+Next segment begins:
+  - COLLAPSE function broadcasts probSumK[k] to all 8 lanes
+  - All lanes get same initial probability regardless of allele class
+  - **Loss of phase information from previous multiallelic site**
+```
+
+---
+
+### **BUG #12: Missing Data Imputation Cannot Reconstruct Multiallelic Genotypes**
+
+**Status**: ⚠️ **FUNCTIONAL - PHASE 3 ADDRESSED IMPUTATION BUT NOT PHASING**
+
+**Location**: `genotype_managment.cpp`, `make()` function
+
+**Partial Fix Status**:
+Phase 3 (Oct 29, 2025) implemented multivariant imputation via `IMPUTE_SUPERSITE_MULTIVARIANT` which correctly:
+- Computes P(class_c | haplotype) for all classes c
+- Samples exactly one class per haplotype
+- Projects to split records ensuring mutual exclusivity
+
+**Remaining Issue**:
+The **phasing** of non-missing heterozygous multiallelic sites still relies on the broken lane system:
+```cpp
+// In make() for non-missing heterozygous variants:
+unsigned char hap0 = DIP_HAP0(DipSampled[s]);  // Which lane represents haplotype 0
+unsigned char hap1 = DIP_HAP1(DipSampled[s]);  // Which lane represents haplotype 1
+
+// For heterozygous sites, phase is determined by Ambiguous array
+// But for multiallelic sites, this doesn't encode which allele each haplotype carries!
+```
+
+**The Gap**:
+- Imputation (missing data) works correctly via multivariant posteriors
+- Phasing (non-missing HET data) uses broken lane→allele class mapping
+- **Result**: Non-missing HET multiallelic sites can still get incorrectly phased
+
+---
+
+## Summary of Architectural Issues
+
+### Fundamental Incompatibility
+
+The current architecture has an **irreconcilable conflict**:
+
+1. **Segment/Lane System** (designed for binary alleles):
+   - 8 lanes encode 2^3 = 8 possible binary phase patterns
+   - Lanes represent hypotheses about how up to 3 HET sites phase together
+   - Works perfectly for biallelic: allele ∈ {REF, ALT} maps to phase ∈ {hap0, hap1}
+
+2. **Multiallelic System** (requires C-way allele encoding):
+   - Need to track which of C allele classes each haplotype carries
+   - C^2 possible diploid configurations (not 2^n_het phase patterns)
+   - Cannot represent "hap0=ALT2, hap1=ALT3" in lane-based phase pattern system
+
+### Why Supersite Phase 1-3 Couldn't Fix This
+
+- **Phase 1-2**: Focused on atomic HMM treatment and data structures
+  - Successfully treats multiallelic as single HMM locus ✓
+  - Successfully prevents double-counting via anchor gating ✓
+  - **But**: Inherited broken lane semantics from biallelic code ✗
+
+- **Phase 3**: Implemented multivariant imputation
+  - Successfully imputes missing multiallelic genotypes ✓
+  - Guarantees mutual exclusivity via multivariant sampling ✓
+  - **But**: Non-missing HET multiallelic still uses broken phasing ✗
+
+### Impact on Error Rates
+
+**Expected error rates by genotype class**:
+- **HOM multiallelic** (e.g., ALT2|ALT2): Should work correctly ✓
+  - Uses SS_*_HOM functions which compare donor code to single sample code
+  - No lane ambiguity, straightforward emission computation
+  
+- **HET multiallelic, fully missing** (./. at all splits): Should work correctly ✓
+  - Uses multivariant imputation (Phase 3 implementation)
+  - Samples from correct posterior distribution
+  
+- **HET multiallelic, partially observed** (e.g., 0/1 at one split): **BROKEN** ✗
+  - Classification sees different alleles in c0 vs c1
+  - Routes to SS_*_AMB functions
+  - Applies incorrect lane→expected_class mapping
+  - **Extremely high error rates expected (>50%)**
+
+- **HET multiallelic, fully observed** (e.g., 0/1 at split1, 0/0 at split2): **BROKEN** ✗
+  - Same lane semantics issue as partially observed
+  - **Extremely high error rates expected (>50%)**
+
+---
 
 ## Supersite Implementation Status & Roadmap
 
