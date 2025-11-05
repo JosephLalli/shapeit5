@@ -99,6 +99,9 @@ private:
 	aligned_vector32<double> ss_emissions_h1;
 	std::vector<bool> ss_cached;  // Phase 3: cache flags per supersite
 
+	// Anchor MIS mapping: record rel-missing index per locus in window
+	std::vector<int> missing_index_by_locus;
+
 	// EMISSION HELPERS
 	MatchMask init_match_mask;
 
@@ -130,7 +133,7 @@ private:
 	
 	void SUMK();
 	void IMPUTE(std::vector < float > & );
-	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx);  // Phase 3
+	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx, int rel_missing_index);  // Phase 3
 	bool TRANS_HAP();
 	bool TRANS_DIP_MULT();
 	bool TRANS_DIP_ADD();
@@ -1284,7 +1287,7 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
 // Computes P(class_c | Alpha, Beta) for each class c in {0=REF, 1=ALT1, ..., n_alts}
 // Writes to SC buffer at ss.class_prob_offset
 inline
-void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx) {
+void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx, int rel_missing_index) {
     // Unpack conditioning haplotype codes once
     for (int k = 0; k < (int)n_cond_haps; ++k) {
         unsigned int gh = (*cond_idx)[k];
@@ -1295,8 +1298,8 @@ void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float
     const uint32_t offset = ss.class_prob_offset;
     
     // Compute 1 / AlphaSum for normalization
-    __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][0]);
-    __m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][4]);
+    __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[rel_missing_index][0]);
+    __m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[rel_missing_index][4]);
     __m256d _ones = _mm256_set1_pd(1.0);
     _alphaSum0 = _mm256_div_pd(_ones, _alphaSum0);
     _alphaSum1 = _mm256_div_pd(_ones, _alphaSum1);

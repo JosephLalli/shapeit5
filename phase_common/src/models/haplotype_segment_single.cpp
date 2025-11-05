@@ -92,6 +92,8 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 		AlphaMissing = vector < aligned_vector32 < float > > (n_missing, aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f));
 		AlphaSumMissing = vector < aligned_vector32 < float > > (n_missing, aligned_vector32 < float > (HAP_NUMBER, 0.0f));
 	}
+	// Map: locus -> rel_missing index for anchors
+	missing_index_by_locus.assign(locus_last - locus_first + 1, -1);
 	init_match_mask.resize(static_cast<std::size_t>(n_cond_haps) * HAP_NUMBER);
 	//Cache efficient data transfer for conditioning haplotypes
 	curr_rel_locus_offset = Hhap.subset(H, idxH, locus_first, locus_last);
@@ -248,6 +250,11 @@ void haplotype_segment_single::forward() {
 		if (data_mis) {
 			AlphaMissing[curr_rel_missing] = prob;
 			AlphaSumMissing[curr_rel_missing] = probSumH;
+			// If this is a supersite anchor, record the rel-missing index for backward SC
+			if (is_anchor) {
+				int idx = curr_abs_locus - locus_first;
+				if (idx >= 0 && idx < (int)missing_index_by_locus.size()) missing_index_by_locus[idx] = curr_rel_missing;
+			}
 			curr_abs_missing ++;
 		}
 
@@ -373,7 +380,15 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		if (data_mis) {
 			bool supersite_missing_handled = false;
 			if (is_anchor && anchor_has_missing && SC && site_view.supersite_index >= 0 && (*anchor_has_missing)[site_view.supersite_index]) {
-				IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index);
+				int idx = -1;
+				int map_i = curr_abs_locus - locus_first;
+				if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) idx = missing_index_by_locus[map_i];
+				if (idx >= 0) {
+					IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index, idx);
+				} else {
+					// Fallback: no mapping found; use standard imputation to avoid zeros
+					IMPUTE(missing_probabilities);
+				}
 				supersite_missing_handled = true;
 			}
 			if (!supersite_missing_handled) {

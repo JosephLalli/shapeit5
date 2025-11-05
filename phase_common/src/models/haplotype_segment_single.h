@@ -99,6 +99,9 @@ private:
 	aligned_vector32<float> ss_emissions_h1;
 	std::vector<bool> ss_cached; // Track which supersites have cached donor codes
 
+	// Anchor MIS mapping: record which relative-missing index belongs to a given locus
+	std::vector<int> missing_index_by_locus; // size = locus_last - locus_first + 1, init -1
+
 	// EMISSION HELPERS
 	MatchMask init_match_mask;
 
@@ -129,7 +132,7 @@ private:
 	
 	void SUMK();
 	void IMPUTE(std::vector < float > & );
-	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector<float>& SC, const SuperSite& ss, int ss_idx);
+	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector<float>& SC, const SuperSite& ss, int ss_idx, int rel_missing_index);
 	bool TRANS_HAP();
 	bool TRANS_DIP_MULT();
 	bool TRANS_DIP_ADD();
@@ -1091,9 +1094,10 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
 // Storage: SC[offset + h*C + c] where h=lane, C=num_classes, c=class_index
 inline
 void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
-    std::vector<float>& SC, 
-    const SuperSite& ss, 
-    int ss_idx) 
+    std::vector<float>& SC,
+    const SuperSite& ss,
+    int ss_idx,
+    int rel_missing_index)
 {
     // Unpack conditioning haplotype allele codes for this supersite
     // (same as in forward: 0=REF, 1..n_alts=ALT1..ALTn)
@@ -1114,7 +1118,7 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
     __m256 denom = _mm256_set1_ps(0.0f);
     
     // Load AlphaSumInv for normalization
-    __m256 _alphaSum = _mm256_load_ps(&AlphaSumMissing[curr_rel_missing][0]);
+    __m256 _alphaSum = _mm256_load_ps(&AlphaSumMissing[rel_missing_index][0]);
     __m256 _ones = _mm256_set1_ps(1.0f);
     __m256 _alphaSum_inv = _mm256_div_ps(_ones, _alphaSum);
     
@@ -1124,7 +1128,7 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
         if (code >= C) code = 0;  // Safety: invalid code → REF
         
         // term = Alpha[k] × Beta[k] / AlphaSum (8 lanes)
-        __m256 _alpha = _mm256_load_ps(&AlphaMissing[curr_rel_missing][i]);
+        __m256 _alpha = _mm256_load_ps(&AlphaMissing[rel_missing_index][i]);
         __m256 _beta  = _mm256_load_ps(&prob[i]);  // prob=Beta in backward pass
         __m256 term = _mm256_mul_ps(_mm256_mul_ps(_alpha, _alphaSum_inv), _beta);
         

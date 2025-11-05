@@ -272,6 +272,10 @@ void haplotype_segment_double::forward() {
 	if (data_mis) {
 		AlphaMissing[curr_rel_missing] = prob;
 		AlphaSumMissing[curr_rel_missing] = probSumH;
+		if (is_anchor) {
+			int map_i = curr_abs_locus - locus_first;
+			if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) missing_index_by_locus[map_i] = curr_rel_missing;
+		}
 		curr_abs_missing ++;
 	}
 
@@ -386,8 +390,13 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		if (data_mis) {
 			bool supersite_handled = false;
 			if (is_anchor && anchor_has_missing && SC && site_view.supersite_index >= 0 && (*anchor_has_missing)[site_view.supersite_index]) {
-				IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index);
-				supersite_handled = true;
+				int map_i = curr_abs_locus - locus_first;
+				int rel_idx = -1;
+				if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) rel_idx = missing_index_by_locus[map_i];
+				if (rel_idx >= 0) {
+					IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index, rel_idx);
+					supersite_handled = true;
+				}
 			}
 			if (!supersite_handled) {
 				IMPUTE(missing_probabilities);
