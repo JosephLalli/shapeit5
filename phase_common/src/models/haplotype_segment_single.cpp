@@ -384,9 +384,19 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 				int map_i = curr_abs_locus - locus_first;
 				if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) idx = missing_index_by_locus[map_i];
 				if (idx >= 0) {
+#ifdef SHAPEIT5_TEST_TRACE
+					vrb.bullet("SCTrace", "anchor=" + stb.str(curr_abs_locus) + " rel_missing=" + stb.str(idx));
+					float alpha_vec[HAP_NUMBER];
+					float beta_vec[HAP_NUMBER];
+					for (int h = 0; h < HAP_NUMBER; ++h) {
+						alpha_vec[h] = AlphaSumMissing[idx][h];
+						beta_vec[h] = prob[h + idx * HAP_NUMBER];
+					}
+					vrb.bullet("AlphaSumMissing", stb::strvector(alpha_vec, alpha_vec + HAP_NUMBER));
+					vrb.bullet("Beta", stb::strvector(beta_vec, beta_vec + HAP_NUMBER));
+#endif
 					IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index, idx);
 				} else {
-					// Fallback: no mapping found; use standard imputation to avoid zeros
 					IMPUTE(missing_probabilities);
 				}
 				supersite_missing_handled = true;

@@ -394,6 +394,17 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 				int rel_idx = -1;
 				if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) rel_idx = missing_index_by_locus[map_i];
 				if (rel_idx >= 0) {
+#ifdef SHAPEIT5_TEST_TRACE
+					vrb.bullet("SCTrace", "anchor=" + stb.str(curr_abs_locus) + " rel_missing=" + stb.str(rel_idx));
+					double alpha_vec[HAP_NUMBER];
+					double beta_vec[HAP_NUMBER];
+					for (int h = 0; h < HAP_NUMBER; ++h) {
+						alpha_vec[h] = AlphaSumMissing[rel_idx][h];
+						beta_vec[h] = prob[h + rel_idx * HAP_NUMBER];
+					}
+					vrb.bullet("AlphaSumMissing", stb::strvector(alpha_vec, alpha_vec + HAP_NUMBER));
+					vrb.bullet("Beta", stb::strvector(beta_vec, beta_vec + HAP_NUMBER));
+#endif
 					IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index, rel_idx);
 					supersite_handled = true;
 				}
