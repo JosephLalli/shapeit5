@@ -100,27 +100,33 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					// SC[offset + hap*C + c] = P(class_c | hap)
 					uint8_t class0 = 0, class1 = 0;
 					
-					// Sample class for hap0
-					float r0 = rng.getDouble();
-					float cumsum0 = 0.0f;
-					for (int c = 0; c < C; ++c) {
-						cumsum0 += (*SC)[offset + hap0 * C + c];
-						if (r0 <= cumsum0) {
-							class0 = c;
-							break;
-						}
-					}
-					
-					// Sample class for hap1
-					float r1 = rng.getDouble();
-					float cumsum1 = 0.0f;
-					for (int c = 0; c < C; ++c) {
-						cumsum1 += (*SC)[offset + hap1 * C + c];
-						if (r1 <= cumsum1) {
-							class1 = c;
-							break;
-						}
-					}
+                    // Sample class for hap0
+                    float r0 = rng.getDouble();
+                    float cumsum0 = 0.0f;
+                    for (int c = 0; c < C; ++c) {
+                        cumsum0 += (*SC)[offset + hap0 * C + c];
+                        if (r0 <= cumsum0) {
+                            class0 = c;
+                            break;
+                        }
+                    }
+                    if (cumsum0 < r0) {
+                        class0 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
+                    }
+                    
+                    // Sample class for hap1
+                    float r1 = rng.getDouble();
+                    float cumsum1 = 0.0f;
+                    for (int c = 0; c < C; ++c) {
+                        cumsum1 += (*SC)[offset + hap1 * C + c];
+                        if (r1 <= cumsum1) {
+                            class1 = c;
+                            break;
+                        }
+                    }
+                    if (cumsum1 < r1) {
+                        class1 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
+                    }
 					
 					// Project to splits: class 0=REF, 1..n_alts=ALT1..ALTn
 					// Iterate over all member variants and set based on sampled class
