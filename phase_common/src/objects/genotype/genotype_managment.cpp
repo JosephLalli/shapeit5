@@ -55,6 +55,28 @@ void genotype::free() {
 	vector < unsigned char > ().swap(Ambiguous);
 	vector < unsigned long > ().swap(Diplotypes);
 	vector < unsigned short > ().swap(Lengths);
+	vector < uint8_t > ().swap(supersite_flags);
+}
+
+bool genotype::supersiteHasFlag(int ss_idx, uint8_t flag) const {
+	return ss_idx >= 0 &&
+	       ss_idx < static_cast<int>(supersite_flags.size()) &&
+	       (supersite_flags[ss_idx] & flag);
+}
+
+genotype::SuperSiteContext genotype::getSuperSiteContext(unsigned int locus) const {
+	SuperSiteContext ctx;
+	if (!super_sites || !locus_to_super_idx) return ctx;
+	if (locus >= locus_to_super_idx->size()) return ctx;
+	ctx.ss_idx = (*locus_to_super_idx)[locus];
+	if (ctx.ss_idx < 0) return ctx;
+	ctx.is_member = true;
+	const SuperSite& ss = (*super_sites)[ctx.ss_idx];
+	ctx.is_anchor = (static_cast<uint32_t>(locus) == ss.global_site_id);
+	ctx.has_het = supersiteHasFlag(ctx.ss_idx, SS_FLAG_HET);
+	ctx.has_sca = supersiteHasFlag(ctx.ss_idx, SS_FLAG_SCA);
+	ctx.all_missing = supersiteHasFlag(ctx.ss_idx, SS_FLAG_ALL_MIS);
+	return ctx;
 }
 
 void genotype::make(vector < unsigned char > & DipSampled, vector < float > & CurrentMissingProbabilities) {

@@ -23,6 +23,8 @@
 #ifndef _GENOTYPE_H
 #define _GENOTYPE_H
 
+#include <cstdint>
+
 #include <utils/otools.h>
 
 // Forward declaration to avoid circular dependency
@@ -86,9 +88,25 @@ struct SuperSite;
 #define MASK_UNF1	0x3333CCCC3333CCCCUL
 #define MASK_UNF2	0x0F0F0F0FF0F0F0F0UL
 
+// Supersite flag bits stored per anchor (genotype::supersite_flags entries)
+enum SupersiteFlagBits : uint8_t {
+	SS_FLAG_HET      = 1u << 0,
+	SS_FLAG_SCA      = 1u << 1,
+	SS_FLAG_ALL_MIS  = 1u << 2
+};
+
 
 class genotype {
 public:
+	struct SuperSiteContext {
+		int ss_idx = -1;
+		bool is_member = false;
+		bool is_anchor = false;
+		bool has_het = false;
+		bool has_sca = false;
+		bool all_missing = false;
+	};
+
 	// INTERNAL DATA
 	std::string name;
 	unsigned int index;						// Index in containers
@@ -114,6 +132,9 @@ public:
 	std::vector < bool > ProbMask;
 	std::vector < float > ProbStored;
 	std::vector < float > ProbMissing;
+
+	// Supersite aggregate flags (per supersite index; cached in build())
+	std::vector<uint8_t> supersite_flags;
 
 	// SUPERSITE CONTEXT (Phase 3: multivariant imputation)
 	const std::vector<SuperSite>* super_sites;
@@ -151,6 +172,8 @@ public:
 	void makeDiplotypes(unsigned long);
 	unsigned int countTransitions();
 	bool isOrdered(unsigned long _dip);
+	bool supersiteHasFlag(int ss_idx, uint8_t flag) const;
+	SuperSiteContext getSuperSiteContext(unsigned int locus) const;
 };
 
 inline

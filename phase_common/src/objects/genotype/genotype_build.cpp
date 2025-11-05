@@ -46,17 +46,48 @@ void genotype::build() {
 	//1. Count number of segments
 	unsigned n_rel_unf = 0, n_rel_var = 0, n_rel_sca = 0, n_abs_seg = 0, n_abs_amb = 0, n_rel_amb = 0, n_abs_mis = 0;
 	unsigned var_len = 0;
-	
+
+	const bool has_supersites = super_sites && locus_to_super_idx && super_site_var_index;
+	if (has_supersites) {
+		supersite_flags.assign(super_sites->size(), 0u);
+		for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
+			const SuperSite &ss = (*super_sites)[ss_idx];
+			bool any_het = false;
+			bool any_sca = false;
+			bool all_missing = (ss.var_count > 0);
+			for (uint32_t offset = 0; offset < ss.var_count; ++offset) {
+				int v_idx = (*super_site_var_index)[ss.var_start + offset];
+				unsigned char v_code = Variants[DIV2(v_idx)];
+				any_het |= VAR_GET_HET(MOD2(v_idx), v_code);
+				any_sca |= VAR_GET_SCA(MOD2(v_idx), v_code);
+				if (!VAR_GET_MIS(MOD2(v_idx), v_code)) {
+					all_missing = false;
+				}
+			}
+			uint8_t flags = 0u;
+			if (any_het) flags |= SS_FLAG_HET;
+			if (any_sca) flags |= SS_FLAG_SCA;
+			if (all_missing) flags |= SS_FLAG_ALL_MIS;
+			supersite_flags[ss_idx] = flags;
+		}
+	} else {
+		supersite_flags.clear();
+	}
 	for (unsigned int v = 0 ; v < n_variants ;) {
-		bool f_sca = VAR_GET_SCA(MOD2(v), Variants[DIV2(v)]);
-		bool f_het = VAR_GET_HET(MOD2(v), Variants[DIV2(v)]);
-		bool f_mis = VAR_GET_MIS(MOD2(v), Variants[DIV2(v)]);
-		bool f_ss = VAR_IS_SS_ANCHOR(super_sites, locus_to_super_idx, v);
+		unsigned char var_code = Variants[DIV2(v)];
+		bool f_sca = VAR_GET_SCA(MOD2(v), var_code);
+		bool f_het = VAR_GET_HET(MOD2(v), var_code);
+		bool f_mis = VAR_GET_MIS(MOD2(v), var_code);
+		SuperSiteContext ctx = getSuperSiteContext(v);
+		int ss_idx = ctx.ss_idx;
+		bool is_anchor = ctx.is_member && ctx.is_anchor;
 		
 		// Determine how many variants to process (1 for normal, var_count for supersite anchor)
-		if (f_ss) {
-			int ss_idx = (*locus_to_super_idx)[v];
+		if (is_anchor) {
 			var_len = (*super_sites)[ss_idx].var_count;
+			f_sca = ctx.has_sca;
+			f_het = ctx.has_het;
+			f_mis = ctx.all_missing;
 		} else {
 			var_len = 1;
 		}
@@ -88,15 +119,20 @@ void genotype::build() {
 	Lengths = vector < unsigned short > (n_segments, 0U);
 	
 	for (unsigned int v = 0 ; v < n_variants ;) {
-		bool f_sca = VAR_GET_SCA(MOD2(v), Variants[DIV2(v)]);
-		bool f_het = VAR_GET_HET(MOD2(v), Variants[DIV2(v)]);
-		bool f_mis = VAR_GET_MIS(MOD2(v), Variants[DIV2(v)]);
-		bool f_ss = VAR_IS_SS_ANCHOR(super_sites, locus_to_super_idx, v);
+		unsigned char var_code = Variants[DIV2(v)];
+		bool f_sca = VAR_GET_SCA(MOD2(v), var_code);
+		bool f_het = VAR_GET_HET(MOD2(v), var_code);
+		bool f_mis = VAR_GET_MIS(MOD2(v), var_code);
+		SuperSiteContext ctx = getSuperSiteContext(v);
+		int ss_idx = ctx.ss_idx;
+		bool is_anchor = ctx.is_member && ctx.is_anchor;
 		
 		// Determine how many variants to process (1 for normal, var_count for supersite anchor)
-		if (f_ss) {
-			int ss_idx = (*locus_to_super_idx)[v];
+		if (is_anchor) {
 			var_len = (*super_sites)[ss_idx].var_count;
+			f_sca = ctx.has_sca;
+			f_het = ctx.has_het;
+			f_mis = ctx.all_missing;
 		} else {
 			var_len = 1;
 		}
@@ -127,12 +163,20 @@ void genotype::build() {
 	vector < unsigned char > orderedSegments = vector < unsigned char >(n_segments, 0);
 	for (unsigned int s = 0, a0 = 0, a1 = 0, a2 = 0, vabs = 0 ; s < n_segments ; s ++) {
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
-			bool f_sca = VAR_GET_SCA(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
-			bool f_het = VAR_GET_HET(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
+			unsigned int v_idx = vabs + vrel;
+			unsigned char var_code = Variants[DIV2(v_idx)];
+			bool f_sca = VAR_GET_SCA(MOD2(v_idx), var_code);
+			bool f_het = VAR_GET_HET(MOD2(v_idx), var_code);
+			SuperSiteContext ctx = getSuperSiteContext(v_idx);
+			if (ctx.is_member && !ctx.is_anchor) continue;
+			if (ctx.is_anchor) {
+				f_sca = f_sca || ctx.has_sca;
+				f_het = ctx.has_het;
+			}
 			
 			if (f_sca) {
 				for (unsigned int h = 0 ; h < HAP_NUMBER ; h ++) {
-					bool allele = (h%2)?VAR_GET_HAP1(MOD2(vabs+vrel), Variants[DIV2(vabs+vrel)]):VAR_GET_HAP0(MOD2(vabs+vrel), Variants[DIV2(vabs+vrel)]);
+					bool allele = (h%2)?VAR_GET_HAP1(MOD2(v_idx), var_code):VAR_GET_HAP0(MOD2(v_idx), var_code);
 					if (allele) HAP_SET(Ambiguous[a0], h);
 				}
 				orderedSegments[s] = 1;
@@ -141,8 +185,16 @@ void genotype::build() {
 		}
 		unsigned int n_unf = orderedSegments[s];
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
-			bool f_sca = VAR_GET_SCA(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
-			bool f_het = VAR_GET_HET(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
+			unsigned int v_idx = vabs + vrel;
+			unsigned char var_code = Variants[DIV2(v_idx)];
+			bool f_sca = VAR_GET_SCA(MOD2(v_idx), var_code);
+			bool f_het = VAR_GET_HET(MOD2(v_idx), var_code);
+			SuperSiteContext ctx = getSuperSiteContext(v_idx);
+			if (ctx.is_member && !ctx.is_anchor) continue;
+			if (ctx.is_anchor) {
+				f_sca = f_sca || ctx.has_sca;
+				f_het = ctx.has_het;
+			}
 			
 			if (f_het) {
 				for (unsigned int h = 0 ; h < HAP_NUMBER ; h ++) {
@@ -162,7 +214,14 @@ void genotype::build() {
 		unsigned int n_unf = orderedSegments[s];
 		Diplotypes[s]=n_unf?MASK_SCAF:MASK_INIT;
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
-			bool f_het = VAR_GET_HET(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
+			unsigned int v_idx = vabs + vrel;
+			unsigned char var_code = Variants[DIV2(v_idx)];
+			bool f_het = VAR_GET_HET(MOD2(v_idx), var_code);
+			SuperSiteContext ctx = getSuperSiteContext(v_idx);
+			if (ctx.is_member && !ctx.is_anchor) continue;
+			if (ctx.is_anchor) {
+				f_het = ctx.has_het;
+			}
 			
 			if (f_het) {
 				switch (n_unf) {
@@ -173,7 +232,17 @@ void genotype::build() {
 			}
 			n_unf += f_het;
 		}
-		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) a+=VAR_GET_AMB(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
+		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
+			unsigned int v_idx = vabs + vrel;
+			unsigned char var_code = Variants[DIV2(v_idx)];
+			SuperSiteContext ctx = getSuperSiteContext(v_idx);
+			if (ctx.is_member && !ctx.is_anchor) continue;
+			bool is_amb = VAR_GET_AMB(MOD2(v_idx), var_code);
+			if (ctx.is_anchor) {
+				is_amb = ctx.has_sca || ctx.has_het;
+			}
+			a += is_amb;
+		}
 
 		vabs += Lengths[s];
 	}

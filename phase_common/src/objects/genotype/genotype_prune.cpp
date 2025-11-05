@@ -68,12 +68,22 @@ void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass
 		vecTransStatistics[s-1].merged = false;
 		vecTransStatistics[s-1].entropy = 4096;
 
+		auto isAmbiguousAnchor = [&](unsigned int locus) -> bool {
+			bool is_amb = VAR_GET_AMB(MOD2(locus), Variants[DIV2(locus)]);
+			SuperSiteContext ctx = getSuperSiteContext(locus);
+			if (ctx.is_member) {
+				if (!ctx.is_anchor) return false;
+				is_amb = ctx.has_het || ctx.has_sca;
+			}
+			return is_amb;
+		};
+
 		//Step3: check number of variants in merged segment
 		unsigned int segment_length = Lengths[s-1] + Lengths[s];
 		if (segment_length < std::numeric_limits< unsigned short >::max()) {
 			unsigned int n_ambiguous_merged = 0;
 			for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++)
-				if (VAR_GET_AMB(MOD2(voffset+vrel), Variants[DIV2(voffset+vrel)]))
+				if (isAmbiguousAnchor(voffset + vrel))
 					n_ambiguous_merged++;
 			//Step4: check number of ambiguous variants in merged segment
 			if (n_ambiguous_merged < MAX_AMB) {
@@ -115,7 +125,7 @@ void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass
 		}
 
 		//Step8: update cursors (2)
-		for (unsigned int vrel = 0 ; vrel < Lengths[s-1] ; vrel ++) if (VAR_GET_AMB(MOD2(voffset+vrel), Variants[DIV2(voffset+vrel)])) aoffset++;
+		for (unsigned int vrel = 0 ; vrel < Lengths[s-1] ; vrel ++) if (isAmbiguousAnchor(voffset + vrel)) aoffset++;
 		voffset += Lengths[s-1];
 		std::copy(curr_dipcodes, curr_dipcodes+curr_dipcount, prev_dipcodes);
 		prev_dipcount = curr_dipcount;
@@ -152,6 +162,15 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 	unsigned int toffset = prev_dipcount;
 	unsigned int n_curr_transitions = 0;
 	unsigned int aoffset = 0, voffset = 0;
+	auto isAmbiguousAnchor = [&](unsigned int locus) -> bool {
+		bool is_amb = VAR_GET_AMB(MOD2(locus), Variants[DIV2(locus)]);
+		SuperSiteContext ctx = getSuperSiteContext(locus);
+		if (ctx.is_member) {
+			if (!ctx.is_anchor) return false;
+			is_amb = ctx.has_het || ctx.has_sca;
+		}
+		return is_amb;
+	};
 
 	for (int s = 1 ; s < flagMerges.size() -1 ; s ++) {
 		//Step1: update cursors (1)
@@ -183,7 +202,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 					if (new_h0) {
 						Mhaps[merged_h0] = n_haps;
 						for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++) {
-							if (VAR_GET_AMB(MOD2(voffset+vrel), Variants[DIV2(voffset+vrel)])) {
+							if (isAmbiguousAnchor(voffset + vrel)) {
 								if (HAP_GET(Ambiguous[aoffset+arel], (vrel<Lengths[s-1])?prev_h0:next_h0)) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h0]);
 								arel ++;
 							}
@@ -193,7 +212,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 					if (new_h1) {
 						Mhaps[merged_h1] = n_haps;
 						for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++) {
-							if (VAR_GET_AMB(MOD2(voffset+vrel), Variants[DIV2(voffset+vrel)])) {
+							if (isAmbiguousAnchor(voffset + vrel)) {
 								if (HAP_GET(Ambiguous[aoffset+arel], (vrel<Lengths[s-1])?prev_h1:next_h1)) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h1]);
 								arel ++;
 							}
@@ -208,7 +227,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		} else if (!flagMerges[s-1]) {
 			//cout << name << " C " << aoffset << endl;
 			for (unsigned int vrel = 0, arel = 0 ; vrel < Lengths[s-1] ; vrel ++) {
-				if (VAR_GET_AMB(MOD2(voffset+vrel), Variants[DIV2(voffset+vrel)])) {
+				if (isAmbiguousAnchor(voffset + vrel)) {
 					Ambiguous2[aoffset+arel] = Ambiguous[aoffset+arel];
 					arel ++;
 				}
@@ -218,7 +237,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		}
 
 		//Update cursors
-		for (unsigned int vrel = 0 ; vrel < Lengths[s-1] ; vrel ++) if (VAR_GET_AMB(MOD2(voffset+vrel), Variants[DIV2(voffset+vrel)])) aoffset++;
+		for (unsigned int vrel = 0 ; vrel < Lengths[s-1] ; vrel ++) if (isAmbiguousAnchor(voffset + vrel)) aoffset++;
 		voffset += Lengths[s-1];
 		std::copy(curr_dipcodes, curr_dipcodes+curr_dipcount, prev_dipcodes);
 		prev_dipcount = curr_dipcount;
@@ -226,7 +245,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 	}
 	if (!flagMerges[flagMerges.size()-2]) {
 		for (unsigned int vrel = 0, arel = 0 ; vrel < Lengths.back() ; vrel ++) {
-			if (VAR_GET_AMB(MOD2(voffset+vrel), Variants[DIV2(voffset+vrel)])) {
+			if (isAmbiguousAnchor(voffset + vrel)) {
 				Ambiguous2[aoffset+arel] = Ambiguous[aoffset+arel];
 				arel ++;
 			}

@@ -89,11 +89,35 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 	for (unsigned int s = 0, a = 0, t = 0, v = 0, m = 0 ; s < g->n_segments ; s ++) {
 		//update a
 		amb_idx[s] = a;
-		for (unsigned int vrel = 0 ; vrel < g->Lengths[s] ; vrel ++) amb_siz[s] += VAR_GET_AMB(MOD2(v+vrel), g->Variants[DIV2(v+vrel)]);
+		for (unsigned int vrel = 0 ; vrel < g->Lengths[s] ; vrel ++) {
+			unsigned int locus = v + vrel;
+			bool is_amb = VAR_GET_AMB(MOD2(locus), g->Variants[DIV2(locus)]);
+			genotype::SuperSiteContext ctx = g->getSuperSiteContext(locus);
+			if (ctx.is_member) {
+				if (!ctx.is_anchor) {
+					is_amb = false;
+				} else {
+					is_amb = ctx.has_het || ctx.has_sca;
+				}
+			}
+			amb_siz[s] += is_amb;
+		}
 		a += amb_siz[s];
 		//update m
 		mis_idx[s] = m;
-		for (unsigned int vrel = 0 ; vrel < g->Lengths[s] ; vrel ++) mis_siz[s] += VAR_GET_MIS(MOD2(v+vrel), g->Variants[DIV2(v+vrel)]);
+		for (unsigned int vrel = 0 ; vrel < g->Lengths[s] ; vrel ++) {
+			unsigned int locus = v + vrel;
+			bool is_mis = VAR_GET_MIS(MOD2(locus), g->Variants[DIV2(locus)]);
+			genotype::SuperSiteContext ctx = g->getSuperSiteContext(locus);
+			if (ctx.is_member) {
+				if (!ctx.is_anchor) {
+					is_mis = false;
+				} else {
+					is_mis = ctx.all_missing;
+				}
+			}
+			mis_siz[s] += is_mis;
+		}
 		m += mis_siz[s];
 		//update v
 		loc_idx[s] = v;

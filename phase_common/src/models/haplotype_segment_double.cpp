@@ -148,6 +148,18 @@ void haplotype_segment_double::forward() {
 		bool amb = VAR_GET_AMB(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
 		bool mis = VAR_GET_MIS(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
 		bool hom = !(amb || mis);
+		genotype::SuperSiteContext ss_ctx = G->getSuperSiteContext(curr_abs_locus);
+		if (ss_ctx.is_member) {
+			if (!ss_ctx.is_anchor) {
+				amb = false;
+				mis = false;
+				hom = true;
+			} else {
+				amb = ss_ctx.has_het || ss_ctx.has_sca;
+				mis = ss_ctx.all_missing;
+				hom = !(amb || mis);
+			}
+		}
 		yt = (curr_abs_locus == locus_first)?0.0:M.getForwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
 
@@ -186,15 +198,20 @@ void haplotype_segment_double::forward() {
                     int prev = prev_abs_locus;
                     double cm_curr = (curr >= 0 && curr < (int)M.cm.size()) ? M.cm[curr] : NAN;
                     double cm_prev = (prev >= 0 && prev < (int)M.cm.size()) ? M.cm[prev] : NAN;
-                    bool amb = VAR_GET_AMB(MOD2(curr), G->Variants[DIV2(curr)]);
-                    bool mis = VAR_GET_MIS(MOD2(curr), G->Variants[DIV2(curr)]);
-                    bool hom = !(amb || mis);
-                    int ss_idx = -1;
-                    if (locus_to_super_idx && super_sites) ss_idx = (*locus_to_super_idx)[curr];
-                    double alphaSumSum_curr = probSumT; // at this locus, same scalar
-                    std::fprintf(f, "%s\tdouble\tFORWARD_NAN\t%d\t%d\t%.8g\t%.8g\t%.8g\t%.8g\t%.17g\t%.17g",
-                                 G->name.c_str(), curr, prev, cm_curr, cm_prev,
-                                 yt, nt, probSumT, alphaSumSum_curr);
+					bool amb = VAR_GET_AMB(MOD2(curr), G->Variants[DIV2(curr)]);
+					bool mis = VAR_GET_MIS(MOD2(curr), G->Variants[DIV2(curr)]);
+					bool hom = !(amb || mis);
+					genotype::SuperSiteContext log_ctx = G->getSuperSiteContext(curr);
+					int ss_idx = log_ctx.ss_idx;
+					if (log_ctx.is_member) {
+						amb = log_ctx.has_het || log_ctx.has_sca;
+						mis = log_ctx.all_missing;
+						hom = !(amb || mis);
+					}
+					double alphaSumSum_curr = probSumT; // at this locus, same scalar
+					std::fprintf(f, "%s\tdouble\tFORWARD_NAN\t%d\t%d\t%.8g\t%.8g\t%.8g\t%.8g\t%.17g\t%.17g",
+						         G->name.c_str(), curr, prev, cm_curr, cm_prev,
+						         yt, nt, probSumT, alphaSumSum_curr);
                     for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(f, "\t%.17g", probSumH[h]);
                     std::fprintf(f, "\t%d\t%d\t%d\t%d\t%u\n", (int)amb, (int)mis, (int)hom, ss_idx, n_cond_haps);
                     std::fclose(f);
@@ -240,6 +257,18 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		bool amb = VAR_GET_AMB(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
 		bool mis = VAR_GET_MIS(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
 		bool hom = !(amb || mis);
+		genotype::SuperSiteContext ss_ctx = G->getSuperSiteContext(curr_abs_locus);
+		if (ss_ctx.is_member) {
+			if (!ss_ctx.is_anchor) {
+				amb = false;
+				mis = false;
+				hom = true;
+			} else {
+				amb = ss_ctx.has_het || ss_ctx.has_sca;
+				mis = ss_ctx.all_missing;
+				hom = !(amb || mis);
+			}
+		}
 		yt = (curr_abs_locus == locus_last)?0.0:M.getBackwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
 
@@ -335,14 +364,14 @@ int haplotype_segment_double::SET_OTHER_TRANS(vector < double > & transition_pro
                 bool amb = VAR_GET_AMB(MOD2(curr), G->Variants[DIV2(curr)]);
                 bool mis = VAR_GET_MIS(MOD2(curr), G->Variants[DIV2(curr)]);
                 bool hom = !(amb || mis);
-                int ss_idx = -1; bool is_anchor = false; bool is_sibling = false;
-                if (locus_to_super_idx && super_sites) {
-                    ss_idx = (*locus_to_super_idx)[curr];
-                    if (ss_idx >= 0) {
-                        const SuperSite& ss = (*super_sites)[ss_idx];
-                        is_anchor = (curr == (int)ss.global_site_id);
-                        is_sibling = !is_anchor;
-                    }
+                genotype::SuperSiteContext log_ctx = G->getSuperSiteContext(curr);
+                int ss_idx = log_ctx.ss_idx;
+                bool is_anchor = log_ctx.is_anchor;
+                bool is_sibling = log_ctx.is_member && !log_ctx.is_anchor;
+                if (log_ctx.is_member) {
+                    amb = log_ctx.has_het || log_ctx.has_sca;
+                    mis = log_ctx.all_missing;
+                    hom = !(amb || mis);
                 }
                 unsigned int rel_prev_seg = (curr_segment_index - segment_first) - 1;
                 double alphaSumSum_prev = (rel_prev_seg < AlphaSumSum.size()) ? AlphaSumSum[rel_prev_seg] : NAN;
