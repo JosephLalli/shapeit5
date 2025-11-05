@@ -16,8 +16,8 @@ comparison_region=chr22:19000000-24000000
 
 in_bcf="${TEST_DIR}/wgs/1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.unphased.native_maps.biallelic.18000000-25000000.bcf"
 scaffold_bcf_prefix="$tmp_dir/chr22.1KGP.18-25mb.phase_common"
-# if [[ 'x' == 'y' ]]; then
-if [[ ! -s $scaffold_bcf_prefix.og.bcf ]]; then
+if [[ 'x' == 'y' ]]; then
+# if [[ ! -s $scaffold_bcf_prefix.og.bcf ]]; then
 /usr/bin/time ./SHAPEIT5_phase_common_static_v1.1.1 \
   --input $in_bcf \
   --filter-maf 0.001 \
@@ -25,7 +25,7 @@ if [[ ! -s $scaffold_bcf_prefix.og.bcf ]]; then
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.og.bcf \
   --thread 64 &
-fi
+# fi
 
 /usr/bin/time ../phase_common/bin/phase_common \
   --input $in_bcf \
@@ -34,7 +34,7 @@ fi
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.main_algo.bcf \
   --thread 64 &
-#fi
+fi
 /usr/bin/time ../phase_common/bin/phase_common \
   --input $in_bcf \
   --filter-maf 0.001 \
