@@ -47,6 +47,15 @@ static void ensure_logs_dir_d() {
     }
 }
 
+static bool supersite_trace_enabled_d() {
+    static int flag = -1;
+    if (flag < 0) {
+        const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
+        flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+    }
+    return flag == 1;
+}
+
 // EXPERIMENTAL: COLLAPSE transition normalization testing (SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION)
 // TODO: Remove before release after determining optimal behavior (see Bug #4)
 static bool normalize_collapse_transition_enabled_d() {
@@ -177,7 +186,9 @@ void haplotype_segment_double::forward() {
 					case EmitKind::Mis: SS_INIT_MIS(); break;
 				}
 			} else if (is_sibling) {
+				// Sibling at window start: initialize neutrally but do not advance prev_abs_locus
 				INIT_MIS();
+				update_prev_locus = false;
 			} else {
 				if (hmm_mis) {
 					INIT_MIS();
@@ -200,7 +211,8 @@ void haplotype_segment_double::forward() {
 						break;
 				}
 			} else if (is_sibling) {
-				SS_RUN_MIS();
+				// Sibling within window: no-op propagation (avoid renormalization)
+				update_prev_locus = false;
 			} else {
 				if (hmm_hom) update_prev_locus = RUN_HOM(rare_allele);
 				else if (hmm_amb) RUN_AMB();
@@ -214,7 +226,8 @@ void haplotype_segment_double::forward() {
 					case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
 				}
 			} else if (is_sibling) {
-				SS_COLLAPSE_MIS();
+				// Sibling at segment boundary: no-op and do not advance prev_abs_locus
+				update_prev_locus = false;
 			} else {
 				if (hmm_hom) COLLAPSE_HOM();
 				else if (hmm_amb) COLLAPSE_AMB();
@@ -333,7 +346,9 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 					case EmitKind::Mis: SS_INIT_MIS(); break;
 				}
 			} else if (is_sibling) {
+				// Sibling at window end: neutral init; do not advance prev_abs_locus
 				INIT_MIS();
+				update_prev_locus = false;
 			} else {
 				if (hmm_mis) {
 					INIT_MIS();
@@ -356,7 +371,8 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 						break;
 				}
 			} else if (is_sibling) {
-				SS_RUN_MIS();
+				// Sibling within window (backward): no-op propagation
+				update_prev_locus = false;
 			} else {
 				if (hmm_hom) update_prev_locus = RUN_HOM(rare_allele);
 				else if (hmm_amb) RUN_AMB();
@@ -370,7 +386,8 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 					case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
 				}
 			} else if (is_sibling) {
-				SS_COLLAPSE_MIS();
+				// Sibling at segment boundary (backward): no-op
+				update_prev_locus = false;
 			} else {
 				if (hmm_hom) COLLAPSE_HOM();
 				else if (hmm_amb) COLLAPSE_AMB();
@@ -394,17 +411,14 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 				int rel_idx = -1;
 				if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) rel_idx = missing_index_by_locus[map_i];
 				if (rel_idx >= 0) {
-#ifdef SHAPEIT5_TEST_TRACE
-					vrb.bullet("SCTrace", "anchor=" + stb.str(curr_abs_locus) + " rel_missing=" + stb.str(rel_idx));
-					double alpha_vec[HAP_NUMBER];
-					double beta_vec[HAP_NUMBER];
-					for (int h = 0; h < HAP_NUMBER; ++h) {
-						alpha_vec[h] = AlphaSumMissing[rel_idx][h];
-						beta_vec[h] = prob[h + rel_idx * HAP_NUMBER];
+					if (supersite_trace_enabled_d()) {
+						std::fprintf(stdout, "SCTrace(double) anchor=%d rel_missing=%d\n", curr_abs_locus, rel_idx);
+						std::fprintf(stdout, "AlphaSumMissing:");
+						for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.9f", AlphaSumMissing[rel_idx][h]);
+						std::fprintf(stdout, "\nBeta:");
+						for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.9f", prob[h + rel_idx * HAP_NUMBER]);
+						std::fprintf(stdout, "\n");
 					}
-					vrb.bullet("AlphaSumMissing", stb::strvector(alpha_vec, alpha_vec + HAP_NUMBER));
-					vrb.bullet("Beta", stb::strvector(beta_vec, beta_vec + HAP_NUMBER));
-#endif
 					IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index, rel_idx);
 					supersite_handled = true;
 				}

@@ -47,6 +47,15 @@ static void ensure_logs_dir() {
     }
 }
 
+static bool supersite_trace_enabled() {
+    static int flag = -1;
+    if (flag < 0) {
+        const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
+        flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+    }
+    return flag == 1;
+}
+
 // EXPERIMENTAL: COLLAPSE transition normalization testing (SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION)
 // TODO: Remove before release after determining optimal behavior (see Bug #4)
 static bool normalize_collapse_transition_enabled() {
@@ -174,8 +183,15 @@ void haplotype_segment_single::forward() {
 		yt = (curr_abs_locus == locus_first)?0.0:M.getForwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
 
-		if (curr_rel_locus == 0) {
-			if (is_anchor) {
+		if (supersite_trace_enabled()) {
+			std::fprintf(stdout,
+					"FWD locus=%d rel=%d seg_locus=%d kind=%d emit=%d amb=%d mis=%d\n",
+					curr_abs_locus, curr_rel_locus, curr_segment_locus,
+					(int)site_view.kind, (int)emit, (int)hmm_amb, (int)hmm_mis);
+		}
+
+        if (curr_rel_locus == 0) {
+            if (is_anchor) {
 				switch (emit) {
 					case EmitKind::Hom:
 						SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
@@ -187,9 +203,11 @@ void haplotype_segment_single::forward() {
 						SS_INIT_MIS();
 						break;
 				}
-			} else if (is_sibling) {
-				INIT_MIS();
-			} else {
+            } else if (is_sibling) {
+                // Sibling at window start: neutral init; do not advance prev_abs_locus
+                INIT_MIS();
+                update_prev_locus = false;
+            } else {
 				if (hmm_mis) {
 					INIT_MIS();
 				} else {
@@ -197,8 +215,8 @@ void haplotype_segment_single::forward() {
 					INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
 				}
 			}
-		} else if (curr_segment_locus != 0) {
-			if (is_anchor) {
+        } else if (curr_segment_locus != 0) {
+            if (is_anchor) {
 				switch (emit) {
 					case EmitKind::Hom:
 						update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
@@ -210,15 +228,16 @@ void haplotype_segment_single::forward() {
 						update_prev_locus = SS_RUN_MIS();
 						break;
 				}
-			} else if (is_sibling) {
-				update_prev_locus = SS_RUN_MIS();
-			} else {
+            } else if (is_sibling) {
+                // Sibling within window: no-op (avoid renormalization)
+                update_prev_locus = false;
+            } else {
 				if (hmm_hom) update_prev_locus = RUN_HOM(rare_allele);
 				else if (hmm_amb) RUN_AMB();
 				else RUN_MIS();
 			}
-		} else {
-			if (is_anchor) {
+        } else {
+            if (is_anchor) {
 				switch (emit) {
 					case EmitKind::Hom:
 						SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
@@ -230,9 +249,10 @@ void haplotype_segment_single::forward() {
 						SS_COLLAPSE_MIS();
 						break;
 				}
-			} else if (is_sibling) {
-				SS_COLLAPSE_MIS();
-			} else {
+            } else if (is_sibling) {
+                // Sibling at segment boundary: no-op and do not advance prev_abs_locus
+                update_prev_locus = false;
+            } else {
 				if (hmm_hom) COLLAPSE_HOM();
 				else if (hmm_amb) COLLAPSE_AMB();
 				else  COLLAPSE_MIS();
@@ -316,9 +336,11 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 						SS_INIT_MIS();
 						break;
 				}
-			} else if (is_sibling) {
-				INIT_MIS();
-			} else {
+				} else if (is_sibling) {
+					// Sibling at window end (backward): neutral init; do not advance prev_abs_locus
+					INIT_MIS();
+					update_prev_locus = false;
+				} else {
 				if (hmm_mis) {
 					INIT_MIS();
 				} else {
@@ -339,9 +361,10 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 						update_prev_locus = SS_RUN_MIS();
 						break;
 				}
-			} else if (is_sibling) {
-				update_prev_locus = SS_RUN_MIS();
-			} else {
+				} else if (is_sibling) {
+					// Sibling within window (backward): no-op
+					update_prev_locus = false;
+				} else {
 				if (hmm_hom) update_prev_locus = RUN_HOM(rare_allele);
 				else if (hmm_amb) RUN_AMB();
 				else RUN_MIS();
@@ -359,9 +382,10 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 						SS_COLLAPSE_MIS();
 						break;
 				}
-			} else if (is_sibling) {
-				SS_COLLAPSE_MIS();
-			} else {
+				} else if (is_sibling) {
+					// Sibling at segment boundary (backward): no-op
+					update_prev_locus = false;
+				} else {
 				if (hmm_hom) COLLAPSE_HOM();
 				else if (hmm_amb) COLLAPSE_AMB();
 				else COLLAPSE_MIS();
@@ -384,17 +408,14 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 				int map_i = curr_abs_locus - locus_first;
 				if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) idx = missing_index_by_locus[map_i];
 				if (idx >= 0) {
-#ifdef SHAPEIT5_TEST_TRACE
-					vrb.bullet("SCTrace", "anchor=" + stb.str(curr_abs_locus) + " rel_missing=" + stb.str(idx));
-					float alpha_vec[HAP_NUMBER];
-					float beta_vec[HAP_NUMBER];
-					for (int h = 0; h < HAP_NUMBER; ++h) {
-						alpha_vec[h] = AlphaSumMissing[idx][h];
-						beta_vec[h] = prob[h + idx * HAP_NUMBER];
+					if (supersite_trace_enabled()) {
+						std::fprintf(stdout, "SCTrace anchor=%d rel_missing=%d\n", curr_abs_locus, idx);
+						std::fprintf(stdout, "AlphaSumMissing:");
+						for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", AlphaSumMissing[idx][h]);
+						std::fprintf(stdout, "\nBeta:");
+						for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", prob[h + idx * HAP_NUMBER]);
+						std::fprintf(stdout, "\n");
 					}
-					vrb.bullet("AlphaSumMissing", stb::strvector(alpha_vec, alpha_vec + HAP_NUMBER));
-					vrb.bullet("Beta", stb::strvector(beta_vec, beta_vec + HAP_NUMBER));
-#endif
 					IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index, idx);
 				} else {
 					IMPUTE(missing_probabilities);
