@@ -21,6 +21,7 @@
  ******************************************************************************/
 
 #include <models/haplotype_segment_single.h>
+#include <models/site_emission_adapter.h>
 #include <mutex>
 #include <cstdio>
 #include <sys/stat.h>
@@ -145,41 +146,95 @@ void haplotype_segment_single::forward() {
 	curr_abs_missing = missing_first;
 	prev_abs_locus = locus_first;
 
+	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
+	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
+	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx);
+
 	for (curr_abs_locus = locus_first ; curr_abs_locus <= locus_last ; curr_abs_locus++) {
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
 		bool update_prev_locus = true;
 		char rare_allele = M.rare_allele[curr_abs_locus];
-		bool amb = VAR_GET_AMB(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-		bool mis = VAR_GET_MIS(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-		bool hom = !(amb || mis);
-		genotype::SuperSiteContext ss_ctx = G->getSuperSiteContext(curr_abs_locus);
-		if (ss_ctx.is_member) {
-			if (!ss_ctx.is_anchor) {
-				amb = false;
-				mis = false;
-				hom = true;
-			} else {
-				amb = ss_ctx.has_het || ss_ctx.has_sca;
-				mis = ss_ctx.all_missing;
-				hom = !(amb || mis);
-			}
+
+		SiteView site_view{};
+		bool has_supersite = supersites_enabled && supersite_adapter.build_view(curr_abs_locus, curr_abs_ambiguous, site_view);
+		if (!has_supersite) {
+			bial_adapter.build_view(curr_abs_locus, curr_abs_ambiguous, site_view);
 		}
+		const bool is_anchor = (site_view.kind == SiteKind::SuperAnchor);
+		const bool is_sibling = (site_view.kind == SiteKind::SuperSibling);
+		const EmitKind emit = site_view.emit_kind;
+		const bool hmm_mis = (emit == EmitKind::Mis);
+		const bool hmm_amb = (emit == EmitKind::Amb);
+		const bool hmm_hom = (emit == EmitKind::Hom);
+		const bool data_mis = hmm_mis && !is_sibling;
+		const bool data_amb = hmm_amb;
 		yt = (curr_abs_locus == locus_first)?0.0:M.getForwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
 
 		if (curr_rel_locus == 0) {
-			if (hom) INIT_HOM();
-			else if (amb) INIT_AMB();
-			else INIT_MIS();
+			if (is_anchor) {
+				switch (emit) {
+					case EmitKind::Hom:
+						SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						break;
+					case EmitKind::Amb:
+						SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						break;
+					case EmitKind::Mis:
+						SS_INIT_MIS();
+						break;
+				}
+			} else if (is_sibling) {
+				INIT_MIS();
+			} else {
+				if (hmm_mis) {
+					INIT_MIS();
+				} else {
+					bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
+					INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
+				}
+			}
 		} else if (curr_segment_locus != 0) {
-			if (hom) update_prev_locus = RUN_HOM(rare_allele);
-			else if (amb) RUN_AMB();
-			else RUN_MIS();
+			if (is_anchor) {
+				switch (emit) {
+					case EmitKind::Hom:
+						update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						break;
+					case EmitKind::Amb:
+						update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						break;
+					case EmitKind::Mis:
+						update_prev_locus = SS_RUN_MIS();
+						break;
+				}
+			} else if (is_sibling) {
+				update_prev_locus = SS_RUN_MIS();
+			} else {
+				if (hmm_hom) update_prev_locus = RUN_HOM(rare_allele);
+				else if (hmm_amb) RUN_AMB();
+				else RUN_MIS();
+			}
 		} else {
-			if (hom) COLLAPSE_HOM();
-			else if (amb) COLLAPSE_AMB();
-			else  COLLAPSE_MIS();
+			if (is_anchor) {
+				switch (emit) {
+					case EmitKind::Hom:
+						SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						break;
+					case EmitKind::Amb:
+						SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						break;
+					case EmitKind::Mis:
+						SS_COLLAPSE_MIS();
+						break;
+				}
+			} else if (is_sibling) {
+				SS_COLLAPSE_MIS();
+			} else {
+				if (hmm_hom) COLLAPSE_HOM();
+				else if (hmm_amb) COLLAPSE_AMB();
+				else  COLLAPSE_MIS();
+			}
 		}
 		prev_abs_locus=update_prev_locus?curr_abs_locus:prev_abs_locus;
 
@@ -190,14 +245,14 @@ void haplotype_segment_single::forward() {
 			AlphaSumSum[curr_segment_index - segment_first] = probSumT;
 			AlphaLocus[curr_segment_index - segment_first] = prev_abs_locus;
 		}
-		if (mis) {
+		if (data_mis) {
 			AlphaMissing[curr_rel_missing] = prob;
 			AlphaSumMissing[curr_rel_missing] = probSumH;
 			curr_abs_missing ++;
 		}
 
 		curr_segment_locus ++;
-		curr_abs_ambiguous += amb;
+		curr_abs_ambiguous += data_amb;
 		if (curr_segment_locus >= G->Lengths[curr_segment_index]) {
 			curr_segment_index++;
 			curr_segment_locus = 0;
@@ -215,41 +270,95 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	curr_abs_transition = transition_last;
 	prev_abs_locus = locus_last;
 
+	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
+	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
+	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx);
+
 	for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
 		char rare_allele = M.rare_allele[curr_abs_locus];
 		bool update_prev_locus = true;
-		bool amb = VAR_GET_AMB(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-		bool mis = VAR_GET_MIS(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-		bool hom = !(amb || mis);
-		genotype::SuperSiteContext ss_ctx = G->getSuperSiteContext(curr_abs_locus);
-		if (ss_ctx.is_member) {
-			if (!ss_ctx.is_anchor) {
-				amb = false;
-				mis = false;
-				hom = true;
-			} else {
-				amb = ss_ctx.has_het || ss_ctx.has_sca;
-				mis = ss_ctx.all_missing;
-				hom = !(amb || mis);
-			}
+
+		SiteView site_view{};
+		bool has_supersite = supersites_enabled && supersite_adapter.build_view(curr_abs_locus, curr_abs_ambiguous, site_view);
+		if (!has_supersite) {
+			bial_adapter.build_view(curr_abs_locus, curr_abs_ambiguous, site_view);
 		}
+		const bool is_anchor = (site_view.kind == SiteKind::SuperAnchor);
+		const bool is_sibling = (site_view.kind == SiteKind::SuperSibling);
+		const EmitKind emit = site_view.emit_kind;
+		const bool hmm_mis = (emit == EmitKind::Mis);
+		const bool hmm_amb = (emit == EmitKind::Amb);
+		const bool hmm_hom = (emit == EmitKind::Hom);
+		const bool data_mis = hmm_mis && !is_sibling;
+		const bool data_amb = hmm_amb;
 		yt = (curr_abs_locus == locus_last)?0.0:M.getBackwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
 
 		if (curr_abs_locus == locus_last) {
-			if (hom) INIT_HOM();
-			else if (amb) INIT_AMB();
-			else INIT_MIS();
+			if (is_anchor) {
+				switch (emit) {
+					case EmitKind::Hom:
+						SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						break;
+					case EmitKind::Amb:
+						SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						break;
+					case EmitKind::Mis:
+						SS_INIT_MIS();
+						break;
+				}
+			} else if (is_sibling) {
+				INIT_MIS();
+			} else {
+				if (hmm_mis) {
+					INIT_MIS();
+				} else {
+					bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
+					INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
+				}
+			}
 		} else if (curr_segment_locus != G->Lengths[curr_segment_index] - 1) {
-			if (hom) update_prev_locus = RUN_HOM(rare_allele);
-			else if (amb) RUN_AMB();
-			else RUN_MIS();
+			if (is_anchor) {
+				switch (emit) {
+					case EmitKind::Hom:
+						update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						break;
+					case EmitKind::Amb:
+						update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						break;
+					case EmitKind::Mis:
+						update_prev_locus = SS_RUN_MIS();
+						break;
+				}
+			} else if (is_sibling) {
+				update_prev_locus = SS_RUN_MIS();
+			} else {
+				if (hmm_hom) update_prev_locus = RUN_HOM(rare_allele);
+				else if (hmm_amb) RUN_AMB();
+				else RUN_MIS();
+			}
 		} else {
-			if (hom) COLLAPSE_HOM();
-			else if (amb) COLLAPSE_AMB();
-			else COLLAPSE_MIS();
+			if (is_anchor) {
+				switch (emit) {
+					case EmitKind::Hom:
+						SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						break;
+					case EmitKind::Amb:
+						SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						break;
+					case EmitKind::Mis:
+						SS_COLLAPSE_MIS();
+						break;
+				}
+			} else if (is_sibling) {
+				SS_COLLAPSE_MIS();
+			} else {
+				if (hmm_hom) COLLAPSE_HOM();
+				else if (hmm_amb) COLLAPSE_AMB();
+				else COLLAPSE_MIS();
+			}
 		}
 		if (curr_segment_locus == 0) SUMK();
 		prev_abs_locus=update_prev_locus?curr_abs_locus:prev_abs_locus;
@@ -261,31 +370,21 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			else n_underflow_recovered += ret;
 		}
 
-		if (mis) {
-			// Phase 3: Check if this is a supersite with all members missing
-			int ss_idx_here = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[curr_abs_locus] : -1;
-			
-			if (ss_idx_here >= 0 && anchor_has_missing && (*anchor_has_missing)[ss_idx_here] && SC) {
-				// Part of a missing supersite
-				const SuperSite& ss = (*super_sites)[ss_idx_here];
-				
-				if (curr_abs_locus == (int)ss.global_site_id) {
-					// Anchor: compute multivariant for entire supersite
-					IMPUTE_SUPERSITE_MULTIVARIATE(*SC, ss, ss_idx_here);
-				}
-				// Else: sibling, skip (no IMPUTE call)
-				
-				curr_abs_missing--;  // Still decrement counter
-			} else {
-				// Normal biallelic missing site
-				IMPUTE(missing_probabilities);
-				curr_abs_missing--;
+		if (data_mis) {
+			bool supersite_missing_handled = false;
+			if (is_anchor && anchor_has_missing && SC && site_view.supersite_index >= 0 && (*anchor_has_missing)[site_view.supersite_index]) {
+				IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index);
+				supersite_missing_handled = true;
 			}
+			if (!supersite_missing_handled) {
+				IMPUTE(missing_probabilities);
+			}
+			curr_abs_missing--;
 		}
 
 
 		curr_segment_locus--;
-		curr_abs_ambiguous -= amb;
+		curr_abs_ambiguous -= data_amb;
 		if (curr_segment_locus < 0 && curr_segment_index > 0) {
 			curr_segment_index--;
 			curr_segment_locus = G->Lengths[curr_segment_index] - 1;

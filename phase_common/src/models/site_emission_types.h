@@ -20,10 +20,13 @@ enum class EmitKind : uint8_t {
 struct SiteView {
     SiteKind kind{SiteKind::Biallelic};
     int locus{-1};
+    int supersite_index{-1};
     const SuperSite* supersite{nullptr};
     EmitKind emit_kind{EmitKind::Hom};
     uint8_t lane_class[HAP_NUMBER] = {0};
     uint8_t anchor_class{0}; // Meaningful for supersite anchors (ALT code 0..15)
+    uint8_t sample_class0{0};
+    uint8_t sample_class1{0};
 };
 
 struct MatchMask {

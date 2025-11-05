@@ -15,7 +15,7 @@ class genotype;
 
 class BiallelicEmissionAdapter {
 public:
-    explicit BiallelicEmissionAdapter(const genotype* G, const bitmatrix* Hvar)
+    explicit BiallelicEmissionAdapter(const genotype* G, bitmatrix* Hvar)
         : G_(G), Hvar_(Hvar) {}
 
     void build_view(int abs_locus, int curr_abs_ambiguous, SiteView& view) const;
@@ -27,7 +27,7 @@ public:
 
 private:
     const genotype* G_{nullptr};
-    const bitmatrix* Hvar_{nullptr};
+    bitmatrix* Hvar_{nullptr};
 };
 
 class SupersiteEmissionAdapter {
@@ -72,12 +72,17 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
                                                  SiteView& view) const {
     view.kind = SiteKind::Biallelic;
     view.supersite = nullptr;
+    view.supersite_index = -1;
     view.locus = abs_locus;
     view.anchor_class = 0;
+    view.sample_class0 = 0;
+    view.sample_class1 = 0;
 
     if (!G_) {
         view.emit_kind = EmitKind::Mis;
         std::fill(std::begin(view.lane_class), std::end(view.lane_class), 0);
+        view.sample_class0 = SUPERSITE_CODE_MISSING;
+        view.sample_class1 = SUPERSITE_CODE_MISSING;
         return;
     }
 
@@ -88,6 +93,8 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
     if (is_missing) {
         view.emit_kind = EmitKind::Mis;
         std::fill(std::begin(view.lane_class), std::end(view.lane_class), 0);
+        view.sample_class0 = SUPERSITE_CODE_MISSING;
+        view.sample_class1 = SUPERSITE_CODE_MISSING;
         return;
     }
 
@@ -101,6 +108,8 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
             const bool wants_alt = ((amb_code >> h) & 1U) != 0;
             view.lane_class[h] = wants_alt ? 1u : 0u;
         }
+        view.sample_class0 = 0u;
+        view.sample_class1 = 1u;
         return;
     }
 
@@ -108,6 +117,8 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
     const bool hap0_is_alt = VAR_GET_HAP0(MOD2(abs_locus), variant);
     const uint8_t allele = hap0_is_alt ? 1u : 0u;
     std::fill(std::begin(view.lane_class), std::end(view.lane_class), allele);
+    view.sample_class0 = allele;
+    view.sample_class1 = allele;
 }
 
 inline void BiallelicEmissionAdapter::build_match_mask(const SiteView& view,
@@ -148,7 +159,10 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
                                                  SiteView& view) const {
     view.locus = abs_locus;
     view.anchor_class = 0;
+    view.supersite_index = -1;
     std::fill(std::begin(view.lane_class), std::end(view.lane_class), 0);
+    view.sample_class0 = 0u;
+    view.sample_class1 = 0u;
 
     if (!super_sites_ || !locus_to_super_idx_ || abs_locus < 0 || abs_locus >= static_cast<int>(locus_to_super_idx_->size())) {
         view.kind = SiteKind::Biallelic;
@@ -165,11 +179,14 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
 
     const SuperSite& ss = (*super_sites_)[ss_idx];
     view.supersite = &ss;
+    view.supersite_index = ss_idx;
     const bool is_anchor = (abs_locus == static_cast<int>(ss.global_site_id));
     view.kind = is_anchor ? SiteKind::SuperAnchor : SiteKind::SuperSibling;
 
     if (!is_anchor) {
         view.emit_kind = EmitKind::Mis;
+        view.sample_class0 = SUPERSITE_CODE_MISSING;
+        view.sample_class1 = SUPERSITE_CODE_MISSING;
         return true;
     }
 
@@ -183,10 +200,14 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
     switch (cls) {
         case SSClass::MIS:
             view.emit_kind = EmitKind::Mis;
+            view.sample_class0 = SUPERSITE_CODE_MISSING;
+            view.sample_class1 = SUPERSITE_CODE_MISSING;
             break;
         case SSClass::HOM:
             view.emit_kind = EmitKind::Hom;
             std::fill(std::begin(view.lane_class), std::end(view.lane_class), c0);
+            view.sample_class0 = c0;
+            view.sample_class1 = c0;
             break;
         case SSClass::AMB: {
             view.emit_kind = EmitKind::Amb;
@@ -198,6 +219,8 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
                 const bool choose_c1 = ((amb_mask >> h) & 1U) != 0;
                 view.lane_class[h] = choose_c1 ? c1 : c0;
             }
+            view.sample_class0 = c0;
+            view.sample_class1 = c1;
             break;
         }
     }
