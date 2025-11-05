@@ -23,6 +23,7 @@ struct SiteView {
     const SuperSite* supersite{nullptr};
     EmitKind emit_kind{EmitKind::Hom};
     uint8_t lane_class[HAP_NUMBER] = {0};
+    uint8_t anchor_class{0}; // Meaningful for supersite anchors (ALT code 0..15)
 };
 
 struct MatchMask {
@@ -32,4 +33,9 @@ struct MatchMask {
     MatchMask() = default;
     explicit MatchMask(std::size_t total_entries)
         : by_donor_lane(total_entries, 0) {}
+
+    void resize(std::size_t total_entries) {
+        by_donor_lane.assign(total_entries, 0);
+        std::fill(std::begin(any_match_lane), std::end(any_match_lane), false);
+    }
 };
