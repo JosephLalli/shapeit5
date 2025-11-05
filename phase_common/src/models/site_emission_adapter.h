@@ -118,7 +118,7 @@ inline void BiallelicEmissionAdapter::build_match_mask(const SiteView& view,
     mask.resize(total_entries);
 
     if (view.emit_kind == EmitKind::Mis) {
-        std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), static_cast<uint8_t>(1));
+        std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMatch);
         std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), true);
         return;
     }
@@ -128,7 +128,7 @@ inline void BiallelicEmissionAdapter::build_match_mask(const SiteView& view,
         return;
     }
 
-    std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), static_cast<uint8_t>(0));
+    std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMismatch);
     std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), false);
 
     for (unsigned int k = 0; k < n_cond_haps; ++k) {
@@ -137,7 +137,7 @@ inline void BiallelicEmissionAdapter::build_match_mask(const SiteView& view,
         const std::size_t base = static_cast<std::size_t>(k) * HAP_NUMBER;
         for (int h = 0; h < HAP_NUMBER; ++h) {
             const bool match = (donor_code == view.lane_class[h]);
-            mask.by_donor_lane[base + h] = static_cast<uint8_t>(match);
+            mask.by_donor_lane[base + h] = match ? MatchMask::kMatch : MatchMask::kMismatch;
             mask.any_match_lane[h] = mask.any_match_lane[h] || match;
         }
     }
@@ -224,19 +224,19 @@ inline void SupersiteEmissionAdapter::build_match_mask(const SiteView& view,
     mask.resize(total_entries);
 
     if (view.emit_kind == EmitKind::Mis || !view.supersite) {
-        std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), static_cast<uint8_t>(1));
+        std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMatch);
         std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), true);
         return;
     }
 
     if (!panel_codes_ || !cond_idx_) {
-        std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), static_cast<uint8_t>(0));
+        std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMismatch);
         std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), false);
         return;
     }
 
     const SuperSite& ss = *view.supersite;
-    std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), static_cast<uint8_t>(0));
+    std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMismatch);
     std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), false);
 
     const bool use_split = use_anchor_split_semantics && view.anchor_class != 0;
@@ -251,13 +251,13 @@ inline void SupersiteEmissionAdapter::build_match_mask(const SiteView& view,
             for (int h = 0; h < HAP_NUMBER; ++h) {
                 const uint8_t expected_flag = (view.lane_class[h] == view.anchor_class) ? 1u : 0u;
                 const bool match = (donor_alt_flag == expected_flag);
-                mask.by_donor_lane[base + h] = static_cast<uint8_t>(match);
+                mask.by_donor_lane[base + h] = match ? MatchMask::kMatch : MatchMask::kMismatch;
                 mask.any_match_lane[h] = mask.any_match_lane[h] || match;
             }
         } else {
             for (int h = 0; h < HAP_NUMBER; ++h) {
                 const bool match = (donor_code == view.lane_class[h]);
-                mask.by_donor_lane[base + h] = static_cast<uint8_t>(match);
+                mask.by_donor_lane[base + h] = match ? MatchMask::kMatch : MatchMask::kMismatch;
                 mask.any_match_lane[h] = mask.any_match_lane[h] || match;
             }
         }

@@ -27,6 +27,9 @@ struct SiteView {
 };
 
 struct MatchMask {
+    static constexpr uint8_t kMatch = 0xFFu;
+    static constexpr uint8_t kMismatch = 0x00u;
+
     aligned_vector32<uint8_t> by_donor_lane;
     bool any_match_lane[HAP_NUMBER] = {false};
 
@@ -35,7 +38,7 @@ struct MatchMask {
         : by_donor_lane(total_entries, 0) {}
 
     void resize(std::size_t total_entries) {
-        by_donor_lane.assign(total_entries, 0);
+        by_donor_lane.assign(total_entries, kMismatch);
         std::fill(std::begin(any_match_lane), std::end(any_match_lane), false);
     }
 };

@@ -23,9 +23,11 @@
 #ifndef _HAPLOTYPE_SEGMENT_SINGLE_H
 #define _HAPLOTYPE_SEGMENT_SINGLE_H
 
+#include <algorithm>
 #include <utils/otools.h>
 #include <objects/compute_job.h>
 #include <objects/hmm_parameters.h>
+#include <models/site_emission_types.h>
 #include <models/super_site_macros.h>
 
 #include <immintrin.h>
@@ -97,10 +99,14 @@ private:
 	aligned_vector32<float> ss_emissions_h1;
 	std::vector<bool> ss_cached; // Track which supersites have cached donor codes
 
+	// EMISSION HELPERS
+	MatchMask init_match_mask;
+
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
 	void INIT_AMB();
 	void INIT_MIS();
+	void INIT_FROM_MASK(const MatchMask& mask, float mismatch_penalty);
 	bool RUN_HOM(char);
 	void RUN_AMB();
 	void RUN_MIS();
@@ -561,6 +567,28 @@ void haplotype_segment_single::SS_COLLAPSE_MIS() {
 
 
 inline
+void haplotype_segment_single::INIT_FROM_MASK(const MatchMask& mask, float mismatch_penalty) {
+	const __m256 match_vec = _mm256_set1_ps(1.0f);
+	const __m256 mismatch_vec = _mm256_set1_ps(mismatch_penalty);
+	__m256 sum = _mm256_set1_ps(0.0f);
+	const __m256i zero = _mm256_setzero_si256();
+	const uint8_t* mask_data = mask.by_donor_lane.data();
+
+	for (unsigned int k = 0, idx = 0; k < n_cond_haps; ++k, idx += HAP_NUMBER) {
+		__m128i mask_u8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(mask_data + idx));
+		__m256i mask_epi32 = _mm256_cvtepu8_epi32(mask_u8);
+		__m256i sign_mask = _mm256_cmpgt_epi32(mask_epi32, zero);
+		__m256 emit = _mm256_blendv_ps(mismatch_vec, match_vec, _mm256_castsi256_ps(sign_mask));
+		sum = _mm256_add_ps(sum, emit);
+		_mm256_store_ps(&prob[idx], emit);
+	}
+
+	_mm256_store_ps(&probSumH[0], sum);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+}
+
+
+inline
 void haplotype_segment_single::INIT_HOM() {
     // Supersite dispatcher
     int ss_idx = -1;
@@ -585,16 +613,21 @@ void haplotype_segment_single::INIT_HOM() {
     }
     
     // Biallelic path
-    bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-    __m256 _sum = _mm256_set1_ps(0.0f);
-    for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-        bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256 _prob = _mm256_set1_ps((ag==ah)?1.0f:M.ed/M.ee);
-        _sum = _mm256_add_ps(_sum, _prob);
-        _mm256_store_ps(&prob[i], _prob);
+    const bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
+    init_match_mask.resize(static_cast<std::size_t>(n_cond_haps) * HAP_NUMBER);
+    uint8_t* mask_ptr = init_match_mask.by_donor_lane.data();
+    for (unsigned int k = 0; k < n_cond_haps; ++k) {
+        const bool ah = Hvar.get(curr_rel_locus + curr_rel_locus_offset, k);
+        const bool is_match = (ag == ah);
+        const uint8_t value = is_match ? MatchMask::kMatch : MatchMask::kMismatch;
+        std::fill_n(mask_ptr + static_cast<std::size_t>(k) * HAP_NUMBER, HAP_NUMBER, value);
+        if (is_match) {
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                init_match_mask.any_match_lane[h] = true;
+            }
+        }
     }
-    _mm256_store_ps(&probSumH[0], _sum);
-    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
 }
 
 inline
@@ -723,21 +756,23 @@ void haplotype_segment_single::INIT_AMB() {
     }
     
     // Biallelic path
-    unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
-    for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0f;
-        g1[h] = HAP_GET(amb_code,h)?1.0f:M.ed/M.ee;
+    unsigned char amb_code = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+                             ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+    init_match_mask.resize(static_cast<std::size_t>(n_cond_haps) * HAP_NUMBER);
+    uint8_t* mask_ptr = init_match_mask.by_donor_lane.data();
+    for (unsigned int k = 0; k < n_cond_haps; ++k) {
+        const bool donor_alt = Hvar.get(curr_rel_locus + curr_rel_locus_offset, k);
+        const uint8_t donor_code = donor_alt ? 1u : 0u;
+        const std::size_t base = static_cast<std::size_t>(k) * HAP_NUMBER;
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            const bool lane_wants_alt = ((amb_code >> h) & 1U) != 0;
+            const uint8_t expected = lane_wants_alt ? 1u : 0u;
+            const bool match = (donor_code == expected);
+            mask_ptr[base + h] = match ? MatchMask::kMatch : MatchMask::kMismatch;
+            init_match_mask.any_match_lane[h] = init_match_mask.any_match_lane[h] || match;
+        }
     }
-	__m256 _sum = _mm256_set1_ps(0.0f);
-	__m256 _emit[2]; _emit[0] = _mm256_loadu_ps(&g0[0]); _emit[1] = _mm256_loadu_ps(&g1[0]);
-	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-		bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-		__m256 _prob = _emit[ah];
-		_sum = _mm256_add_ps(_sum, _prob);
-		_mm256_store_ps(&prob[i], _prob);
-	}
-	_mm256_store_ps(&probSumH[0], _sum);
-	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
 }
 
 inline

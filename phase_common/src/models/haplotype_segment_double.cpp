@@ -91,6 +91,7 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
 		AlphaMissing = vector < aligned_vector32 < double > > (n_missing, aligned_vector32 < double > (HAP_NUMBER * n_cond_haps, 0.0));
 		AlphaSumMissing = vector < aligned_vector32 < double > > (n_missing, aligned_vector32 < double > (HAP_NUMBER, 0.0));
 	}
+	init_match_mask.resize(static_cast<std::size_t>(n_cond_haps) * HAP_NUMBER);
 	//Cache efficient data transfer for conditioning haplotypes
 	curr_rel_locus_offset = Hhap.subset(H, idxH, locus_first, locus_last);
 	Hvar.allocateFast(Hhap.n_cols, Hhap.n_rows);
