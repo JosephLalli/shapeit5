@@ -133,10 +133,17 @@ static void compute_t_from_cm(hmm_parameters& M) {
     M.nt.assign(n - 1, 0.0f);
     for (int l = 1; l < n; ++l) {
         float dist_cm = M.cm[l] - M.cm[l - 1];
-        if (dist_cm <= 1e-7f) dist_cm = 1e-7f;  // clamp like production code
-        float tval = -1.0f * expm1f(-0.04f * static_cast<float>(M.Neff) * dist_cm / static_cast<float>(M.Nhap));
-        M.t[l - 1] = tval;
-        M.nt[l - 1] = 1.0f - tval;
+        // Match production behavior: identical map positions → t=0, nt=1.
+        // Only clamp tiny positive distances.
+        if (dist_cm <= 0.0f) {
+            M.t[l - 1] = 0.0f;
+            M.nt[l - 1] = 1.0f;
+        } else {
+            if (dist_cm < 1e-7f) dist_cm = 1e-7f;
+            float tval = -1.0f * expm1f(-0.04f * static_cast<float>(M.Neff) * dist_cm / static_cast<float>(M.Nhap));
+            M.t[l - 1] = tval;
+            M.nt[l - 1] = 1.0f - tval;
+        }
     }
 }
 
@@ -515,7 +522,21 @@ int main() {
                 }
             }
         }
-        std::cout << "  Anchor " << a << ": max_norm_post_diff=" << max_norm_diff << std::endl;
+        // Also compare raw prob and probSumH diffs at anchor window end
+        double max_prob_abs = 0.0, max_sumH_abs = 0.0;
+        if (fa5.prob.size() == fa10.prob.size()) {
+            for (size_t i = 0; i < fa5.prob.size(); ++i) {
+                max_prob_abs = std::max(max_prob_abs, std::fabs(fa5.prob[i] - fa10.prob[i]));
+            }
+        }
+        if (fa5.probSumH.size() == fa10.probSumH.size()) {
+            for (size_t i = 0; i < fa5.probSumH.size(); ++i) {
+                max_sumH_abs = std::max(max_sumH_abs, std::fabs(fa5.probSumH[i] - fa10.probSumH[i]));
+            }
+        }
+        std::cout << "  Anchor " << a << ": max_norm_post_diff=" << max_norm_diff
+                  << " max_abs_prob_diff=" << max_prob_abs
+                  << " max_abs_sumH_diff=" << max_sumH_abs << std::endl;
 
         // Detailed lane expectation and donor flag instrumentation at this anchor
         {
@@ -535,11 +556,18 @@ int main() {
             SiteView v10{};
             bial5.build_view(locus5, amb_idx5, v5);
             bool has_ss = ss10.build_view(locus10, amb_idx10, v10);
+            // Ambiguous index parity at this anchor
+            std::cout << "    amb_idx parity: 5-var=" << amb_idx5 << " 10-var=" << amb_idx10 << "\n";
+            unsigned char amb5 = (amb_idx5 >= 0 && amb_idx5 < (int)G5.Ambiguous.size()) ? G5.Ambiguous[amb_idx5] : 0u;
+            unsigned char amb10 = (amb_idx10 >= 0 && amb_idx10 < (int)G10.Ambiguous.size()) ? G10.Ambiguous[amb_idx10] : 0u;
+            std::cout << "    Ambiguous bytes: amb5=" << (int)amb5 << " amb10=" << (int)amb10 << "\n";
             std::cout << "    Bial lane exp (0/1):";
             for (int h = 0; h < HAP_NUMBER; ++h) std::cout << " " << (int)v5.lane_class[h];
             std::cout << "\n";
             if (has_ss && v10.supersite) {
                 int anchor_class = (int)v10.anchor_class;
+                int emit_kind10 = (int)v10.emit_kind;
+                std::cout << "    SS emit_kind=" << emit_kind10 << "\n";
                 std::cout << "    SS anchor_class=" << anchor_class << " lane exp_is_anchor (0/1):";
                 for (int h = 0; h < HAP_NUMBER; ++h) {
                     int exp_is_alt = (v10.lane_class[h] == v10.anchor_class) ? 1 : 0;
@@ -553,6 +581,10 @@ int main() {
                     std::cout << " " << (((amb10 >> h) & 1U) ? 1 : 0);
                 }
                 std::cout << "\n";
+                // Print HOM expected flag used under split semantics
+                int hom_expected = (v10.sample_class0 == v10.anchor_class) ? 1 : 0;
+                std::cout << "    SS hom_expected (split semantics) = " << hom_expected << " (sample_class0="
+                          << (int)v10.sample_class0 << ")\n";
                 std::cout << "    Donor flags (bial ALT at 5-var vs SS anchor-ALT at 10-var):\n      k  bialALT  ssALT\n";
                 for (unsigned int k = 0; k < H5.n_hap; ++k) {
                     unsigned int gh = idxH[k];
@@ -581,11 +613,77 @@ int main() {
                                   << (int)m10.by_donor_lane[i] << "\n";
                     }
                 }
+
+                // For donor 0, print per-lane mask flags and corresponding alpha values (anchor-only windows)
+                std::cout << "    Donor 0 per-lane: flag5 flag10  alpha5 alpha10\n";
+                size_t base = 0;
+                for (int h = 0; h < HAP_NUMBER; ++h) {
+                    uint8_t f5 = m5.by_donor_lane[base + h];
+                    uint8_t f10 = m10.by_donor_lane[base + h];
+                    double a5 = (base + h) < fa5.prob.size() ? fa5.prob[base + h] : NAN;
+                    double a10 = (base + h) < fa10.prob.size() ? fa10.prob[base + h] : NAN;
+                    std::cout << "      lane " << h << "    " << (int)f5 << "     " << (int)f10
+                              << "   " << a5 << "  " << a10 << "\n";
+                }
+                // Also print donor×lane mask grid for first few donors to visualize lane ordering
+                unsigned int donors_to_show = std::min<unsigned int>(H5.n_hap, 4);
+                std::cout << "    Donor×lane mask grid (showing first " << donors_to_show << ")\n";
+                for (unsigned int k = 0; k < donors_to_show; ++k) {
+                    size_t b = static_cast<size_t>(k) * HAP_NUMBER;
+                    std::cout << "      donor " << k << ":";
+                    for (int h = 0; h < HAP_NUMBER; ++h) std::cout << " " << (int)m5.by_donor_lane[b + h];
+                    std::cout << "    |    ";
+                    for (int h = 0; h < HAP_NUMBER; ++h) std::cout << " " << (int)m10.by_donor_lane[b + h];
+                    std::cout << "\n";
+                }
             } else {
                 std::cout << "    [WARN] Supersite view not available at locus10=" << locus10 << "\n";
             }
         }
         if (max_norm_diff > 1e-7) anchor_parity_ok = false;
+
+        // Stepwise parity: run windows ending at each locus up to this anchor
+        std::cout << "    Stepwise parity to anchor " << a << "..." << std::endl;
+        bool step_diverged = false;
+        for (int l = 0; l <= a; ++l) {
+            window Wst5 = make_full_window(l);
+            window Wst10 = make_full_window(2 * l);
+            FBResult fst5 = run_forward_only(G5, H5, M5, Wst5, idxH, &ctx5);
+            FBResult fst10 = run_forward_only(G10, H10, M10, Wst10, idxH, &ctx10);
+            double max_step_norm = 0.0;
+            for (unsigned int k = 0, idx = 0; k < H5.n_hap; ++k, idx += HAP_NUMBER) {
+                for (int h = 0; h < HAP_NUMBER; ++h) {
+                    double d5 = fst5.probSumH[h];
+                    double d10 = fst10.probSumH[h];
+                    if (d5 > 0.0 && d10 > 0.0) {
+                        double p5 = fst5.prob[idx + h] / d5;
+                        double p10 = fst10.prob[idx + h] / d10;
+                        max_step_norm = std::max(max_step_norm, std::fabs(p5 - p10));
+                    }
+                }
+            }
+            if (max_step_norm > 1e-7) {
+                std::cout << "      First divergence at 5-var locus=" << l << " vs 10-var locus=" << (2 * l)
+                          << " max_norm_diff=" << max_step_norm << std::endl;
+                // Dump first 16 donor×lane alpha entries and per-lane sums to diagnose
+                size_t dump_count = std::min<size_t>(16, fst5.prob.size());
+                std::cout << "        Alpha dump (first " << dump_count << ") index  val5  val10\n";
+                for (size_t i = 0; i < dump_count; ++i) {
+                    double v5 = (i < fst5.prob.size()) ? fst5.prob[i] : NAN;
+                    double v10 = (i < fst10.prob.size()) ? fst10.prob[i] : NAN;
+                    std::cout << "          " << i << "  " << v5 << "  " << v10 << "\n";
+                }
+                std::cout << "        probSumH (lanes 0..7)  val5  val10\n";
+                for (int h = 0; h < HAP_NUMBER; ++h) {
+                    double s5 = (h < (int)fst5.probSumH.size()) ? fst5.probSumH[h] : NAN;
+                    double s10 = (h < (int)fst10.probSumH.size()) ? fst10.probSumH[h] : NAN;
+                    std::cout << "          lane " << h << "  " << s5 << "  " << s10 << "\n";
+                }
+                step_diverged = true;
+                break;
+            }
+        }
+        if (!step_diverged) std::cout << "      Stepwise parity holds through anchor" << std::endl;
     }
 
     // =====================================================================

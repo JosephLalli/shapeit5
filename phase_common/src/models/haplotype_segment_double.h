@@ -148,6 +148,24 @@ private:
         _mm256_store_pd(&probSumH[0], sum0);
         _mm256_store_pd(&probSumH[4], sum1);
         probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
+        // Test-only trace to verify per-lane mask mapping at INIT
+        const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+        if (tr && tr[0] != '\0' && tr[0] != '0') {
+            if (curr_rel_locus == 0 && !mask.by_donor_lane.empty()) {
+                std::fprintf(stdout, "INIT_FROM_MASK(double): locus=%d donor0 mask:", curr_abs_locus);
+                for (int h = 0; h < HAP_NUMBER; ++h) {
+                    uint8_t f = mask.by_donor_lane[h];
+                    std::fprintf(stdout, " %u", (unsigned)f);
+                }
+                std::fprintf(stdout, "  prob[donor0]:");
+                for (int h = 0; h < 4; ++h) std::fprintf(stdout, " %.6g", prob[h]);
+                for (int h = 4; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6g", prob[h]);
+                std::fprintf(stdout, "  probSumH:");
+                for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6g", probSumH[h]);
+                std::fprintf(stdout, "\n");
+            }
+        }
     }
     void COLLAPSE_FROM_MASK(const MatchMask& mask, double mismatch_penalty) {
         const __m256d match_vec = _mm256_set1_pd(1.0);
