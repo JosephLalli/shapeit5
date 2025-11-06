@@ -74,6 +74,8 @@ void buildSuperSites(
             ss.panel_offset = current_panel_offset;
             ss.var_start = static_cast<uint32_t>(super_site_var_index_out.size());
             ss.var_count = n_alts;
+            ss.n_classes = static_cast<uint8_t>(1 + n_alts);
+            ss.class_prob_offset = 0;
 
             // Record member variant indices and mark mappings
             for (uint8_t ai = 0; ai < n_alts; ++ai) {
@@ -112,6 +114,18 @@ void buildSuperSites(
             current_panel_offset += n_bytes;
 
             super_sites_out.push_back(ss);
+        }
+    }
+
+    // Diagnostics: summarize build when tracing is enabled
+    const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+    if (tr && tr[0] != '\0' && tr[0] != '0') {
+        std::fprintf(stdout, "buildSuperSites: n_sites=%zu n_hap=%lu n_supersites=%zu packed_bytes=%zu\n",
+                     (size_t)V.size(), H.n_hap, super_sites_out.size(), packed_allele_codes_out.size());
+        for (size_t i = 0; i < super_sites_out.size(); ++i) {
+            const SuperSite& s = super_sites_out[i];
+            std::fprintf(stdout, "  ss[%zu]: anchor=%u var_count=%u panel_off=%u\n",
+                         i, s.global_site_id, (unsigned)s.var_count, (unsigned)s.panel_offset);
         }
     }
 }
