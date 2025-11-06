@@ -40,6 +40,7 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_anchor_gating \
     $(bindir)/test_supersite_backward_sc \
     $(bindir)/test_supersite_mutual_exclusivity_make \
+    $(bindir)/test_supersite_backward_projection \
     $(bindir)/test_supersite_boundary_conditions \
     $(bindir)/test_supersite_float_double_parity \
     $(bindir)/test_supersite_class_microcases \
@@ -86,6 +87,9 @@ $(bindir)/test_supersite_backward_sc: $(objdir)/test_supersite_backward_sc.o $(P
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_supersite_mutual_exclusivity_make: $(objdir)/test_supersite_mutual_exclusivity_make.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_supersite_backward_projection: $(objdir)/test_supersite_backward_projection.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_supersite_boundary_conditions: $(objdir)/test_supersite_boundary_conditions.o $(PHASE_COMMON_OBJS)
