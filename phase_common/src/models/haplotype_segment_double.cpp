@@ -155,6 +155,14 @@ void haplotype_segment_double::forward() {
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
 	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx);
 
+    const char* tr_d = std::getenv("SHAPEIT5_TEST_TRACE");
+    if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+        std::fprintf(stdout,
+            "D.FWD_start loci=[%d,%d] seg=[%d,%d] n_cond_haps=%u prob_size=%zu probSumH_size=%zu ptr_prob=%p ptr_probSumH=%p\n",
+            locus_first, locus_last, segment_first, segment_last, n_cond_haps,
+            prob.size(), probSumH.size(), (void*)prob.data(), (void*)probSumH.data());
+    }
+
 	for (curr_abs_locus = locus_first ; curr_abs_locus <= locus_last ; curr_abs_locus++) {
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
@@ -309,15 +317,23 @@ void haplotype_segment_double::forward() {
 		AlphaSumSum[curr_segment_index - segment_first] = probSumT;
 		AlphaLocus[curr_segment_index - segment_first] = prev_abs_locus;
 	}
-	if (data_mis) {
-		AlphaMissing[curr_rel_missing] = prob;
-		AlphaSumMissing[curr_rel_missing] = probSumH;
-		if (is_anchor) {
-			int map_i = curr_abs_locus - locus_first;
-			if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) missing_index_by_locus[map_i] = curr_rel_missing;
-		}
-		curr_abs_missing ++;
-	}
+        if (data_mis) {
+            if (curr_rel_missing < 0 || curr_rel_missing >= (int)AlphaMissing.size()) {
+                const char* tr_d = std::getenv("SHAPEIT5_TEST_TRACE");
+                if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+                    std::fprintf(stdout, "D.FWD store AlphaMissing OOB: rel_missing=%d size=%zu locus=%d\n",
+                                 curr_rel_missing, AlphaMissing.size(), curr_abs_locus);
+                }
+                assert(false && "AlphaMissing index out of bounds");
+            }
+            AlphaMissing[curr_rel_missing] = prob;
+            AlphaSumMissing[curr_rel_missing] = probSumH;
+            if (is_anchor) {
+                int map_i = curr_abs_locus - locus_first;
+                if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) missing_index_by_locus[map_i] = curr_rel_missing;
+            }
+            curr_abs_missing ++;
+        }
 
 	curr_segment_locus ++;
 	curr_abs_ambiguous += data_amb;

@@ -120,6 +120,14 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
             ss_cached.resize(super_sites->size(), false);
         }
     }
+
+    // Test-only diagnostics
+    if (supersite_trace_enabled()) {
+        std::fprintf(stdout,
+            "HS_ctor seg=[%d,%d] loci=[%d,%d] n_cond_haps=%u n_missing=%u supersites=%s panel_codes=%s cond_idx=%s\n",
+            segment_first, segment_last, locus_first, locus_last, n_cond_haps, n_missing,
+            (super_sites?"Y":"N"), (panel_codes?"Y":"N"), (cond_idx?"Y":"N"));
+    }
 }
 
 haplotype_segment_single::~haplotype_segment_single() {
@@ -151,24 +159,37 @@ haplotype_segment_single::~haplotype_segment_single() {
 }
 
 void haplotype_segment_single::forward() {
+    if (supersite_trace_enabled()) std::fprintf(stderr, "FWD0\n");
 	curr_segment_index = segment_first;
 	curr_segment_locus = 0;
 	curr_abs_ambiguous = ambiguous_first;
 	curr_abs_missing = missing_first;
 	prev_abs_locus = locus_first;
+    if (supersite_trace_enabled()) std::fprintf(stderr, "FWD1 seg=%d lf=%d ll=%d\n", curr_segment_index, locus_first, locus_last);
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
 	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx);
+    if (supersite_trace_enabled()) std::fprintf(stderr, "FWD2 after adapters\n");
 
-	for (curr_abs_locus = locus_first ; curr_abs_locus <= locus_last ; curr_abs_locus++) {
+    if (supersite_trace_enabled()) {
+        std::fprintf(stdout,
+            "FWD_start loci=[%d,%d] seg=[%d,%d] n_cond_haps=%u supersites_enabled=%d prob_size=%zu probSumH=%zu\n",
+            locus_first, locus_last, segment_first, segment_last, n_cond_haps, (int)supersites_enabled,
+            prob.size(), (size_t)HAP_NUMBER);
+    }
+
+    for (curr_abs_locus = locus_first ; curr_abs_locus <= locus_last ; curr_abs_locus++) {
+        if (supersite_trace_enabled()) std::fprintf(stderr, "FWD3 loop enter abs=%d rel_off=%d\n", curr_abs_locus, curr_rel_locus_offset);
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
 		bool update_prev_locus = true;
 		char rare_allele = M.rare_allele[curr_abs_locus];
 
 		SiteView site_view{};
+        if (supersite_trace_enabled()) std::fprintf(stderr, "FWD4 before build_view supersites_enabled=%d\n", (int)supersites_enabled);
 		bool has_supersite = supersites_enabled && supersite_adapter.build_view(curr_abs_locus, curr_abs_ambiguous, site_view);
+        if (supersite_trace_enabled()) std::fprintf(stderr, "FWD5 after build_view has_ss=%d kind=%d emit=%d\n", (int)has_supersite, (int)site_view.kind, (int)site_view.emit_kind);
 		if (!has_supersite) {
 			bial_adapter.build_view(curr_abs_locus, curr_abs_ambiguous, site_view);
 		}

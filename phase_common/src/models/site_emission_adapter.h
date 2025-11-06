@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include <cassert>
+#include <cstdio>
 
 #include <containers/bitmatrix.h>
 #include <models/site_emission_types.h>
@@ -274,17 +276,33 @@ inline void SupersiteEmissionAdapter::build_match_mask(const SiteView& view,
     }
 
     const SuperSite& ss = *view.supersite;
+    // Parity mode (anchor-split) requires valid pointers
+    if (use_anchor_split_semantics) {
+        assert(panel_codes_ != nullptr && "panel_codes must be set when using anchor-split semantics");
+        assert(cond_idx_ != nullptr && "cond_idx must be set when using anchor-split semantics");
+    }
     std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMismatch);
     std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), false);
 
     const bool use_split = use_anchor_split_semantics && view.anchor_class != 0;
+    // Optional trace
+    const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+    if (tr && tr[0] != '\0' && tr[0] != '0') {
+        std::fprintf(stdout,
+                     "build_match_mask locus=%d ss_idx=%d use_split=%d anchor_class=%u emit=%d amb_mask=%u n_cond_haps=%u\n",
+                     view.locus, view.supersite_index, (int)use_split, (unsigned)view.anchor_class,
+                     (int)view.emit_kind, (unsigned)view.amb_mask, n_cond_haps);
+    }
 
     for (unsigned int k = 0; k < n_cond_haps; ++k) {
         const unsigned int hap_idx = (*cond_idx_)[k];
         const uint8_t donor_code = unpackSuperSiteCode(panel_codes_, ss.panel_offset, hap_idx);
         const std::size_t base = static_cast<std::size_t>(k) * HAP_NUMBER;
+        if (tr && tr[0] != '\0' && tr[0] != '0') {
+            std::fprintf(stdout, "  donor k=%u hap_idx=%u code=%u\n", k, hap_idx, (unsigned)donor_code);
+        }
 
-    if (use_split) {
+        if (use_split) {
             const uint8_t donor_alt_flag = (donor_code == view.anchor_class) ? 1u : 0u;
             // Determine expected flag per lane: for AMB, use amb_mask; for HOM, use constant from sample_class0
             const bool is_amb = (view.emit_kind == EmitKind::Amb);

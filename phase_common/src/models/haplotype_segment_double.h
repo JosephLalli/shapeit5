@@ -24,6 +24,7 @@
 #define _HAPLOTYPE_SEGMENT_DOUBLE_H
 
 #include <algorithm>
+#include <cstdio>
 #include <utils/otools.h>
 #include <objects/compute_job.h>
 #include <objects/hmm_parameters.h>
@@ -105,12 +106,71 @@ private:
 	// EMISSION HELPERS
 	MatchMask init_match_mask;
 
+	inline bool debugTraceEnabled() const {
+		const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+		return tr && tr[0] != '\0' && tr[0] != '0';
+	}
+	inline void debugCheckProbBounds(unsigned int idx, const char* label) {
+		if (idx + HAP_NUMBER > prob.size()) {
+			if (debugTraceEnabled()) {
+				std::fprintf(stdout, "[DEBUG][double] %s OOB idx=%u prob_size=%zu\n", label, idx, prob.size());
+			}
+			assert(false && "prob index out of bounds");
+		}
+	}
+
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
 	void INIT_AMB();
 	void INIT_MIS();
-    void INIT_FROM_MASK(const MatchMask& mask, double mismatch_penalty);
+    void INIT_FROM_MASK(const MatchMask& mask, double mismatch_penalty) {
+        const char* tr_d = std::getenv("SHAPEIT5_TEST_TRACE");
+        if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+            std::fprintf(stdout, "D.INIT_FROM_MASK: n_cond_haps=%u prob_size=%zu mask_size=%zu\n",
+                         n_cond_haps, prob.size(), mask.by_donor_lane.size());
+        }
+        assert(prob.size() == static_cast<size_t>(HAP_NUMBER) * n_cond_haps);
+        assert(probSumH.size() == static_cast<size_t>(HAP_NUMBER));
+        assert(mask.by_donor_lane.size() >= static_cast<size_t>(n_cond_haps) * HAP_NUMBER);
+        const __m256d match_vec = _mm256_set1_pd(1.0);
+        const __m256d mismatch_vec = _mm256_set1_pd(mismatch_penalty);
+        __m256d sum0 = _mm256_set1_pd(0.0);
+        __m256d sum1 = _mm256_set1_pd(0.0);
+        const __m256i zero = _mm256_setzero_si256();
+        const uint8_t* mask_data = mask.by_donor_lane.data();
+
+        for (unsigned int k = 0, idx = 0; k < n_cond_haps; ++k, idx += HAP_NUMBER) {
+            debugCheckProbBounds(idx, "INIT_FROM_MASK");
+            __m128i mask_u8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(mask_data + idx));
+            __m256i mask_epi32 = _mm256_cvtepu8_epi32(mask_u8);
+            __m128i mask_lo_128 = _mm256_castsi256_si128(mask_epi32);
+            __m128i mask_hi_128 = _mm256_extracti128_si256(mask_epi32, 1);
+            __m256i mask_lo_epi64 = _mm256_cvtepi32_epi64(mask_lo_128);
+            __m256i mask_hi_epi64 = _mm256_cvtepi32_epi64(mask_hi_128);
+            __m256i sign_lo = _mm256_cmpgt_epi64(mask_lo_epi64, zero);
+            __m256i sign_hi = _mm256_cmpgt_epi64(mask_hi_epi64, zero);
+            __m256d emit0 = _mm256_blendv_pd(mismatch_vec, match_vec, _mm256_castsi256_pd(sign_lo));
+            __m256d emit1 = _mm256_blendv_pd(mismatch_vec, match_vec, _mm256_castsi256_pd(sign_hi));
+            sum0 = _mm256_add_pd(sum0, emit0);
+            sum1 = _mm256_add_pd(sum1, emit1);
+            _mm256_store_pd(&prob[idx], emit0);
+            _mm256_store_pd(&prob[idx + 4], emit1);
+            if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+                std::fprintf(stdout, "  k=%u idx=%u init store prob[%u..%u] ok\n", k, idx, idx, idx+7);
+            }
+        }
+
+        _mm256_store_pd(&probSumH[0], sum0);
+        _mm256_store_pd(&probSumH[4], sum1);
+        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    }
     void RUN_FROM_MASK(const MatchMask& mask, double mismatch_penalty) {
+        const char* tr_d = std::getenv("SHAPEIT5_TEST_TRACE");
+        if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+            std::fprintf(stdout, "D.RUN_FROM_MASK: n_cond_haps=%u prob_size=%zu mask_size=%zu\n",
+                         n_cond_haps, prob.size(), mask.by_donor_lane.size());
+        }
+        assert(mask.by_donor_lane.size() >= static_cast<size_t>(n_cond_haps) * HAP_NUMBER);
         const __m256d match_vec = _mm256_set1_pd(1.0);
         const __m256d mismatch_vec = _mm256_set1_pd(mismatch_penalty);
         __m256d sum0 = _mm256_set1_pd(0.0);
@@ -124,6 +184,7 @@ private:
         const __m256i zero = _mm256_setzero_si256();
         const uint8_t* mask_data = mask.by_donor_lane.data();
         for (unsigned int k = 0, idx = 0; k < n_cond_haps; ++k, idx += HAP_NUMBER) {
+            debugCheckProbBounds(idx, "RUN_FROM_MASK");
             __m256d p0 = _mm256_load_pd(&prob[idx]);
             __m256d p1 = _mm256_load_pd(&prob[idx+4]);
             p0 = _mm256_fmadd_pd(p0, ntv, tFreq0);
@@ -144,6 +205,9 @@ private:
             sum1 = _mm256_add_pd(sum1, p1);
             _mm256_store_pd(&prob[idx], p0);
             _mm256_store_pd(&prob[idx+4], p1);
+            if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+                std::fprintf(stdout, "  k=%u idx=%u run store prob[%u..%u] ok\n", k, idx, idx, idx+7);
+            }
         }
         _mm256_store_pd(&probSumH[0], sum0);
         _mm256_store_pd(&probSumH[4], sum1);
@@ -168,6 +232,12 @@ private:
         }
     }
     void COLLAPSE_FROM_MASK(const MatchMask& mask, double mismatch_penalty) {
+        const char* tr_d = std::getenv("SHAPEIT5_TEST_TRACE");
+        if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+            std::fprintf(stdout, "D.COLLAPSE_FROM_MASK: n_cond_haps=%u prob_size=%zu mask_size=%zu\n",
+                         n_cond_haps, prob.size(), mask.by_donor_lane.size());
+        }
+        assert(mask.by_donor_lane.size() >= static_cast<size_t>(n_cond_haps) * HAP_NUMBER);
         const __m256d match_vec = _mm256_set1_pd(1.0);
         const __m256d mismatch_vec = _mm256_set1_pd(mismatch_penalty);
         __m256d sum0 = _mm256_set1_pd(0.0);
@@ -177,6 +247,7 @@ private:
         const __m256i zero = _mm256_setzero_si256();
         const uint8_t* mask_data = mask.by_donor_lane.data();
         for (unsigned int k = 0, idx = 0; k < n_cond_haps; ++k, idx += HAP_NUMBER) {
+            debugCheckProbBounds(idx, "COLLAPSE_FROM_MASK");
             __m256d p0 = _mm256_set1_pd(probSumK[k]);
             __m256d p1 = _mm256_set1_pd(probSumK[k]);
             p0 = _mm256_fmadd_pd(p0, ntv, tFreq);
@@ -197,6 +268,9 @@ private:
             sum1 = _mm256_add_pd(sum1, p1);
             _mm256_store_pd(&prob[idx], p0);
             _mm256_store_pd(&prob[idx+4], p1);
+            if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+                std::fprintf(stdout, "  k=%u idx=%u collapse store prob[%u..%u] ok\n", k, idx, idx, idx+7);
+            }
         }
         _mm256_store_pd(&probSumH[0], sum0);
         _mm256_store_pd(&probSumH[4], sum1);
@@ -331,14 +405,15 @@ void haplotype_segment_double::SS_INIT_HOM() {
     ss_load_cond_codes(ss, ss_idx);
     
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
-    __m256d _sum0 = _mm256_set1_pd(0.0);
-    __m256d _sum1 = _mm256_set1_pd(0.0);
-    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
-        __m256d _prob0 = _emit;
-        __m256d _prob1 = _emit;
-        _sum0 = _mm256_add_pd(_sum0, _prob0);
-        _sum1 = _mm256_add_pd(_sum1, _prob1);
+	__m256d _sum0 = _mm256_set1_pd(0.0);
+	__m256d _sum1 = _mm256_set1_pd(0.0);
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		debugCheckProbBounds(i, "SS_INIT_HOM");
+		__m256d _emit = _mm256_set1_pd(ss_emissions[k]);
+		__m256d _prob0 = _emit;
+		__m256d _prob1 = _emit;
+		_sum0 = _mm256_add_pd(_sum0, _prob0);
+		_sum1 = _mm256_add_pd(_sum1, _prob1);
         _mm256_store_pd(&prob[i+0], _prob0);
         _mm256_store_pd(&prob[i+4], _prob1);
     }
@@ -392,12 +467,13 @@ void haplotype_segment_double::SS_INIT_AMB() {
         alignas(32) int exp_is_alt[HAP_NUMBER];
         for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = ((amb_mask >> h) & 1U) ? 1 : 0;
         
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
-            
-            // Create per-lane emissions (process as two 4-lane halves for double precision)
-            alignas(32) double E8[HAP_NUMBER];
-            for (int h = 0; h < HAP_NUMBER; ++h) {
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		debugCheckProbBounds(i, "SS_INIT_AMB");
+		int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+		
+		// Create per-lane emissions (process as two 4-lane halves for double precision)
+		alignas(32) double E8[HAP_NUMBER];
+		for (int h = 0; h < HAP_NUMBER; ++h) {
                 E8[h] = (donor_is_alt == exp_is_alt[h]) ? 1.0 : (M.ed/M.ee);
             }
             
@@ -412,11 +488,12 @@ void haplotype_segment_double::SS_INIT_AMB() {
         }
     } else {
         // Strict 4-bit equality semantics: per-lane comparison
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            int dc = (int)ss_cond_codes[k];
-            
-            // Create per-lane emissions (process as two 4-lane halves for double precision)
-            alignas(32) double E8[HAP_NUMBER];
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		debugCheckProbBounds(i, "SS_INIT_AMB");
+		int dc = (int)ss_cond_codes[k];
+		
+		// Create per-lane emissions (process as two 4-lane halves for double precision)
+		alignas(32) double E8[HAP_NUMBER];
             for (int h = 0; h < HAP_NUMBER; ++h) {
                 E8[h] = (dc == (int)expected_class[h]) ? 1.0 : (M.ed/M.ee);
             }
@@ -457,18 +534,19 @@ bool haplotype_segment_double::SS_RUN_HOM() {
     ss_load_cond_codes(ss, ss_idx);
     
     precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
-    __m256d _sum0 = _mm256_set1_pd(0.0);
-    __m256d _sum1 = _mm256_set1_pd(0.0);
-    __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
-    __m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
-    __m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
-    _tFreq0 = _mm256_mul_pd(_tFreq0, _factor);
-    _tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
-    __m256d _nt = _mm256_set1_pd(nt / probSumT);
-    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
-        __m256d _prob0 = _mm256_load_pd(&prob[i]);
-        __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
+	__m256d _sum0 = _mm256_set1_pd(0.0);
+	__m256d _sum1 = _mm256_set1_pd(0.0);
+	__m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
+	__m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
+	__m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
+	_tFreq0 = _mm256_mul_pd(_tFreq0, _factor);
+	_tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
+	__m256d _nt = _mm256_set1_pd(nt / probSumT);
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		debugCheckProbBounds(i, "SS_RUN_HOM");
+		__m256d _emit = _mm256_set1_pd(ss_emissions[k]);
+		__m256d _prob0 = _mm256_load_pd(&prob[i]);
+		__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
         _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
         _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
         _prob0 = _mm256_mul_pd(_prob0, _emit);
@@ -526,14 +604,15 @@ void haplotype_segment_double::SS_RUN_AMB() {
         if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { anchor_code = (int)ai + 1; break; }
     }
 
-    if (M.ss_anchor_split_emissions) {
-        // Split semantics: per-lane expected ALT at anchor vs donor carries anchor ALT
-        alignas(32) int exp_is_alt[HAP_NUMBER];
-        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
-        
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256d _prob0 = _mm256_load_pd(&prob[i]);
-            __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
+	if (M.ss_anchor_split_emissions) {
+		// Split semantics: per-lane expected ALT at anchor vs donor carries anchor ALT
+		alignas(32) int exp_is_alt[HAP_NUMBER];
+		for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+		
+		for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+			debugCheckProbBounds(i, "SS_RUN_AMB");
+			__m256d _prob0 = _mm256_load_pd(&prob[i]);
+			__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
             _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
             _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
             
@@ -556,11 +635,12 @@ void haplotype_segment_double::SS_RUN_AMB() {
             _mm256_store_pd(&prob[i], _prob0);
             _mm256_store_pd(&prob[i+4], _prob1);
         }
-    } else {
-        // Strict 4-bit equality semantics: per-lane comparison
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            __m256d _prob0 = _mm256_load_pd(&prob[i]);
-            __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
+	} else {
+		// Strict 4-bit equality semantics: per-lane comparison
+		for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+			debugCheckProbBounds(i, "SS_RUN_AMB");
+			__m256d _prob0 = _mm256_load_pd(&prob[i]);
+			__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
             _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
             _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
 
@@ -600,9 +680,10 @@ void haplotype_segment_double::SS_RUN_MIS() {
     _tFreq0 = _mm256_mul_pd(_tFreq0, _factor);
     _tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
-    for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-        __m256d _prob0 = _mm256_load_pd(&prob[i]);
-        __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
+	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+		debugCheckProbBounds(i, "SS_RUN_MIS");
+		__m256d _prob0 = _mm256_load_pd(&prob[i]);
+		__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
         _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
         _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
         _sum0 = _mm256_add_pd(_sum0, _prob0);
@@ -632,10 +713,12 @@ void haplotype_segment_double::SS_COLLAPSE_HOM() {
     __m256d _sum1 = _mm256_set1_pd(0.0);
     __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
-    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
-        __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-        __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		debugCheckProbBounds(i, "SS_COLLAPSE_HOM");
+		__m256d _emit = _mm256_set1_pd(ss_emissions[k]);
+		double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
+		__m256d _prob0 = _mm256_set1_pd(base);
+		__m256d _prob1 = _mm256_set1_pd(base);
         _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
         _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
         _prob0 = _mm256_mul_pd(_prob0, _emit);
@@ -696,10 +779,36 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
     __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
 
-    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		debugCheckProbBounds(i, "SS_COLLAPSE_AMB");
         // Transition: collapse from previous segment boundary
-        __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-        __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
+        // Default: donor-marginal scalar
+        // Optional (env SHAPEIT5_SS_CLASS_MIX=1): seed with per-lane Alpha from previous segment
+        __m256d _prob0, _prob1;
+        bool use_alpha_lanes = false;
+        {
+            static int flag = -1;
+            if (flag < 0) {
+                const char* env = std::getenv("SHAPEIT5_SS_CLASS_MIX");
+                flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+            }
+            use_alpha_lanes = (flag == 1);
+        }
+        if (use_alpha_lanes) {
+            int rel_prev_seg = (curr_segment_index - segment_first) - 1;
+            if (rel_prev_seg >= 0 && rel_prev_seg < (int)Alpha.size()) {
+                _prob0 = _mm256_load_pd(&Alpha[rel_prev_seg][i]);
+                _prob1 = _mm256_load_pd(&Alpha[rel_prev_seg][i+4]);
+            } else {
+                double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
+                _prob0 = _mm256_set1_pd(base);
+                _prob1 = _mm256_set1_pd(base);
+            }
+        } else {
+            double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
+            _prob0 = _mm256_set1_pd(base);
+            _prob1 = _mm256_set1_pd(base);
+        }
         _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
         _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
         
@@ -771,36 +880,7 @@ void haplotype_segment_double::SS_COLLAPSE_MIS() {
 /*****************			HOMOZYGOUS GENOTYPE			************************/
 /*******************************************************************************/
 
-inline
-void haplotype_segment_double::INIT_FROM_MASK(const MatchMask& mask, double mismatch_penalty) {
-	const __m256d match_vec = _mm256_set1_pd(1.0);
-	const __m256d mismatch_vec = _mm256_set1_pd(mismatch_penalty);
-	__m256d sum0 = _mm256_set1_pd(0.0);
-	__m256d sum1 = _mm256_set1_pd(0.0);
-	const __m256i zero = _mm256_setzero_si256();
-	const uint8_t* mask_data = mask.by_donor_lane.data();
-
-	for (unsigned int k = 0, idx = 0; k < n_cond_haps; ++k, idx += HAP_NUMBER) {
-		__m128i mask_u8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(mask_data + idx));
-		__m256i mask_epi32 = _mm256_cvtepu8_epi32(mask_u8);
-		__m128i mask_lo_128 = _mm256_castsi256_si128(mask_epi32);
-		__m128i mask_hi_128 = _mm256_extracti128_si256(mask_epi32, 1);
-		__m256i mask_lo_epi64 = _mm256_cvtepi32_epi64(mask_lo_128);
-		__m256i mask_hi_epi64 = _mm256_cvtepi32_epi64(mask_hi_128);
-		__m256i sign_lo = _mm256_cmpgt_epi64(mask_lo_epi64, zero);
-		__m256i sign_hi = _mm256_cmpgt_epi64(mask_hi_epi64, zero);
-		__m256d emit0 = _mm256_blendv_pd(mismatch_vec, match_vec, _mm256_castsi256_pd(sign_lo));
-		__m256d emit1 = _mm256_blendv_pd(mismatch_vec, match_vec, _mm256_castsi256_pd(sign_hi));
-		sum0 = _mm256_add_pd(sum0, emit0);
-		sum1 = _mm256_add_pd(sum1, emit1);
-		_mm256_store_pd(&prob[idx], emit0);
-		_mm256_store_pd(&prob[idx + 4], emit1);
-	}
-
-	_mm256_store_pd(&probSumH[0], sum0);
-	_mm256_store_pd(&probSumH[4], sum1);
-	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-}
+// (old INIT_FROM_MASK removed in favor of instrumented version)
 
 
 inline
@@ -1155,6 +1235,7 @@ void haplotype_segment_double::RUN_MIS() {
 	_tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
 	__m256d _nt = _mm256_set1_pd(nt / probSumT);
 	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+		debugCheckProbBounds(i, "SS_RUN_MIS");
 		__m256d _prob0 = _mm256_load_pd(&prob[i]);
 		__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
 		_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
@@ -1181,8 +1262,10 @@ void haplotype_segment_double::COLLAPSE_MIS() {
 	    : _mm256_set1_pd(yt / n_cond_haps);
 	__m256d _nt = _mm256_set1_pd(nt / probSumT);
 	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-		__m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-		__m256d _prob1 = _mm256_set1_pd(probSumK[k]);
+		debugCheckProbBounds(i, "SS_COLLAPSE_MIS");
+		double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
+		__m256d _prob0 = _mm256_set1_pd(base);
+		__m256d _prob1 = _mm256_set1_pd(base);
 		_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
 		_prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
 		_sum0 = _mm256_add_pd(_sum0, _prob0);

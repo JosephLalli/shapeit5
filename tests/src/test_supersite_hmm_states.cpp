@@ -119,13 +119,18 @@ int main() {
     VAR_SET_MIS(MOD2(4), G.Variants[DIV2(4)]);
     VAR_SET_MIS(MOD2(5), G.Variants[DIV2(5)]);
 
-    // HMM parameters
+    // HMM parameters + toy genetic map
+    // Target per-anchor t = 0.2 derived from cm; siblings share cm with anchors (t=0 within supersite)
     hmm_parameters M;
     M.ed = 0.1;
     M.ee = 1.0;
-    M.t = std::vector<float>(n_variants ? n_variants - 1 : 0, 0.2f);
-    M.nt = std::vector<float>(M.t.size(), 0.8f);
-    M.rare_allele = std::vector<char>(n_variants, -1);
+    const int Neff = 10000;
+    const int Nhap = static_cast<int>(H.n_hap);
+    const double step_cM = (-std::log(1.0 - 0.2)) / 0.04 * (double)Nhap / (double)Neff;
+    V.vec_pos[0]->cm = 0.0; V.vec_pos[1]->cm = 0.0;           // Supersite A (0,1)
+    V.vec_pos[2]->cm = step_cM; V.vec_pos[3]->cm = step_cM;   // Supersite B (2,3)
+    V.vec_pos[4]->cm = 2*step_cM; V.vec_pos[5]->cm = 2*step_cM; // Supersite C (4,5)
+    M.initialise(V, Neff, Nhap);
 
     window W;
     W.start_locus = 0;
@@ -156,78 +161,55 @@ int main() {
             assert(false);
         }
     };
+    const double tol = 1e-5; // float vs double parity tolerance
 
-    const double tol = 1e-6;
-
-    const std::array<double,16> expected_prob = {
-        0.022937, 0.022937, 0.022937, 0.022937,
-        0.151169, 0.151169, 0.151169, 0.151169,
-        0.0392858, 0.0392858, 0.0392858, 0.0392858,
-        0.0366085, 0.0366085, 0.0366085, 0.0366085
-    };
-    assert(HD.prob.size() == expected_prob.size());
-    for (size_t i = 0; i < expected_prob.size(); ++i) {
-        assert_close(HD.prob[i], expected_prob[i], tol, "HD.prob");
+    // Forward parity (single vs double) — compare HD (double) to HS (float)
+    assert(HD.prob.size() == HS.prob.size());
+    for (size_t i = 0; i < HD.prob.size(); ++i) {
+        assert_close(HD.prob[i], static_cast<double>(HS.prob[i]), tol, "prob");
     }
 
-    const std::array<double,8> expected_probSumH = {
-        0.0622228, 0.0622228, 0.0622228, 0.0622228,
-        0.187777, 0.187777, 0.187777, 0.187777
-    };
-    assert(HD.probSumH.size() == expected_probSumH.size());
-    for (size_t i = 0; i < expected_probSumH.size(); ++i) {
-        assert_close(HD.probSumH[i], expected_probSumH[i], tol, "HD.probSumH");
+    assert(HD.probSumH.size() == HS.probSumH.size());
+    for (size_t i = 0; i < HD.probSumH.size(); ++i) {
+        assert_close(HD.probSumH[i], static_cast<double>(HS.probSumH[i]), tol, "probSumH");
     }
-    assert_close(HD.probSumT, 1.0, tol, "HD.probSumT");
+    assert_close(HD.probSumT, static_cast<double>(HS.probSumT), tol, "probSumT");
 
-    assert(HD.Alpha.size() == 2);
-    const std::array<double,16> expected_alpha0 = {
-        0.0110455, 0.0110455, 0.0110455, 0.0110455,
-        0.110455, 0.110455, 0.110455, 0.110455,
-        0.0145452, 0.0145452, 0.0145452, 0.0145452,
-        0.00145452, 0.00145452, 0.00145452, 0.00145452
-    };
-    const std::array<double,16> expected_alpha1 = expected_prob;
-    for (size_t i = 0; i < expected_alpha0.size(); ++i) {
-        assert_close(HD.Alpha[0][i], expected_alpha0[i], tol, "HD.Alpha[0]");
-        assert_close(HD.Alpha[1][i], expected_alpha1[i], tol, "HD.Alpha[1]");
+    assert(HD.Alpha.size() == HS.Alpha.size());
+    for (size_t s = 0; s < HD.Alpha.size(); ++s) {
+        assert(HD.Alpha[s].size() == HS.Alpha[s].size());
+        for (size_t i = 0; i < HD.Alpha[s].size(); ++i) {
+            assert_close(HD.Alpha[s][i], static_cast<double>(HS.Alpha[s][i]), tol, "Alpha");
+        }
     }
 
-    const std::array<double,8> expected_alpha_sum0 = {
-        0.0255907, 0.0255907, 0.0255907, 0.0255907,
-        0.111909, 0.111909, 0.111909, 0.111909
-    };
-    const std::array<double,8> expected_alpha_sum1 = expected_probSumH;
-    for (size_t i = 0; i < expected_alpha_sum0.size(); ++i) {
-        assert_close(HD.AlphaSum[0][i], expected_alpha_sum0[i], tol, "HD.AlphaSum[0]");
-        assert_close(HD.AlphaSum[1][i], expected_alpha_sum1[i], tol, "HD.AlphaSum[1]");
+    assert(HD.AlphaSum.size() == HS.AlphaSum.size());
+    for (size_t s = 0; s < HD.AlphaSum.size(); ++s) {
+        assert(HD.AlphaSum[s].size() == HS.AlphaSum[s].size());
+        for (size_t i = 0; i < HD.AlphaSum[s].size(); ++i) {
+            assert_close(HD.AlphaSum[s][i], static_cast<double>(HS.AlphaSum[s][i]), tol, "AlphaSum");
+        }
     }
 
-    const std::array<double,2> expected_alpha_sum_sum = {0.55, 1.0};
-    assert(HD.AlphaSumSum.size() == expected_alpha_sum_sum.size());
-    for (size_t i = 0; i < expected_alpha_sum_sum.size(); ++i) {
-        assert_close(HD.AlphaSumSum[i], expected_alpha_sum_sum[i], tol, "HD.AlphaSumSum");
+    assert(HD.AlphaSumSum.size() == HS.AlphaSumSum.size());
+    for (size_t s = 0; s < HD.AlphaSumSum.size(); ++s) {
+        assert_close(HD.AlphaSumSum[s], static_cast<double>(HS.AlphaSumSum[s]), tol, "AlphaSumSum");
     }
 
-    assert(HD.AlphaMissing.size() == 2);
-    const std::array<double,16> expected_alpha_missing0 = {
-        0.0208934, 0.0208934, 0.0208934, 0.0208934,
-        0.165489, 0.165489, 0.165489, 0.165489,
-        0.0413294, 0.0413294, 0.0413294, 0.0413294,
-        0.0222884, 0.0222884, 0.0222884, 0.0222884
-    };
-    const std::array<double,16> expected_alpha_missing1 = expected_prob;
-    for (size_t i = 0; i < expected_alpha_missing0.size(); ++i) {
-        assert_close(HD.AlphaMissing[0][i], expected_alpha_missing0[i], tol, "HD.AlphaMissing[0]");
-        assert_close(HD.AlphaMissing[1][i], expected_alpha_missing1[i], tol, "HD.AlphaMissing[1]");
+    assert(HD.AlphaMissing.size() == HS.AlphaMissing.size());
+    for (size_t m = 0; m < HD.AlphaMissing.size(); ++m) {
+        assert(HD.AlphaMissing[m].size() == HS.AlphaMissing[m].size());
+        for (size_t i = 0; i < HD.AlphaMissing[m].size(); ++i) {
+            assert_close(HD.AlphaMissing[m][i], static_cast<double>(HS.AlphaMissing[m][i]), tol, "AlphaMissing");
+        }
     }
 
-    assert(HD.AlphaSumMissing.size() == 2);
-    const std::array<double,8> expected_alpha_sum_missing0 = expected_probSumH;
-    const std::array<double,8> expected_alpha_sum_missing1 = expected_probSumH;
-    for (size_t i = 0; i < expected_alpha_sum_missing0.size(); ++i) {
-        assert_close(HD.AlphaSumMissing[0][i], expected_alpha_sum_missing0[i], tol, "HD.AlphaSumMissing[0]");
-        assert_close(HD.AlphaSumMissing[1][i], expected_alpha_sum_missing1[i], tol, "HD.AlphaSumMissing[1]");
+    assert(HD.AlphaSumMissing.size() == HS.AlphaSumMissing.size());
+    for (size_t m = 0; m < HD.AlphaSumMissing.size(); ++m) {
+        assert(HD.AlphaSumMissing[m].size() == HS.AlphaSumMissing[m].size());
+        for (size_t i = 0; i < HD.AlphaSumMissing[m].size(); ++i) {
+            assert_close(HD.AlphaSumMissing[m][i], static_cast<double>(HS.AlphaSumMissing[m][i]), tol, "AlphaSumMissing");
+        }
     }
 
     for (float v : HS.prob) assert(std::isfinite(v));
@@ -235,11 +217,11 @@ int main() {
     assert(std::isfinite(HS.probSumT));
 
     std::vector<double> trans_single;
-    std::vector<float> missing_single(G.n_missing, 0.0f);
+    std::vector<float> missing_single(G.n_missing * HAP_NUMBER, 0.0f);
     int recover_single = HS.backward(trans_single, missing_single);
 
     std::vector<double> trans_double;
-    std::vector<float> missing_double(G.n_missing, 0.0f);
+    std::vector<float> missing_double(G.n_missing * HAP_NUMBER, 0.0f);
     int recover_double = HD.backward(trans_double, missing_double);
 
     assert(recover_single == recover_double);

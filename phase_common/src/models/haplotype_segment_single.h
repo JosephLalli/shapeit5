@@ -566,20 +566,43 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
 		exp_vec = _mm256_load_si256((__m256i*)expv);
 	}
 
-	// Unified loop: collapse from probSumK with per-lane emissions
-	// BUG FIX #5: Single code path with parameterized emission computation
-	__m256 _sum = _mm256_set1_ps(0.0f);
-	__m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
-	__m256 _nt = _mm256_set1_ps(nt / probSumT);
-	
-	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-		// Transition: collapse from previous segment boundary
-		__m256 _prob = _mm256_set1_ps(probSumK[k]);
-		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-		
-		// Emission: compute donor code based on mode, then compare to expected
-		// BUG #6 DOCUMENTED: Supersite uses vector blend (required for per-lane semantics)
-		// vs. biallelic inline conditional (optimized for binary alleles)
+    // Unified loop: collapse from previous segment with per-lane emissions
+    // BUG FIX #5: Single code path with parameterized emission computation
+    __m256 _sum = _mm256_set1_ps(0.0f);
+    __m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
+    __m256 _nt = _mm256_set1_ps(nt / probSumT);
+
+    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+        // Transition: collapse from previous segment boundary
+        // Default behavior uses the donor-marginal scalar probSumK[k].
+        // Optional preservation of per-lane class mix at supersite anchors:
+        // if enabled, seed with the stored per-lane Alpha from the previous segment boundary.
+        __m256 _prob;
+        bool use_alpha_lanes = false;
+        // Env toggle (default off): SHAPEIT5_SS_CLASS_MIX
+        {
+            static int flag = -1;
+            if (flag < 0) {
+                const char* env = std::getenv("SHAPEIT5_SS_CLASS_MIX");
+                flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+            }
+            use_alpha_lanes = (flag == 1);
+        }
+        if (use_alpha_lanes) {
+            int rel_prev_seg = (curr_segment_index - segment_first) - 1;
+            if (rel_prev_seg >= 0 && rel_prev_seg < (int)Alpha.size()) {
+                _prob = _mm256_load_ps(&Alpha[rel_prev_seg][i]);
+            } else {
+                _prob = _mm256_set1_ps(probSumK[k]);
+            }
+        } else {
+            _prob = _mm256_set1_ps(probSumK[k]);
+        }
+        _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+
+        // Emission: compute donor code based on mode, then compare to expected
+        // BUG #6 DOCUMENTED: Supersite uses vector blend (required for per-lane semantics)
+        // vs. biallelic inline conditional (optimized for binary alleles)
 		// Both implement: emit[h] = (donor_matches_expected[h]) ? 1.0 : (ed/ee)
 		int donor_code;
 		if (M.ss_anchor_split_emissions) {

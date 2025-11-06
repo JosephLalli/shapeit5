@@ -178,8 +178,16 @@ parse_test_output() {
     
     # Look for individual test results in output
     while IFS= read -r line; do
+        lc_line="${line,,}"
+        is_test_line=false
+        if [[ "$lc_line" == *"test"* ]]; then
+            is_test_line=true
+        elif [[ "$lc_line" == *"pass"* ]] || [[ "$lc_line" == *"fail"* ]] || [[ "$lc_line" == *"ok"* ]] || [[ "$lc_line" == *"error"* ]]; then
+            is_test_line=true
+        fi
+
         # Check for passed tests
-        if echo "$line" | grep -qiE '(✓|passed|pass\]|OK)' && echo "$line" | grep -qiE '(test|Test)'; then
+        if $is_test_line && [[ "$lc_line" == *"✓"* || "$lc_line" == *"passed"* || "$lc_line" == *"[pass]"* || "$lc_line" == *" ok"* ]]; then
             found_individual_tests=true
             ((individual_tests_in_binary++))
             ((passed_in_binary++))
@@ -195,7 +203,7 @@ parse_test_output() {
             echo "${binary_name}::${test_desc}: PASS (${duration}s)" | tee -a "$CURRENT_LOG"
             
         # Check for failed tests
-        elif echo "$line" | grep -qiE '(✗|failed|fail\]|ERROR)' && echo "$line" | grep -qiE '(test|Test)'; then
+        elif $is_test_line && [[ "$lc_line" == *"✗"* || "$lc_line" == *"failed"* || "$lc_line" == *"[fail]"* || "$lc_line" == *"error"* ]]; then
             found_individual_tests=true
             ((individual_tests_in_binary++))
             ((failed_in_binary++))

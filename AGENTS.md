@@ -4,6 +4,7 @@ SHAPEIT5 — `phase_common` super-site integration
 ## Source of Truth
 - This AGENTS.md mirrors `.github/copilot-instructions.md`, which is the authoritative, detailed guide distilled from `SUPERSITE_CONVERSATION_SUMMARY.md`.
 - If anything diverges, prefer `.github/copilot-instructions.md` and update this file to match.
+- Runtime binaries depend on locally installed Boost/HTSlib libraries; before running any tests or executable directly, export `LD_LIBRARY_PATH="$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH"` so the dynamic loader can resolve shared libraries (e.g., `libboost_iostreams.so.1.89.0`).
 
 ## Context
 - SHAPEIT5's algorithm is a program that employs two variations (phase_common and phase_rare) of the MCMC Li-Stephens model to take genetic variant calls and determine the allele of origin (right or left) for heterozygous variants

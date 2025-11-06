@@ -29,6 +29,7 @@ static variant* make_var(std::string chr, int bp, std::string id, std::string re
 
 int main() {
     std::cout << "Testing supersite combine behavior (multiple anchors)..." << std::endl;
+    std::cout << "STEP 1: constructing variant_map" << std::endl;
 
     // Build two supersites: SS1 at 1000 (variants 0,1), SS2 at 2000 (variants 2,3)
     variant_map V;
@@ -37,9 +38,11 @@ int main() {
     V.push(make_var("1", 2000, "ss2_T_A", "T", "A", 2)); // SS2 anchor
     V.push(make_var("1", 2000, "ss2_T_C", "T", "C", 3)); // SS2 sibling
 
+    std::cout << "STEP 2: allocating conditioning_set" << std::endl;
     // Conditioning: 2 ref samples => 4 haps
     conditioning_set H;
     H.allocate(0, 2, V.size());
+    std::cout << "  H.n_hap=" << H.n_hap << " H.n_site=" << H.n_site << std::endl;
     // Seed panel codes: give each supersite at least one ALT carrier
     // SS1: hap1 carries ALT at first split; hap2 carries ALT at second split
     H.H_opt_var.set(0, 1, 1); H.H_opt_hap.set(1, 0, 1);
@@ -54,19 +57,30 @@ int main() {
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
     std::vector<uint8_t> unused_sample_codes;
+    std::cout << "STEP 3: building supersites" << std::endl;
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes,
                     locus_to_super_idx, super_site_var_index, unused_sample_codes);
+    std::cout << "  super_sites.size=" << super_sites.size() 
+              << " packed_codes_bytes=" << packed_codes.size() 
+              << " locus_to_super_idx.size=" << locus_to_super_idx.size() 
+              << " super_site_var_index.size=" << super_site_var_index.size() << std::endl;
     assert(super_sites.size() == 2);
 
-    // HMM params + sibling marking
+    // HMM params + toy genetic map (anchor-to-anchor t=0.05; siblings share cm with anchors)
+    std::cout << "STEP 4: initializing HMM parameters" << std::endl;
     hmm_parameters M;
     M.ed = 0.01f; M.ee = 1.0f;
-    M.t = std::vector<float>(V.size() ? V.size() - 1 : 0, 0.05f);
-    M.nt = std::vector<float>(M.t.size(), 0.95f);
-    M.rare_allele = std::vector<char>(V.size(), -1);
+    const int Neff = 10000;
+    const int Nhap = static_cast<int>(H.n_hap);
+    const double step_cM = (-std::log(1.0 - 0.05)) / 0.04 * (double)Nhap / (double)Neff;
+    V.vec_pos[0]->cm = 0.0; V.vec_pos[1]->cm = 0.0;           // SS1 (0,1)
+    V.vec_pos[2]->cm = step_cM; V.vec_pos[3]->cm = step_cM;   // SS2 (2,3)
+    M.initialise(V, Neff, Nhap);
     M.markSuperSiteSiblings(super_sites, locus_to_super_idx);
+    std::cout << "  M.rare_allele.size=" << M.rare_allele.size() << std::endl;
 
     // Target genotype: homozygous REF across all splits (HOM path)
+    std::cout << "STEP 5: building genotype" << std::endl;
     genotype G(0);
     G.n_segments = 1; G.n_variants = V.size(); G.n_ambiguous = 0; G.n_missing = 0;
     G.n_transitions = 0; G.n_stored_transitionProbs = 0; G.n_storage_events = 0;
@@ -76,6 +90,7 @@ int main() {
     G.Lengths.assign(1, (unsigned short)V.size());
     G.Diplotypes.assign(1, 1ull);
 
+    std::cout << "STEP 6: creating window" << std::endl;
     window W;
     W.start_locus = 0; W.stop_locus = (int)V.size() - 1; // 0..3
     W.start_segment = 0; W.stop_segment = 0;
@@ -84,11 +99,13 @@ int main() {
     W.start_transition = 0; W.stop_transition = -1;
 
     std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
+    std::cout << "STEP 7: constructing HS" << std::endl;
 
     haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
         &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
 
     // Run forward locus by locus to compare states
+    std::cout << "STEP 8: running forward()" << std::endl;
     HS.forward();
 
     // Snapshot after each locus step: use Alpha buffer for segment start; otherwise track prob after run
@@ -135,4 +152,3 @@ int main() {
     std::cout << "✓ SUCCESS: Multiple supersites behave correctly (combine)" << std::endl;
     return 0;
 }
-

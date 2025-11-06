@@ -64,21 +64,31 @@ int main() {
     M.markSuperSiteSiblings(super_sites, locus_to_super_idx);
 
     genotype G(0);
-    G.n_segments = 1; G.n_variants = V.size(); G.n_ambiguous = 0; G.n_missing = 0;
-    G.n_transitions = 0; G.n_stored_transitionProbs = 0; G.n_storage_events = 0;
-    G.double_precision = false; G.haploid = false;
-    G.Variants.assign((V.size() + 1)/2, 0);
-    G.Lengths.assign(1, (unsigned short)V.size());
-    G.Diplotypes.assign(1, 1ull);
-    // arbitrary pattern
-    for (size_t v = 0; v < V.size(); ++v) if ((v % 5) == 0) VAR_SET_HET(MOD2(v), G.Variants[DIV2(v)]);
+    G.n_variants = static_cast<unsigned int>(V.size());
+    G.Variants.assign((V.size() + 1) / 2, 0);
+    for (size_t v = 0; v < V.size(); ++v) {
+        if ((v % 5) == 0) {
+            VAR_SET_HET(MOD2(v), G.Variants[DIV2(v)]);
+            if (((v / 5) % 2) == 0) {
+                VAR_CLR_HAP0(MOD2(v), G.Variants[DIV2(v)]);
+                VAR_SET_HAP1(MOD2(v), G.Variants[DIV2(v)]);
+            } else {
+                VAR_SET_HAP0(MOD2(v), G.Variants[DIV2(v)]);
+                VAR_CLR_HAP1(MOD2(v), G.Variants[DIV2(v)]);
+            }
+        } else {
+            VAR_SET_HOM(MOD2(v), G.Variants[DIV2(v)]);
+        }
+    }
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr);
+    G.build();
 
     window W;
     W.start_locus = 0; W.stop_locus = (int)V.size() - 1;
-    W.start_segment = 0; W.stop_segment = 0;
-    W.start_ambiguous = 0; W.stop_ambiguous = -1;
-    W.start_missing = 0; W.stop_missing = -1;
-    W.start_transition = 0; W.stop_transition = -1;
+    W.start_segment = 0; W.stop_segment = static_cast<int>(G.n_segments) - 1;
+    W.start_ambiguous = 0; W.stop_ambiguous = G.n_ambiguous ? static_cast<int>(G.n_ambiguous) - 1 : -1;
+    W.start_missing = 0; W.stop_missing = G.n_missing ? static_cast<int>(G.n_missing) - 1 : -1;
+    W.start_transition = 0; W.stop_transition = G.n_transitions ? static_cast<int>(G.n_transitions) - 1 : -1;
     std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
 
     // Measure supersite-enabled
@@ -104,4 +114,3 @@ int main() {
     std::cout << "(Perf smoke; no assertions)\n";
     return 0;
 }
-
