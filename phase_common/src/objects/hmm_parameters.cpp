@@ -28,7 +28,8 @@ using namespace std;
 hmm_parameters::hmm_parameters() {
     ed = 0.0001f;
     ee = 0.9999f;
-    ss_anchor_split_emissions = false;
+    // Enable supersite anchor split-emissions by default (parity mode)
+    ss_anchor_split_emissions = true;
 }
 
 hmm_parameters::~hmm_parameters() {

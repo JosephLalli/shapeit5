@@ -1498,7 +1498,7 @@ if (options.count("haploids")) {
 
 **CLI Flags:**
 - `--enable-supersites`: Enable multiallelic phasing support (default: off)
-- `--ss-anchor-split-emissions`: At supersite anchors, use biallelic split-site emission semantics (treat other-ALT donors as REF at the anchor split). Default: off (strict 4-bit class equality per lane)
+- `--ss-anchor-split-emissions`: At supersite anchors, use biallelic split-site emission semantics (treat other-ALT donors as REF at the anchor split). Default: on (parity mode; strict 4-bit class equality retained for storage/imputation)
 
 **Environment Variables:**
 - `SHAPEIT5_TEST_TRACE=1`: Enable verbose per-locus forward/backward TSV traces to `tests/out/`
@@ -1591,3 +1591,38 @@ if (options.count("haploids")) {
 
 - `--ss-anchor-split-emissions` (hmm_parameters): enable biallelic presentation at supersite anchors (strict 4‑bit storage retained).
 - `SHAPEIT5_TEST_TRACE=1`: emit trace lines (including `build_view` and anchor diagnostics) to help debug parity.
+
+### Bug Retrospective & Fixes (Supersite Expansion Parity)
+
+Summary of issues encountered while making the 10‑variant supersite setup (5 anchors + 5 siblings) parity‑equivalent to the 5‑biallelic setup at anchors, and the fixes applied:
+
+- Sibling renormalization (clamping in test harness)
+  - Issue: test code clamped identical cm to 1e‑7, causing `yt>0` between siblings and “effectively normalizing” forward state.
+  - Fix: in tests, treat identical positions as `yt=0, nt=1`; clamp only tiny positive distances. Production already returns `0` for `dist<=0` and only clamps tiny positives.
+  - Guardrail: siblings remain true no‑ops; do not advance `prev_abs_locus` (no unintended transitions/renormalization).
+
+- Anchor emission semantics mismatch
+  - Issue: supersite anchors used strict 4‑bit class equality vs. biallelic binary REF/ALT, producing differing α.
+  - Fix: enable `ss_anchor_split_emissions` and unify to mask‑based INIT/RUN/COLLAPSE at anchors for both precisions. Expected per‑lane ALT comes from `Ambiguous` mask; donor flag is “is anchor ALT present?”. Strict class storage retained for Phase 3.
+
+- Suspected lane inversion at locus 0 (INIT parity)
+  - Observation: early on, first‑locus α appeared lane‑swapped.
+  - Root cause/Resolution: after unifying mask semantics and checking parity of `Ambiguous` and donor anchor‑ALT flags, parity holds. Ambiguous mask is deterministic from `genotype::build()` via `n_unf`.
+  - Instrumentation: test‑only `INIT_FROM_MASK` prints (mask, per‑lane α, probSumH) confirm correct mapping.
+
+- Ambiguous index and mask parity at anchors
+  - Issue: mismatched ambiguous indices or amb_mask could silently diverge emissions.
+  - Fix: compute amb_idx consistently (skip supersite siblings) and assert amb_idx parity and full mask parity (verbose‑gated in tests).
+
+- Dataset initialization pitfalls (toy data)
+  - Issue: if siblings aren’t strictly 0|0 in sample/panel, or sibling cm aren’t identical, parity fails even with correct HMM code.
+  - Fix: verbose‑gated assertions in the test enforce: identical cm for sibling pairs; sample siblings 0|0; panel siblings REF across donors.
+
+- Forward path gating
+  - Fixes: at window start, siblings INIT neutrally; within windows and at collapses, siblings set `update_prev_locus=false`. This preserves forward/backward probabilities across sibling → anchor with no change.
+
+- Instrumentation & validation
+  - Added: anchor‑only forward windows comparing normalized α; donor×lane mask grids; donor ALT parity (bial vs anchor‑ALT); stepwise windows to locate first divergence; trace lines when anchor paths use mask.
+  - Verbose flags: `SHAPEIT5_TEST_TRACE=1` for detailed traces, `SHAPEIT5_TEST_VERBOSE=1` for strict assertions in tests.
+
+Outcome: With the above, anchor parity holds (normalized α and raw α/probSumH at anchor window ends), and whole‑window likelihoods match when sibling zero‑distance is honored in the test harness.
