@@ -83,6 +83,7 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
         std::fill(std::begin(view.lane_class), std::end(view.lane_class), 0);
         view.sample_class0 = SUPERSITE_CODE_MISSING;
         view.sample_class1 = SUPERSITE_CODE_MISSING;
+        view.amb_mask = 0u;
         return;
     }
 
@@ -95,6 +96,7 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
         std::fill(std::begin(view.lane_class), std::end(view.lane_class), 0);
         view.sample_class0 = SUPERSITE_CODE_MISSING;
         view.sample_class1 = SUPERSITE_CODE_MISSING;
+        view.amb_mask = 0u;
         return;
     }
 
@@ -104,6 +106,7 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
         if (curr_abs_ambiguous >= 0 && curr_abs_ambiguous < static_cast<int>(G_->Ambiguous.size())) {
             amb_code = G_->Ambiguous[curr_abs_ambiguous];
         }
+        view.amb_mask = amb_code;
         for (int h = 0; h < HAP_NUMBER; ++h) {
             const bool wants_alt = ((amb_code >> h) & 1U) != 0;
             view.lane_class[h] = wants_alt ? 1u : 0u;
@@ -119,6 +122,7 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
     std::fill(std::begin(view.lane_class), std::end(view.lane_class), allele);
     view.sample_class0 = allele;
     view.sample_class1 = allele;
+    view.amb_mask = 0u;
 }
 
 inline void BiallelicEmissionAdapter::build_match_mask(const SiteView& view,
@@ -194,6 +198,7 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
         view.emit_kind = EmitKind::Mis;
         view.sample_class0 = SUPERSITE_CODE_MISSING;
         view.sample_class1 = SUPERSITE_CODE_MISSING;
+        view.amb_mask = 0u;
         return true;
     }
 
@@ -209,12 +214,14 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
             view.emit_kind = EmitKind::Mis;
             view.sample_class0 = SUPERSITE_CODE_MISSING;
             view.sample_class1 = SUPERSITE_CODE_MISSING;
+            view.amb_mask = 0u;
             break;
         case SSClass::HOM:
             view.emit_kind = EmitKind::Hom;
             std::fill(std::begin(view.lane_class), std::end(view.lane_class), c0);
             view.sample_class0 = c0;
             view.sample_class1 = c0;
+            view.amb_mask = 0u;
             break;
         case SSClass::AMB: {
             view.emit_kind = EmitKind::Amb;
@@ -222,6 +229,7 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
             if (G_ && curr_abs_ambiguous >= 0 && curr_abs_ambiguous < static_cast<int>(G_->Ambiguous.size())) {
                 amb_mask = G_->Ambiguous[curr_abs_ambiguous];
             }
+            view.amb_mask = amb_mask;
             for (int h = 0; h < HAP_NUMBER; ++h) {
                 const bool choose_c1 = ((amb_mask >> h) & 1U) != 0;
                 view.lane_class[h] = choose_c1 ? c1 : c0;
@@ -276,10 +284,14 @@ inline void SupersiteEmissionAdapter::build_match_mask(const SiteView& view,
         const uint8_t donor_code = unpackSuperSiteCode(panel_codes_, ss.panel_offset, hap_idx);
         const std::size_t base = static_cast<std::size_t>(k) * HAP_NUMBER;
 
-        if (use_split) {
+    if (use_split) {
             const uint8_t donor_alt_flag = (donor_code == view.anchor_class) ? 1u : 0u;
+            // Determine expected flag per lane: for AMB, use amb_mask; for HOM, use constant from sample_class0
+            const bool is_amb = (view.emit_kind == EmitKind::Amb);
+            const uint8_t hom_expected = (view.sample_class0 == view.anchor_class) ? 1u : 0u;
             for (int h = 0; h < HAP_NUMBER; ++h) {
-                const uint8_t expected_flag = (view.lane_class[h] == view.anchor_class) ? 1u : 0u;
+                const uint8_t expected_flag = is_amb ? (((view.amb_mask >> h) & 1U) ? 1u : 0u)
+                                                    : hom_expected;
                 const bool match = (donor_alt_flag == expected_flag);
                 mask.by_donor_lane[base + h] = match ? MatchMask::kMatch : MatchMask::kMismatch;
                 mask.any_match_lane[h] = mask.any_match_lane[h] || match;

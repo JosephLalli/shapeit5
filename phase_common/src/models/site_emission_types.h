@@ -27,6 +27,9 @@ struct SiteView {
     uint8_t anchor_class{0}; // Meaningful for supersite anchors (ALT code 0..15)
     uint8_t sample_class0{0};
     uint8_t sample_class1{0};
+    // New: biallelic ambiguous orientation bits for this site (Ambiguous mask)
+    // Used to unify supersite anchor emissions with biallelic split semantics
+    uint8_t amb_mask{0};
 };
 
 struct MatchMask {

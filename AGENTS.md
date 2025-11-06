@@ -1522,3 +1522,72 @@ if (options.count("haploids")) {
 
 ## Side note re: compilation 
 - This is a many cpu machine, and I recommend making with -j24 argument
+
+---
+
+## Current Problem & Rollout Plan (Supersite ↔ Biallelic Parity)
+
+### Problem Summary
+
+- We want the supersite representation (split multiallelic records grouped by position) to be functionally equivalent to the biallelic representation at the level of the HMM’s anchor loci while retaining strict multiallelic information for imputation.
+- Discrepancies observed when comparing a 5‑variant biallelic setup to a 10‑variant supersite setup (5 anchors + 5 siblings):
+  - Extra sibling steps previously introduced additional transitions and per‑step normalization. Fixes applied:
+    - Siblings are now true no‑ops (no emission/transition math, do not advance `prev_abs_locus`).
+    - Recombination at identical map positions is set to zero (`yt=0`) by returning `0` when `cm` ties.
+  - Emission semantics mismatch at anchors:
+    - Requirement: Keep strict 4‑bit class codes for storage/imputation, but present biallelic semantics to the HMM at anchors: “is the anchor ALT present?”
+    - Solution in progress: At anchors with `ss_anchor_split_emissions` enabled, unify supersite and biallelic HMM by using the same mask‑based routines driven by the per‑site `Ambiguous` mask (per‑lane orientation) and the donor “anchor‑ALT” flags.
+  - Despite these, normalized forward posteriors at anchors were still off in tests. Root cause under investigation: ensure the exact same mask and HMM code paths are used at anchors in both reps.
+
+### Changes Implemented
+
+- Transitions and siblings
+  - `hmm_parameters`: return `yt=0` at identical genetic map positions; clamp only tiny positive distances.
+  - HMM (double/single): siblings are no‑ops (no renormalization and no `prev_abs_locus` advancement).
+
+- Anchor emissions (presentation) vs storage (strict class)
+  - Tests enable `M.ss_anchor_split_emissions = true` to present biallelic semantics at anchors while strict class codes remain for Phase 3.
+  - Double‑precision HMM now unifies anchor INIT/RUN/COLLAPSE under split semantics using the same biallelic mask‑based routines:
+    - Build a per‑donor×lane `MatchMask` via `SupersiteEmissionAdapter::build_match_mask(..., /*use_anchor_split_semantics*/true, ...)`.
+    - Call `INIT_FROM_MASK`, `RUN_FROM_MASK`, `COLLAPSE_FROM_MASK` at anchors.
+
+- Instrumentation (tests)
+  - Added anchor‑only, forward‑only windows and comparison of normalized per‑lane posteriors.
+  - Dump lane expectations (from `Ambiguous`), donor flags (5‑var ALT vs SS anchor‑ALT), and mask matrices to diagnose mismatches.
+
+### Rollout Plan
+
+1) Source of truth for lane expectations at anchors
+   - Add `amb_mask` to `SiteView` and set it in both biallelic and supersite `build_view()` at anchors.
+   - Make `SupersiteEmissionAdapter::build_match_mask()` use `view.amb_mask` for expected per‑lane ALT when `use_anchor_split_semantics=true`.
+
+2) Unify HMM code paths (single precision)
+   - Mirror the double‑precision unification in `haplotype_segment_single.{h,cpp}` by adding `RUN_FROM_MASK` and `COLLAPSE_FROM_MASK`, and using them at anchors under split semantics.
+
+3) Strong parity assertions (tests only)
+   - At each anchor:
+     - Assert mask matrix equality (per donor × lane) between 5‑var and 10‑var.
+     - Assert normalized α equality per donor × lane (forward‑only at window end).
+     - Run full backward and assert normalized α×β equality per donor × lane.
+   - Gate strict assertions by an env flag for CI tuning.
+
+4) Microcase and progressive expansion
+   - Start with a tiny 3‑locus microcase (HOM–AMB–HOM) and 4 donors; prove parity, then progress to multi‑anchor scenarios.
+
+5) Guardrails
+   - Siblings remain true no‑ops; `yt=0` at identical positions.
+   - Strict class codes preserved for Phase 3 imputation and sampling; only anchor emissions are reduced to biallelic semantics when configured.
+
+### Acceptance Criteria
+
+- At anchors, for windows ending at the anchor:
+  - Per‑lane emission masks are identical between supersite and biallelic representations.
+  - Normalized α and α×β posteriors match within tight tolerances.
+  - Segment‑boundary transition distributions match to numerical precision.
+
+- End results (phasing and multivariant imputation) agree across representations (tests already present: mutual exclusivity, SC normalization).
+
+### Flags & Knobs
+
+- `--ss-anchor-split-emissions` (hmm_parameters): enable biallelic presentation at supersite anchors (strict 4‑bit storage retained).
+- `SHAPEIT5_TEST_TRACE=1`: emit trace lines (including `build_view` and anchor diagnostics) to help debug parity.

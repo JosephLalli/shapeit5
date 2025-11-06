@@ -109,7 +109,53 @@ private:
 	void INIT_HOM();
 	void INIT_AMB();
 	void INIT_MIS();
-	void INIT_FROM_MASK(const MatchMask& mask, float mismatch_penalty);
+    void INIT_FROM_MASK(const MatchMask& mask, float mismatch_penalty);
+    void RUN_FROM_MASK(const MatchMask& mask, float mismatch_penalty) {
+        const __m256 match_vec = _mm256_set1_ps(1.0f);
+        const __m256 mismatch_vec = _mm256_set1_ps(mismatch_penalty);
+        __m256 sum = _mm256_set1_ps(0.0f);
+        const __m256 factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
+        __m256 tFreq = _mm256_load_ps(&probSumH[0]);
+        tFreq = _mm256_mul_ps(tFreq, factor);
+        const __m256 ntv = _mm256_set1_ps(nt / probSumT);
+        const __m256i zero = _mm256_setzero_si256();
+        const uint8_t* mask_data = mask.by_donor_lane.data();
+        for (unsigned int k = 0, idx = 0; k < n_cond_haps; ++k, idx += HAP_NUMBER) {
+            __m256 p = _mm256_load_ps(&prob[idx]);
+            p = _mm256_fmadd_ps(p, ntv, tFreq);
+            __m128i u8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(mask_data + idx));
+            __m256i epi32 = _mm256_cvtepu8_epi32(u8);
+            __m256i sign = _mm256_cmpgt_epi32(epi32, zero);
+            __m256 emit = _mm256_blendv_ps(mismatch_vec, match_vec, _mm256_castsi256_ps(sign));
+            p = _mm256_mul_ps(p, emit);
+            sum = _mm256_add_ps(sum, p);
+            _mm256_store_ps(&prob[idx], p);
+        }
+        _mm256_store_ps(&probSumH[0], sum);
+        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    }
+    void COLLAPSE_FROM_MASK(const MatchMask& mask, float mismatch_penalty) {
+        const __m256 match_vec = _mm256_set1_ps(1.0f);
+        const __m256 mismatch_vec = _mm256_set1_ps(mismatch_penalty);
+        __m256 sum = _mm256_set1_ps(0.0f);
+        const __m256 tFreq = _mm256_set1_ps(yt / n_cond_haps);
+        const __m256 ntv = _mm256_set1_ps(nt / probSumT);
+        const __m256i zero = _mm256_setzero_si256();
+        const uint8_t* mask_data = mask.by_donor_lane.data();
+        for (unsigned int k = 0, idx = 0; k < n_cond_haps; ++k, idx += HAP_NUMBER) {
+            __m256 p = _mm256_set1_ps((float)probSumK[k]);
+            p = _mm256_fmadd_ps(p, ntv, tFreq);
+            __m128i u8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(mask_data + idx));
+            __m256i epi32 = _mm256_cvtepu8_epi32(u8);
+            __m256i sign = _mm256_cmpgt_epi32(epi32, zero);
+            __m256 emit = _mm256_blendv_ps(mismatch_vec, match_vec, _mm256_castsi256_ps(sign));
+            p = _mm256_mul_ps(p, emit);
+            sum = _mm256_add_ps(sum, p);
+            _mm256_store_ps(&prob[idx], p);
+        }
+        _mm256_store_ps(&probSumH[0], sum);
+        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    }
 	bool RUN_HOM(char);
 	void RUN_AMB();
 	void RUN_MIS();

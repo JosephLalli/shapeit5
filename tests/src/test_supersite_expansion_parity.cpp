@@ -561,6 +561,26 @@ int main() {
                     int ss_alt = (dcode == v10.anchor_class) ? 1 : 0;
                     std::cout << "      " << k << "      " << bial_alt << "       " << ss_alt << "\n";
                 }
+
+                // Build and compare match masks (per donor × lane) between 5-var and 10-var
+                MatchMask m5, m10;
+                bial5.build_match_mask(v5, H5.n_hap, locus5, m5);
+                ss10.build_match_mask(v10, H10.n_hap, /*use_anchor_split_semantics*/true, m10);
+                bool masks_equal = (m5.by_donor_lane.size() == m10.by_donor_lane.size());
+                if (masks_equal) {
+                    for (size_t i = 0; i < m5.by_donor_lane.size(); ++i) {
+                        if (m5.by_donor_lane[i] != m10.by_donor_lane[i]) { masks_equal = false; break; }
+                    }
+                }
+                std::cout << "    Mask parity: " << (masks_equal ? "OK" : "MISMATCH") << "\n";
+                if (!masks_equal) {
+                    std::cout << "    First 8 donor×lane entries (5-var vs 10-var):\n      idx  m5  m10\n";
+                    for (size_t i = 0; i < std::min<size_t>(16, m5.by_donor_lane.size()); ++i) {
+                        std::cout << "      " << i << "   "
+                                  << (int)m5.by_donor_lane[i] << "   "
+                                  << (int)m10.by_donor_lane[i] << "\n";
+                    }
+                }
             } else {
                 std::cout << "    [WARN] Supersite view not available at locus10=" << locus10 << "\n";
             }
