@@ -109,7 +109,81 @@ private:
 	void INIT_HOM();
 	void INIT_AMB();
 	void INIT_MIS();
-	void INIT_FROM_MASK(const MatchMask& mask, double mismatch_penalty);
+    void INIT_FROM_MASK(const MatchMask& mask, double mismatch_penalty);
+    void RUN_FROM_MASK(const MatchMask& mask, double mismatch_penalty) {
+        const __m256d match_vec = _mm256_set1_pd(1.0);
+        const __m256d mismatch_vec = _mm256_set1_pd(mismatch_penalty);
+        __m256d sum0 = _mm256_set1_pd(0.0);
+        __m256d sum1 = _mm256_set1_pd(0.0);
+        const __m256d factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
+        __m256d tFreq0 = _mm256_load_pd(&probSumH[0]);
+        __m256d tFreq1 = _mm256_load_pd(&probSumH[4]);
+        tFreq0 = _mm256_mul_pd(tFreq0, factor);
+        tFreq1 = _mm256_mul_pd(tFreq1, factor);
+        const __m256d ntv = _mm256_set1_pd(nt / probSumT);
+        const __m256i zero = _mm256_setzero_si256();
+        const uint8_t* mask_data = mask.by_donor_lane.data();
+        for (unsigned int k = 0, idx = 0; k < n_cond_haps; ++k, idx += HAP_NUMBER) {
+            __m256d p0 = _mm256_load_pd(&prob[idx]);
+            __m256d p1 = _mm256_load_pd(&prob[idx+4]);
+            p0 = _mm256_fmadd_pd(p0, ntv, tFreq0);
+            p1 = _mm256_fmadd_pd(p1, ntv, tFreq1);
+            __m128i u8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(mask_data + idx));
+            __m256i epi32 = _mm256_cvtepu8_epi32(u8);
+            __m128i lo128 = _mm256_castsi256_si128(epi32);
+            __m128i hi128 = _mm256_extracti128_si256(epi32, 1);
+            __m256i lo64 = _mm256_cvtepi32_epi64(lo128);
+            __m256i hi64 = _mm256_cvtepi32_epi64(hi128);
+            __m256i sign_lo = _mm256_cmpgt_epi64(lo64, zero);
+            __m256i sign_hi = _mm256_cmpgt_epi64(hi64, zero);
+            __m256d emit0 = _mm256_blendv_pd(mismatch_vec, match_vec, _mm256_castsi256_pd(sign_lo));
+            __m256d emit1 = _mm256_blendv_pd(mismatch_vec, match_vec, _mm256_castsi256_pd(sign_hi));
+            p0 = _mm256_mul_pd(p0, emit0);
+            p1 = _mm256_mul_pd(p1, emit1);
+            sum0 = _mm256_add_pd(sum0, p0);
+            sum1 = _mm256_add_pd(sum1, p1);
+            _mm256_store_pd(&prob[idx], p0);
+            _mm256_store_pd(&prob[idx+4], p1);
+        }
+        _mm256_store_pd(&probSumH[0], sum0);
+        _mm256_store_pd(&probSumH[4], sum1);
+        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    }
+    void COLLAPSE_FROM_MASK(const MatchMask& mask, double mismatch_penalty) {
+        const __m256d match_vec = _mm256_set1_pd(1.0);
+        const __m256d mismatch_vec = _mm256_set1_pd(mismatch_penalty);
+        __m256d sum0 = _mm256_set1_pd(0.0);
+        __m256d sum1 = _mm256_set1_pd(0.0);
+        const __m256d tFreq = _mm256_set1_pd(yt / n_cond_haps);
+        const __m256d ntv = _mm256_set1_pd(nt / probSumT);
+        const __m256i zero = _mm256_setzero_si256();
+        const uint8_t* mask_data = mask.by_donor_lane.data();
+        for (unsigned int k = 0, idx = 0; k < n_cond_haps; ++k, idx += HAP_NUMBER) {
+            __m256d p0 = _mm256_set1_pd(probSumK[k]);
+            __m256d p1 = _mm256_set1_pd(probSumK[k]);
+            p0 = _mm256_fmadd_pd(p0, ntv, tFreq);
+            p1 = _mm256_fmadd_pd(p1, ntv, tFreq);
+            __m128i u8 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(mask_data + idx));
+            __m256i epi32 = _mm256_cvtepu8_epi32(u8);
+            __m128i lo128 = _mm256_castsi256_si128(epi32);
+            __m128i hi128 = _mm256_extracti128_si256(epi32, 1);
+            __m256i lo64 = _mm256_cvtepi32_epi64(lo128);
+            __m256i hi64 = _mm256_cvtepi32_epi64(hi128);
+            __m256i sign_lo = _mm256_cmpgt_epi64(lo64, zero);
+            __m256i sign_hi = _mm256_cmpgt_epi64(hi64, zero);
+            __m256d emit0 = _mm256_blendv_pd(mismatch_vec, match_vec, _mm256_castsi256_pd(sign_lo));
+            __m256d emit1 = _mm256_blendv_pd(mismatch_vec, match_vec, _mm256_castsi256_pd(sign_hi));
+            p0 = _mm256_mul_pd(p0, emit0);
+            p1 = _mm256_mul_pd(p1, emit1);
+            sum0 = _mm256_add_pd(sum0, p0);
+            sum1 = _mm256_add_pd(sum1, p1);
+            _mm256_store_pd(&prob[idx], p0);
+            _mm256_store_pd(&prob[idx+4], p1);
+        }
+        _mm256_store_pd(&probSumH[0], sum0);
+        _mm256_store_pd(&probSumH[4], sum1);
+        probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    }
 	bool RUN_HOM(char);
 	void RUN_AMB();
 	void RUN_MIS();
@@ -266,16 +340,20 @@ void haplotype_segment_double::SS_INIT_AMB() {
     // Load conditioning haplotype codes (cached after first call)
     ss_load_cond_codes(ss, ss_idx);
 
-    // Build per-lane expected class vector
-    uint8_t expected_class[HAP_NUMBER];
+    // Build per-lane expected vector
     unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
                              ? G->Ambiguous[curr_abs_ambiguous] : 0u;
-    if (c0 == c1) {
-        for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
-    } else {
-        for (int h = 0; h < HAP_NUMBER; ++h) {
-            bool use_c1 = ((amb_mask >> h) & 1U);
-            expected_class[h] = use_c1 ? c1 : c0;
+    uint8_t expected_class[HAP_NUMBER];
+    for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = 0;
+    if (!M.ss_anchor_split_emissions) {
+        // Strict class semantics
+        if (c0 == c1) {
+            for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+        } else {
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                bool use_c1 = ((amb_mask >> h) & 1U);
+                expected_class[h] = use_c1 ? c1 : c0;
+            }
         }
     }
 
@@ -292,9 +370,9 @@ void haplotype_segment_double::SS_INIT_AMB() {
     }
 
     if (M.ss_anchor_split_emissions) {
-        // Split semantics: per-lane expected ALT at anchor vs donor carries anchor ALT
+        // Split semantics: define expected ALT directly from Ambiguous mask (biallelic semantics)
         alignas(32) int exp_is_alt[HAP_NUMBER];
-        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = ((amb_mask >> h) & 1U) ? 1 : 0;
         
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
             int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
@@ -584,16 +662,9 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
     alignas(32) int exp_arr[HAP_NUMBER];
     
     if (M.ss_anchor_split_emissions) {
-        // Split semantics: compare binary (is anchor ALT?) for both donor and expected
-        int anchor_code = 0; 
-        for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-            if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { 
-                anchor_code = (int)ai + 1; 
-                break; 
-            }
-        }
+        // Split semantics: expected ALT from Ambiguous mask directly
         for (int h = 0; h < HAP_NUMBER; ++h) 
-            exp_arr[h] = (expected_class[h] == anchor_code) ? 1 : 0;
+            exp_arr[h] = ((amb_mask >> h) & 1U) ? 1 : 0;
     } else {
         // Strict 4-bit class equality semantics
         for (int h = 0; h < HAP_NUMBER; ++h) 

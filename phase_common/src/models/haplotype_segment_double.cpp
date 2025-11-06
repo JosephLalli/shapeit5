@@ -180,10 +180,15 @@ void haplotype_segment_double::forward() {
 
 		if (curr_rel_locus == 0) {
 			if (is_anchor) {
-				switch (emit) {
-					case EmitKind::Hom: SS_INIT_HOM(); break;
-					case EmitKind::Amb: SS_INIT_AMB(); break;
-					case EmitKind::Mis: SS_INIT_MIS(); break;
+				if (M.ss_anchor_split_emissions) {
+					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
+					INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
+				} else {
+					switch (emit) {
+						case EmitKind::Hom: SS_INIT_HOM(); break;
+						case EmitKind::Amb: SS_INIT_AMB(); break;
+						case EmitKind::Mis: SS_INIT_MIS(); break;
+					}
 				}
 			} else if (is_sibling) {
 				// Sibling at window start: initialize neutrally but do not advance prev_abs_locus
@@ -199,16 +204,21 @@ void haplotype_segment_double::forward() {
 			}
 		} else if (curr_segment_locus != 0) {
 			if (is_anchor) {
-				switch (emit) {
-					case EmitKind::Hom:
-						update_prev_locus = SS_RUN_HOM();
-						break;
-					case EmitKind::Amb:
-						SS_RUN_AMB();
-						break;
-					case EmitKind::Mis:
-						SS_RUN_MIS();
-						break;
+				if (M.ss_anchor_split_emissions) {
+					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
+					RUN_FROM_MASK(init_match_mask, M.ed/M.ee);
+				} else {
+					switch (emit) {
+						case EmitKind::Hom:
+							update_prev_locus = SS_RUN_HOM();
+							break;
+						case EmitKind::Amb:
+							SS_RUN_AMB();
+							break;
+						case EmitKind::Mis:
+							SS_RUN_MIS();
+							break;
+					}
 				}
 			} else if (is_sibling) {
 				// Sibling within window: no-op propagation (avoid renormalization)
@@ -220,10 +230,15 @@ void haplotype_segment_double::forward() {
 			}
 		} else {
 			if (is_anchor) {
-				switch (emit) {
-					case EmitKind::Hom: SS_COLLAPSE_HOM(); break;
-					case EmitKind::Amb: SS_COLLAPSE_AMB(); break;
-					case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
+				if (M.ss_anchor_split_emissions) {
+					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
+					COLLAPSE_FROM_MASK(init_match_mask, M.ed/M.ee);
+				} else {
+					switch (emit) {
+						case EmitKind::Hom: SS_COLLAPSE_HOM(); break;
+						case EmitKind::Amb: SS_COLLAPSE_AMB(); break;
+						case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
+					}
 				}
 			} else if (is_sibling) {
 				// Sibling at segment boundary: no-op and do not advance prev_abs_locus
@@ -340,10 +355,15 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 
 		if (curr_abs_locus == locus_last) {
 			if (is_anchor) {
-				switch (emit) {
-					case EmitKind::Hom: SS_INIT_HOM(); break;
-					case EmitKind::Amb: SS_INIT_AMB(); break;
-					case EmitKind::Mis: SS_INIT_MIS(); break;
+				if (M.ss_anchor_split_emissions) {
+					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
+					INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
+				} else {
+					switch (emit) {
+						case EmitKind::Hom: SS_INIT_HOM(); break;
+						case EmitKind::Amb: SS_INIT_AMB(); break;
+						case EmitKind::Mis: SS_INIT_MIS(); break;
+					}
 				}
 			} else if (is_sibling) {
 				// Sibling at window end: neutral init; do not advance prev_abs_locus
@@ -359,16 +379,21 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			}
 		} else if (curr_segment_locus != G->Lengths[curr_segment_index] - 1) {
 			if (is_anchor) {
-				switch (emit) {
-					case EmitKind::Hom:
-						update_prev_locus = SS_RUN_HOM();
-						break;
-					case EmitKind::Amb:
-						SS_RUN_AMB();
-						break;
-					case EmitKind::Mis:
-						SS_RUN_MIS();
-						break;
+				if (M.ss_anchor_split_emissions) {
+					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
+					RUN_FROM_MASK(init_match_mask, M.ed/M.ee);
+				} else {
+					switch (emit) {
+						case EmitKind::Hom:
+							update_prev_locus = SS_RUN_HOM();
+							break;
+						case EmitKind::Amb:
+							SS_RUN_AMB();
+							break;
+						case EmitKind::Mis:
+							SS_RUN_MIS();
+							break;
+					}
 				}
 			} else if (is_sibling) {
 				// Sibling within window (backward): no-op propagation
@@ -380,10 +405,15 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			}
 		} else {
 			if (is_anchor) {
-				switch (emit) {
-					case EmitKind::Hom: SS_COLLAPSE_HOM(); break;
-					case EmitKind::Amb: SS_COLLAPSE_AMB(); break;
-					case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
+				if (M.ss_anchor_split_emissions) {
+					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
+					COLLAPSE_FROM_MASK(init_match_mask, M.ed/M.ee);
+				} else {
+					switch (emit) {
+						case EmitKind::Hom: SS_COLLAPSE_HOM(); break;
+						case EmitKind::Amb: SS_COLLAPSE_AMB(); break;
+						case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
+					}
 				}
 			} else if (is_sibling) {
 				// Sibling at segment boundary (backward): no-op

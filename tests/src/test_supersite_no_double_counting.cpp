@@ -26,6 +26,41 @@ static variant* make_var(std::string chr, int bp, std::string id, std::string re
     return new variant(chr, bp, id, ref, alt, idx);
 }
 
+static void setup_genotype_simple(genotype& G, unsigned int n_variants,
+                                  unsigned int n_hets) {
+    // Minimal, self-consistent genotype state for forward-only tests
+    G.n_segments = 1;
+    G.n_variants = n_variants;
+    G.n_ambiguous = n_hets;   // number of HET/SCA entries encoded in Ambiguous
+    G.n_missing = 0;
+    G.n_transitions = 0;
+    G.n_stored_transitionProbs = 0;
+    G.n_storage_events = 0;
+    G.double_precision = false;
+    G.haploid = false;
+
+    // 2 variants per byte in Variants
+    G.Variants.assign((n_variants + 1) / 2, 0);
+
+    // One segment spanning all variants
+    G.Lengths.assign(1, static_cast<unsigned short>(n_variants));
+    // At least one diplotype bit set
+    G.Diplotypes.assign(1, 1ull);
+
+    // Ambiguous lane mask: for a single HET with no preceding SCA, lanes 0..7 alternate 0/1
+    // i.e. bit pattern 0b10101010 = 0xAA (odd lanes set)
+    if (n_hets > 0) {
+        G.Ambiguous.assign(n_hets, 0xAA);
+    } else {
+        G.Ambiguous.clear();
+    }
+
+    // Prob buffers unused in this test
+    G.ProbMask.clear();
+    G.ProbStored.clear();
+    G.ProbMissing.clear();
+}
+
 int main() {
     std::cout << "Testing supersite no double-counting invariant..." << std::endl;
 
@@ -59,8 +94,7 @@ int main() {
 
     // Target genotype: HOM REF at supersite, HET at third locus to create transition
     genotype G(0);
-    G.n_segments = 1; G.n_variants = V.size();
-    G.Variants.assign(2, 0);
+    setup_genotype_simple(G, /*n_variants=*/V.size(), /*n_hets=*/1);
     VAR_SET_HOM(0, G.Variants[0]);
     VAR_SET_HOM(1, G.Variants[0]);
     VAR_SET_HET(0, G.Variants[1]); // at index 2 overall
@@ -103,4 +137,3 @@ int main() {
     std::cout << "✓ SUCCESS: No double-counting when sibling included" << std::endl;
     return 0;
 }
-

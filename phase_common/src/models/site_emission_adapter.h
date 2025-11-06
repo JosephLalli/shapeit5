@@ -183,6 +183,13 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
     const bool is_anchor = (abs_locus == static_cast<int>(ss.global_site_id));
     view.kind = is_anchor ? SiteKind::SuperAnchor : SiteKind::SuperSibling;
 
+    // Optional trace
+    const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+    if (tr && tr[0] != '\0' && tr[0] != '0') {
+        std::fprintf(stdout, "build_view locus=%d ss_idx=%d is_anchor=%d var_count=%u panel_off=%u\n",
+                     abs_locus, ss_idx, (int)is_anchor, (unsigned)ss.var_count, (unsigned)ss.panel_offset);
+    }
+
     if (!is_anchor) {
         view.emit_kind = EmitKind::Mis;
         view.sample_class0 = SUPERSITE_CODE_MISSING;

@@ -35,6 +35,8 @@
 #include "../../phase_common/src/objects/super_site_builder.h"
 #include "../../phase_common/src/containers/variant_map.h"
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
+#include "../../phase_common/src/models/site_emission_adapter.h"
+#include "../../phase_common/src/models/super_site_accessor.h"
 
 namespace {
 
@@ -118,16 +120,34 @@ static window make_full_window(int stop_locus) {
     return W;
 }
 
+// Compute per-adjacent-site transition probabilities from the genetic map
+// Matches hmm_parameters::initialise() logic so sibling pairs (same cm) yield ~0 transition
+static void compute_t_from_cm(hmm_parameters& M) {
+    const int n = static_cast<int>(M.cm.size());
+    if (n <= 1) {
+        M.t.clear();
+        M.nt.clear();
+        return;
+    }
+    M.t.assign(n - 1, 0.0f);
+    M.nt.assign(n - 1, 0.0f);
+    for (int l = 1; l < n; ++l) {
+        float dist_cm = M.cm[l] - M.cm[l - 1];
+        if (dist_cm <= 1e-7f) dist_cm = 1e-7f;  // clamp like production code
+        float tval = -1.0f * expm1f(-0.04f * static_cast<float>(M.Neff) * dist_cm / static_cast<float>(M.Nhap));
+        M.t[l - 1] = tval;
+        M.nt[l - 1] = 1.0f - tval;
+    }
+}
+
 static hmm_parameters make_hmm_params_5var(size_t n_variants, unsigned int Nhap) {
     hmm_parameters M;
     M.ed = 0.01;
     M.ee = 1.0;
-    if (n_variants > 0) {
-        M.t = std::vector<float>(n_variants - 1, 0.05f);
-        M.nt = std::vector<float>(n_variants - 1, 0.95f);
-    }
+    // Present biallelic semantics at anchors while retaining strict class storage
+    M.ss_anchor_split_emissions = true;
     M.cm = std::vector<float>(n_variants, 0.0f);
-    // 5-variant map matching 10-variant positions
+    // 5-variant map matching 10-variant anchor positions
     if (n_variants >= 5) {
         M.cm[0] = 0.005f;   // v500
         M.cm[1] = 0.010f;   // v1000
@@ -137,6 +157,7 @@ static hmm_parameters make_hmm_params_5var(size_t n_variants, unsigned int Nhap)
     }
     M.Neff = 10000;
     M.Nhap = static_cast<int>(Nhap);
+    compute_t_from_cm(M);
     M.rare_allele = std::vector<char>(n_variants, -1);
     return M;
 }
@@ -145,19 +166,17 @@ static hmm_parameters make_hmm_params_10var(size_t n_variants, unsigned int Nhap
     hmm_parameters M;
     M.ed = 0.01;
     M.ee = 1.0;
-    if (n_variants > 0) {
-        M.t = std::vector<float>(n_variants - 1, 0.05f);
-        M.nt = std::vector<float>(n_variants - 1, 0.95f);
-    }
+    // Present biallelic semantics at anchors while retaining strict class storage
+    M.ss_anchor_split_emissions = true;
     M.cm = std::vector<float>(n_variants, 0.0f);
-    // 10-variant map: supersites at separate positions 
+    // 10-variant map: pairs at identical positions (anchor/dummy share cm)
     if (n_variants >= 10) {
         M.cm[0] = 0.005f;   // v500_main
         M.cm[1] = 0.005f;   // v500_dummy (same position)
         M.cm[2] = 0.010f;   // ss1_A_C  
         M.cm[3] = 0.010f;   // ss1_dummy (same position as ss1_A_C)
-        M.cm[4] = 0.015f;   // ss2_A_G (position 1500)
-        M.cm[5] = 0.015f;   // ss2_dummy (same position as ss2_A_G)
+        M.cm[4] = 0.015f;   // ss2_A_G
+        M.cm[5] = 0.015f;   // ss2_dummy (same position)
         M.cm[6] = 0.020f;   // v2000_main
         M.cm[7] = 0.020f;   // v2000_dummy (same position)
         M.cm[8] = 0.025f;   // v2500_main
@@ -165,6 +184,7 @@ static hmm_parameters make_hmm_params_10var(size_t n_variants, unsigned int Nhap
     }
     M.Neff = 10000;
     M.Nhap = static_cast<int>(Nhap);
+    compute_t_from_cm(M);
     M.rare_allele = std::vector<char>(n_variants, -1);
     return M;
 }
@@ -206,6 +226,53 @@ static FBResult run_forward_backward(genotype& G,
     res.probSumT = HS.probSumT;
     res.transition_probabilities = transition_probabilities;
     return res;
+}
+
+// Forward-only runner to capture state at end of window without backward mutations
+static FBResult run_forward_only(genotype& G,
+                                 conditioning_set& H,
+                                 hmm_parameters& M,
+                                 const window& W,
+                                 const std::vector<unsigned int>& idxH,
+                                 const SuperSiteContext* ctx) {
+    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
+    const std::vector<bool>* is_super_site = ctx ? &ctx->is_super_site : nullptr;
+    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
+    const std::vector<int>* super_site_var_index = ctx ? &ctx->super_site_var_index : nullptr;
+    const uint8_t* panel_codes = (ctx && !ctx->packed_codes.empty()) ? ctx->packed_codes.data() : nullptr;
+
+    haplotype_segment_double HS(&G, H.H_opt_hap, const_cast<std::vector<unsigned int>&>(idxH),
+                                const_cast<window&>(W), M,
+                                super_sites, is_super_site, locus_to_super_idx,
+                                panel_codes, super_site_var_index);
+    HS.forward();
+
+    FBResult res;
+    res.prob.assign(HS.prob.begin(), HS.prob.end());
+    res.probSumH.assign(HS.probSumH.begin(), HS.probSumH.end());
+    res.probSumT = HS.probSumT;
+    return res;
+}
+
+static int compute_amb_index(const genotype& G,
+                             int locus,
+                             const std::vector<SuperSite>* super_sites,
+                             const std::vector<int>* locus_to_super_idx) {
+    int a = 0;
+    for (int v = 0; v <= locus; ++v) {
+        unsigned char var_code = G.Variants[DIV2(v)];
+        genotype::SuperSiteContext ctx = G.getSuperSiteContext(v);
+        if (ctx.is_member && !ctx.is_anchor) continue; // skip siblings
+        bool is_amb;
+        if (ctx.is_anchor) {
+            is_amb = (ctx.has_sca || ctx.has_het);
+        } else {
+            is_amb = VAR_GET_AMB(MOD2(v), var_code);
+        }
+        if (v < locus) a += is_amb ? 1 : 0;
+        else if (v == locus) return a; // index for this locus if ambiguous
+    }
+    return 0;
 }
 
 static std::string phase_to_string(PhaseCode code) {
@@ -418,7 +485,91 @@ int main() {
     std::cout << "  10-variant final probSumT: " << std::scientific << std::setprecision(10) << res10.probSumT << std::endl;
 
     // =====================================================================
-    // Compare results: validate supersite functionality and consistency
+    // Anchor parity: compare forward state at each anchor vs corresponding
+    // biallelic site when running windows ending exactly at that locus.
+    // =====================================================================
+    std::cout << "\nChecking anchor-only forward parity across windows (normalized posteriors)..." << std::endl;
+    bool anchor_parity_ok = true;
+    const double tol = 1e-9;
+    for (int a = 0; a < 5; ++a) {
+        window Wa5 = make_full_window(a);
+        window Wa10 = make_full_window(2 * a);
+        FBResult fa5 = run_forward_only(G5, H5, M5, Wa5, idxH, &ctx5);
+        FBResult fa10 = run_forward_only(G10, H10, M10, Wa10, idxH, &ctx10);
+
+        if (fa5.probSumH.size() != fa10.probSumH.size() || fa5.prob.size() != fa10.prob.size()) {
+            std::cout << "  Anchor " << a << ": state size mismatch" << std::endl;
+            anchor_parity_ok = false;
+            break;
+        }
+        // Normalize per-lane across donors: posterior_kh = alpha_kh / sumH[h]
+        double max_norm_diff = 0.0;
+        for (unsigned int k = 0, idx = 0; k < H5.n_hap; ++k, idx += HAP_NUMBER) {
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                double denom5 = fa5.probSumH[h];
+                double denom10 = fa10.probSumH[h];
+                if (denom5 > 0.0 && denom10 > 0.0) {
+                    double post5 = fa5.prob[idx + h] / denom5;
+                    double post10 = fa10.prob[idx + h] / denom10;
+                    max_norm_diff = std::max(max_norm_diff, std::fabs(post5 - post10));
+                }
+            }
+        }
+        std::cout << "  Anchor " << a << ": max_norm_post_diff=" << max_norm_diff << std::endl;
+
+        // Detailed lane expectation and donor flag instrumentation at this anchor
+        {
+            int locus5 = a;
+            int locus10 = 2 * a; // anchor index in 10-variant setup
+            int amb_idx5 = compute_amb_index(G5, locus5, nullptr, nullptr);
+            int amb_idx10 = compute_amb_index(G10, locus10, &ctx10.super_sites, &ctx10.locus_to_super_idx);
+
+            BiallelicEmissionAdapter bial5(&G5, &H5.H_opt_var);
+            SupersiteEmissionAdapter ss10(&G10,
+                                          &ctx10.super_sites,
+                                          &ctx10.locus_to_super_idx,
+                                          &ctx10.super_site_var_index,
+                                          ctx10.packed_codes.empty() ? nullptr : ctx10.packed_codes.data(),
+                                          &idxH);
+            SiteView v5{};
+            SiteView v10{};
+            bial5.build_view(locus5, amb_idx5, v5);
+            bool has_ss = ss10.build_view(locus10, amb_idx10, v10);
+            std::cout << "    Bial lane exp (0/1):";
+            for (int h = 0; h < HAP_NUMBER; ++h) std::cout << " " << (int)v5.lane_class[h];
+            std::cout << "\n";
+            if (has_ss && v10.supersite) {
+                int anchor_class = (int)v10.anchor_class;
+                std::cout << "    SS anchor_class=" << anchor_class << " lane exp_is_anchor (0/1):";
+                for (int h = 0; h < HAP_NUMBER; ++h) {
+                    int exp_is_alt = (v10.lane_class[h] == v10.anchor_class) ? 1 : 0;
+                    std::cout << " " << exp_is_alt;
+                }
+                std::cout << "\n";
+                // Also print raw Ambiguous mask bits the HMM uses under split-semantics
+                unsigned char amb10 = (amb_idx10 >= 0 && amb_idx10 < (int)G10.Ambiguous.size()) ? G10.Ambiguous[amb_idx10] : 0u;
+                std::cout << "    SS amb_mask bits:";
+                for (int h = 0; h < HAP_NUMBER; ++h) {
+                    std::cout << " " << (((amb10 >> h) & 1U) ? 1 : 0);
+                }
+                std::cout << "\n";
+                std::cout << "    Donor flags (bial ALT at 5-var vs SS anchor-ALT at 10-var):\n      k  bialALT  ssALT\n";
+                for (unsigned int k = 0; k < H5.n_hap; ++k) {
+                    unsigned int gh = idxH[k];
+                    int bial_alt = H5.H_opt_var.get(locus5, gh) ? 1 : 0;
+                    uint8_t dcode = unpackSuperSiteCode(ctx10.packed_codes.data(), v10.supersite->panel_offset, gh);
+                    int ss_alt = (dcode == v10.anchor_class) ? 1 : 0;
+                    std::cout << "      " << k << "      " << bial_alt << "       " << ss_alt << "\n";
+                }
+            } else {
+                std::cout << "    [WARN] Supersite view not available at locus10=" << locus10 << "\n";
+            }
+        }
+        if (max_norm_diff > 1e-7) anchor_parity_ok = false;
+    }
+
+    // =====================================================================
+    // Compare overall results (coarse sanity)
     // =====================================================================
     std::cout << std::endl;
     std::cout << "Validating supersite expansion behavior..." << std::endl;
@@ -438,7 +589,7 @@ int main() {
     // Both forward/backward passes should complete without errors
     bool both_completed = (res5.prob.size() > 0) && (res10.prob.size() > 0);
     
-    bool test_passed = reasonable_likelihoods && bounded_difference && both_completed;
+    bool test_passed = anchor_parity_ok && reasonable_likelihoods && both_completed;
     
     if (test_passed) {
         std::cout << std::endl;
@@ -446,14 +597,15 @@ int main() {
         std::cout << "✓ 5-variant reference dataset: " << ctx5.super_sites.size() << " supersite" << std::endl;
         std::cout << "✓ 10-variant expanded dataset: " << ctx10.super_sites.size() << " supersites" << std::endl;
         std::cout << "✓ Forward/backward passes completed successfully for both datasets" << std::endl;
+        std::cout << "✓ Anchor-only forward parity holds across windows" << std::endl;
         std::cout << "✓ Likelihood values are reasonable (5-var: " << std::fixed << std::setprecision(4) 
                   << res5.probSumT << ", 10-var: " << res10.probSumT << ")" << std::endl;
         std::cout << "✓ Supersite representation handles dummy variants correctly" << std::endl;
     } else {
         std::cout << std::endl;
         std::cout << "✗ FAILURE: Supersite expansion test failed" << std::endl;
+        std::cout << "  Anchor parity: " << (anchor_parity_ok ? "✓" : "✗") << std::endl;
         std::cout << "  Reasonable likelihoods: " << (reasonable_likelihoods ? "✓" : "✗") << std::endl;
-        std::cout << "  Bounded difference: " << (bounded_difference ? "✓" : "✗") << std::endl;
         std::cout << "  Both completed: " << (both_completed ? "✓" : "✗") << std::endl;
         assert(false);
     }

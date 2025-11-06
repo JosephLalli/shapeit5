@@ -209,11 +209,13 @@ static hmm_parameters make_hmm_params(size_t n_variants, unsigned int Nhap) {
     hmm_parameters M;
     M.ed = 0.01;
     M.ee = 1.0;
+    // Use binary presentation at anchors for parity against biallelic split
+    M.ss_anchor_split_emissions = true;
     if (n_variants > 0) {
         M.t = std::vector<float>(n_variants - 1, 0.05f);
         M.nt = std::vector<float>(n_variants - 1, 0.95f);
     }
-    M.cm = std::vector<float>(n_variants, 0.0f);
+    M.cm = std::vector<float>(n_variants, 0.001f);
     // simple increasing map with supersite splits sharing the same position
     if (n_variants >= 5) {
         M.cm[0] = 0.005f;   // v500

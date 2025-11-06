@@ -127,7 +127,7 @@ int main() {
     for (int h = 0; h < HAP_NUMBER; ++h) HS.AlphaSumMissing[0][h] = 1.0f;
 
     // Invoke multivariant imputation directly (anchor context)
-    HS.IMPUTE_SUPERSITE_MULTIVARIATE(SC, ss, /*ss_idx=*/0);
+    HS.IMPUTE_SUPERSITE_MULTIVARIATE(SC, ss, /*ss_idx=*/0, /*rel_missing_index=*/0);
 
     // Verify per-haplotype normalization: sum_c SC[h*C+c] ≈ 1.0
     int C = ss.n_classes;
