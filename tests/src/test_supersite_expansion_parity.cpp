@@ -23,6 +23,7 @@
 #include <vector>
 #include <string>
 #include <iomanip>
+#include <cstdlib>
 
 #include "../../common/src/utils/otools.h"
 
@@ -39,6 +40,11 @@
 #include "../../phase_common/src/models/super_site_accessor.h"
 
 namespace {
+
+static inline bool env_true(const char* name) {
+    const char* v = std::getenv(name);
+    return v && v[0] != '\0' && v[0] != '0';
+}
 
 struct SuperSiteContext {
     std::vector<SuperSite> super_sites;
@@ -441,6 +447,24 @@ int main() {
 
     std::cout << "  Built 10-variant dataset with 5 supersites" << std::endl;
 
+    // Verbose-only dataset invariants (siblings must be true no-ops)
+    if (env_true("SHAPEIT5_TEST_VERBOSE")) {
+        // Sample siblings are strictly REF|REF
+        for (int i = 1; i < (int)V10.size(); i += 2) {
+            unsigned char byte = G10.Variants[DIV2(i)];
+            bool h0 = VAR_GET_HAP0(MOD2(i), byte);
+            bool h1 = VAR_GET_HAP1(MOD2(i), byte);
+            bool het = VAR_GET_HET(MOD2(i), byte);
+            assert(!h0 && !h1 && !het && "Sibling sample genotype must be 0|0");
+        }
+        // Panel siblings are strictly REF for all donors
+        for (int i = 1; i < (int)V10.size(); i += 2) {
+            for (unsigned int hap = 0; hap < H10.n_hap; ++hap) {
+                assert(!H10.H_opt_var.get(i, hap) && "Sibling panel haplotype must be REF");
+            }
+        }
+    }
+
     // =====================================================================
     // Build supersites and run forward/backward on both datasets
     // =====================================================================
@@ -450,6 +474,15 @@ int main() {
 
     hmm_parameters M5 = make_hmm_params_5var(V5.size(), H5.n_hap);
     hmm_parameters M10 = make_hmm_params_10var(V10.size(), H10.n_hap);
+
+    // Verbose-only: identical cm at sibling pairs
+    if (env_true("SHAPEIT5_TEST_VERBOSE")) {
+        for (int i = 1; i < (int)V10.size(); i += 2) {
+            float cm_even = M10.cm[i - 1];
+            float cm_odd  = M10.cm[i];
+            assert(cm_even == cm_odd && "Sibling cm must be identical");
+        }
+    }
 
     SuperSiteContext ctx5 = build_supersites(V5, H5);
     SuperSiteContext ctx10 = build_supersites(V10, H10);
@@ -612,6 +645,22 @@ int main() {
                                   << (int)m5.by_donor_lane[i] << "   "
                                   << (int)m10.by_donor_lane[i] << "\n";
                     }
+                }
+
+                // Verbose-only strict checks at anchors
+                if (env_true("SHAPEIT5_TEST_VERBOSE")) {
+                    // Ambiguous index parity
+                    assert(amb_idx5 == amb_idx10 && "Ambiguous index must match at anchor");
+                    // Donor bial ALT vs SS anchor ALT parity
+                    for (unsigned int k = 0; k < H5.n_hap; ++k) {
+                        unsigned int gh = idxH[k];
+                        int bial_alt = H5.H_opt_var.get(locus5, gh) ? 1 : 0;
+                        uint8_t dcode = unpackSuperSiteCode(ctx10.packed_codes.data(), v10.supersite->panel_offset, gh);
+                        int ss_alt = (dcode == v10.anchor_class) ? 1 : 0;
+                        assert(bial_alt == ss_alt && "Donor ALT parity (bial vs SS anchor ALT) must hold");
+                    }
+                    // Full mask parity
+                    assert(masks_equal && "Donor×lane mask parity must hold at anchor");
                 }
 
                 // For donor 0, print per-lane mask flags and corresponding alpha values (anchor-only windows)
