@@ -745,6 +745,23 @@ int main() {
     double probSumT_diff = std::fabs(res5.probSumT - res10.probSumT);
     std::cout << "  probSumT difference: " << std::scientific << probSumT_diff << std::endl;
     
+    // Whole-window normalized alpha parity (warning-only):
+    double whole_norm_max = 0.0;
+    for (unsigned int k = 0, idx = 0; k < H5.n_hap; ++k, idx += HAP_NUMBER) {
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            double d5 = res5.probSumH[h];
+            double d10 = res10.probSumH[h];
+            if (d5 > 0.0 && d10 > 0.0) {
+                double p5 = res5.prob[idx + h] / d5;
+                double p10 = res10.prob[idx + h] / d10;
+                whole_norm_max = std::max(whole_norm_max, std::fabs(p5 - p10));
+            }
+        }
+    }
+    if (whole_norm_max > 1e-7) {
+        std::cout << "  WARNING: whole-window normalized alpha max diff=" << std::fixed << whole_norm_max << std::endl;
+    }
+    
     // The datasets won't be identical due to different positions and dummy variants,
     // but both should produce reasonable likelihood values
     bool reasonable_likelihoods = (res5.probSumT > 0.1 && res5.probSumT < 1.0) && 

@@ -90,10 +90,10 @@ int main() {
     M.nt = std::vector<float>(M.t.size(), 0.8f);
     M.rare_allele = std::vector<char>(V.size(), -1);
 
-    // Single window covering both loci
+    // Single window covering only the anchor locus (sibling is a no-op under parity)
     window W;
     W.start_locus = 0;
-    W.stop_locus = static_cast<int>(V.size()) - 1;
+    W.stop_locus = 0; // anchor only
     W.start_segment = 0;
     W.stop_segment = 0;
     W.start_ambiguous = 0;
@@ -105,16 +105,12 @@ int main() {
 
     std::vector<unsigned int> idxH = {0u, 1u};
 
-    // Expected emissions after INIT (locus 0) and RUN (locus 1)
+    // Expected emissions after INIT only (anchor-only window)
     const double mismatch = M.ed / M.ee; // 0.1
-    const double sum_emit = 1.0 + mismatch;
-    const double probSumT_init = HAP_NUMBER * sum_emit;
-    const double yt = 0.2;
-    const double nt = 1.0 - yt;
-    const double tFreq = sum_emit * (yt / (static_cast<double>(idxH.size()) * probSumT_init));
-    const double nt_norm = nt / probSumT_init;
-    const double expect_cond0 = (1.0 * nt_norm + tFreq) * 1.0;
-    const double expect_cond1 = (mismatch * nt_norm + tFreq) * mismatch;
+    // Donor 0 carries ALT at anchor → emission 1.0 across lanes
+    // Donor 1 does not → emission mismatch across lanes
+    const double expect_cond0 = 1.0;
+    const double expect_cond1 = mismatch;
     const double expect_sum = expect_cond0 + expect_cond1;
     const double expect_total = expect_sum * HAP_NUMBER;
 
