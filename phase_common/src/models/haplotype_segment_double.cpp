@@ -56,16 +56,6 @@ static bool supersite_trace_enabled_d() {
     return flag == 1;
 }
 
-// EXPERIMENTAL: COLLAPSE transition normalization testing (SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION)
-// TODO: Remove before release after determining optimal behavior (see Bug #4)
-static bool normalize_collapse_transition_enabled_d() {
-    static int flag = -1;
-    if (flag < 0) {
-        const char* env = std::getenv("SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION");
-        flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-    }
-    return flag == 1;
-}
 } // namespace
 
 haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M,

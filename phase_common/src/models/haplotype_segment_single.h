@@ -71,10 +71,7 @@ private:
 	float probSumT;
 	aligned_vector32 < float > prob;
 	aligned_vector32 < float > probSumK;
-	aligned_vector32 < float > probSumK_frac_c1; // optional: fraction of donor mass in c1 lanes at last segment end
-	bool frac_c1_available = false;
-	bool last_anchor_frac_valid = false;
-	uint8_t last_anchor_amb_mask = 0u;
+    // Simplified: no per-lane fraction seeding; collapse seeds from donor-marginal probSumK only
 	aligned_vector32 < float > probSumH;
 	std::vector < aligned_vector32 < float > > Alpha;
 	std::vector < aligned_vector32 < float > > AlphaSum;
@@ -577,31 +574,8 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
     __m256 _nt = _mm256_set1_ps(nt / probSumT);
 
     for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        // Transition: collapse from previous segment boundary
-        // Default: donor-marginal scalar probSumK[k]
-        // Optional (env SHAPEIT5_SS_CLASS_FRAC=1 and fraction available):
-        // seed lanes using probSumK * f_c1 per c1 lane and probSumK * (1-f_c1) per c0 lane.
-        __m256 _prob;
-        static int use_frac_flag = -1;
-        if (use_frac_flag < 0) {
-            const char* env = std::getenv("SHAPEIT5_SS_CLASS_FRAC");
-            use_frac_flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-        }
-        if (use_frac_flag == 1 && frac_c1_available) {
-            float base = probSumK[k];
-            float f1 = probSumK_frac_c1[k];
-            float base0 = base * (1.0f - f1);
-            float base1 = base * f1;
-            __m256 v0 = _mm256_set1_ps(base0);
-            __m256 v1 = _mm256_set1_ps(base1);
-            alignas(32) int maski[HAP_NUMBER];
-            for (int h = 0; h < HAP_NUMBER; ++h) maski[h] = ((amb_mask >> h) & 1U) ? -1 : 0;
-            __m256i mvec = _mm256_load_si256((__m256i*)maski);
-            __m256 mps = _mm256_castsi256_ps(mvec);
-            _prob = _mm256_blendv_ps(v0, v1, mps);
-        } else {
-            _prob = _mm256_set1_ps(probSumK[k]);
-        }
+        // Transition: collapse from previous segment boundary using donor-marginal mass only
+        __m256 _prob = _mm256_set1_ps(probSumK[k]);
         _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
 
         // Emission: compute donor code based on mode, then compare to expected
@@ -800,39 +774,13 @@ void haplotype_segment_single::COLLAPSE_HOM() {
     // Biallelic path
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
     __m256 _sum = _mm256_set1_ps(0.0f);
-    // BUG #4 EXPERIMENTAL: Test normalization behavior
-    // Default (env not set): _tFreq = yt / n_cond_haps (current behavior)
-    // With SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION=1: _tFreq = (yt * probSumT) / n_cond_haps
-    static const char* norm_env = std::getenv("SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION");
-    static const bool use_normalization = (norm_env && norm_env[0] != '\0' && norm_env[0] != '0');
-    __m256 _tFreq = use_normalization
-        ? _mm256_set1_ps((yt * probSumT) / n_cond_haps)
-        : _mm256_set1_ps(yt / n_cond_haps);
+    // Transition frequency from donor-marginal mass only
+    __m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
     __m256 _nt = _mm256_set1_ps(nt / probSumT);
     __m256 _mismatch = _mm256_set1_ps(M.ed/M.ee);
-    static int use_frac_flag = -1;
-    if (use_frac_flag < 0) {
-        const char* env = std::getenv("SHAPEIT5_SS_CLASS_FRAC");
-        use_frac_flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-    }
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
         bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256 _prob;
-        if (use_frac_flag == 1 && last_anchor_frac_valid) {
-            float base = probSumK[k];
-            float f1 = probSumK_frac_c1[k];
-            float base0 = base * (1.0f - f1);
-            float base1 = base * f1;
-            __m256 v0 = _mm256_set1_ps(base0);
-            __m256 v1 = _mm256_set1_ps(base1);
-            alignas(32) int maski[HAP_NUMBER];
-            for (int h = 0; h < HAP_NUMBER; ++h) maski[h] = ((last_anchor_amb_mask >> h) & 1U) ? -1 : 0;
-            __m256i mvec = _mm256_load_si256((__m256i*)maski);
-            __m256 mps = _mm256_castsi256_ps(mvec);
-            _prob = _mm256_blendv_ps(v0, v1, mps);
-        } else {
-            _prob = _mm256_set1_ps(probSumK[k]);
-        }
+        __m256 _prob = _mm256_set1_ps(probSumK[k]);
         _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
         if (ag!=ah) _prob = _mm256_mul_ps(_prob, _mismatch);
         _sum = _mm256_add_ps(_sum, _prob);
@@ -1012,29 +960,9 @@ void haplotype_segment_single::COLLAPSE_AMB() {
 	__m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
 	__m256 _nt = _mm256_set1_ps(nt / probSumT);
 	__m256 _emit[2]; _emit[0] = _mm256_loadu_ps(&g0[0]); _emit[1] = _mm256_loadu_ps(&g1[0]);
-    static int use_frac_flag = -1;
-    if (use_frac_flag < 0) {
-        const char* env = std::getenv("SHAPEIT5_SS_CLASS_FRAC");
-        use_frac_flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-    }
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
         bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256 _prob;
-        if (use_frac_flag == 1 && last_anchor_frac_valid) {
-            float base = probSumK[k];
-            float f1 = probSumK_frac_c1[k];
-            float base0 = base * (1.0f - f1);
-            float base1 = base * f1;
-            __m256 v0 = _mm256_set1_ps(base0);
-            __m256 v1 = _mm256_set1_ps(base1);
-            alignas(32) int maski[HAP_NUMBER];
-            for (int h = 0; h < HAP_NUMBER; ++h) maski[h] = ((last_anchor_amb_mask >> h) & 1U) ? -1 : 0;
-            __m256i mvec = _mm256_load_si256((__m256i*)maski);
-            __m256 mps = _mm256_castsi256_ps(mvec);
-            _prob = _mm256_blendv_ps(v0, v1, mps);
-        } else {
-            _prob = _mm256_set1_ps(probSumK[k]);
-        }
+        __m256 _prob = _mm256_set1_ps(probSumK[k]);
         _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
         _prob = _mm256_mul_ps(_prob, _emit[ah]);
         _sum = _mm256_add_ps(_sum, _prob);
@@ -1074,42 +1002,17 @@ void haplotype_segment_single::RUN_MIS() {
 
 inline
 void haplotype_segment_single::COLLAPSE_MIS() {
-		__m256 _sum = _mm256_set1_ps(0.0f);
-	// BUG #4 EXPERIMENTAL: Test normalization behavior
-	static const char* norm_env = std::getenv("SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION");
-	static const bool use_normalization = (norm_env && norm_env[0] != '\0' && norm_env[0] != '0');
-	__m256 _tFreq = use_normalization
-	    ? _mm256_set1_ps((yt * probSumT) / n_cond_haps)
-	    : _mm256_set1_ps(yt / n_cond_haps);
-	__m256 _nt = _mm256_set1_ps(nt / probSumT);
-		static int use_frac_flag = -1;
-		if (use_frac_flag < 0) {
-			const char* env = std::getenv("SHAPEIT5_SS_CLASS_FRAC");
-			use_frac_flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-		}
-		for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-			__m256 _prob;
-			if (use_frac_flag == 1 && last_anchor_frac_valid) {
-				float base = probSumK[k];
-				float f1 = probSumK_frac_c1[k];
-				float base0 = base * (1.0f - f1);
-				float base1 = base * f1;
-				__m256 v0 = _mm256_set1_ps(base0);
-				__m256 v1 = _mm256_set1_ps(base1);
-				alignas(32) int maski[HAP_NUMBER];
-				for (int h = 0; h < HAP_NUMBER; ++h) maski[h] = ((last_anchor_amb_mask >> h) & 1U) ? -1 : 0;
-				__m256i mvec = _mm256_load_si256((__m256i*)maski);
-				__m256 mps = _mm256_castsi256_ps(mvec);
-				_prob = _mm256_blendv_ps(v0, v1, mps);
-			} else {
-				_prob = _mm256_set1_ps(probSumK[k]);
-			}
-			_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-			_sum = _mm256_add_ps(_sum, _prob);
-			_mm256_store_ps(&prob[i], _prob);
-		}
-	_mm256_store_ps(&probSumH[0], _sum);
-	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+        __m256 _sum = _mm256_set1_ps(0.0f);
+    __m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
+    __m256 _nt = _mm256_set1_ps(nt / probSumT);
+        for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+            __m256 _prob = _mm256_set1_ps(probSumK[k]);
+            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+            _sum = _mm256_add_ps(_sum, _prob);
+            _mm256_store_ps(&prob[i], _prob);
+        }
+    _mm256_store_ps(&probSumH[0], _sum);
+    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 }
 
 /*******************************************************************************/
@@ -1118,54 +1021,9 @@ void haplotype_segment_single::COLLAPSE_MIS() {
 
 inline
 void haplotype_segment_single::SUMK() {
-		for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-			probSumK[k] = prob[i+0] + prob[i+1] + prob[i+2] + prob[i+3] + prob[i+4] + prob[i+5] + prob[i+6] + prob[i+7];
-		}
-
-		// Optional: compute per-donor c1 fraction at supersite anchor boundaries
-		// Enable with SHAPEIT5_SS_CLASS_FRAC=1
-		static int ss_frac_flag = -1;
-		if (ss_frac_flag < 0) {
-			const char* env = std::getenv("SHAPEIT5_SS_CLASS_FRAC");
-			ss_frac_flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-		}
-		frac_c1_available = false;
-        if (ss_frac_flag == 1 && super_sites && locus_to_super_idx && super_site_var_index) {
-            int ss_idx = (*locus_to_super_idx)[curr_abs_locus];
-            if (ss_idx >= 0) {
-                const SuperSite& ss = (*super_sites)[ss_idx];
-                // Only when the last processed locus is the supersite anchor and heterozygous
-                if (curr_abs_locus == (int)ss.global_site_id) {
-					uint8_t c0, c1;
-					SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
-					if (cls == SSClass::AMB && c0 != c1) {
-						// Determine ambiguous mask index of this anchor locus
-						bool was_amb = VAR_GET_AMB(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-						int amb_idx = was_amb ? (curr_abs_ambiguous - 1) : curr_abs_ambiguous;
-						unsigned char amb_mask = 0u;
-						if (amb_idx >= ambiguous_first && amb_idx <= ambiguous_last) amb_mask = G->Ambiguous[amb_idx];
-                        // Record anchor mask for reuse at next boundary
-                        last_anchor_amb_mask = amb_mask;
-                        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                            float tot = probSumK[k];
-                            if (tot > 0.0f) {
-                                float sum_c1 = 0.0f;
-                                for (int h = 0; h < HAP_NUMBER; ++h) {
-                                    if ((amb_mask >> h) & 1U) sum_c1 += prob[i + h];
-                                }
-                                probSumK_frac_c1[k] = sum_c1 / tot;
-                            } else {
-                                probSumK_frac_c1[k] = 0.5f; // neutral fallback
-                            }
-                        }
-                        frac_c1_available = true;
-                    } else {
-                        last_anchor_frac_valid = false;
-                    }
-                }
-            }
+        for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+            probSumK[k] = prob[i+0] + prob[i+1] + prob[i+2] + prob[i+3] + prob[i+4] + prob[i+5] + prob[i+6] + prob[i+7];
         }
-        last_anchor_frac_valid = frac_c1_available;
 }
 
 /*******************************************************************************/

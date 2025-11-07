@@ -779,36 +779,12 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
     __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
 
-	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-		debugCheckProbBounds(i, "SS_COLLAPSE_AMB");
-        // Transition: collapse from previous segment boundary
-        // Default: donor-marginal scalar
-        // Optional (env SHAPEIT5_SS_CLASS_FRAC=1): seed lanes using probSumK * f_c1
-        __m256d _prob0, _prob1;
-        static int use_frac_flag_d = -1;
-        if (use_frac_flag_d < 0) {
-            const char* env = std::getenv("SHAPEIT5_SS_CLASS_FRAC");
-            use_frac_flag_d = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-        }
-        if (use_frac_flag_d == 1 && k < (int)probSumK.size()) {
-            double base = probSumK[k];
-            // Recompute lane masks from amb_mask
-            alignas(32) double v_lo[4], v_hi[4];
-            double base0 = base; // will be scaled after we get f1
-            // f1 comes from single-precision class; acceptable for base split
-            double f1 = 0.0;
-            if (k < (int)probSumK.size()) {
-                // We don't have a double-precision fraction store; reuse float via cast
-                // Note: acceptable since it's a ratio in [0,1]
-            }
-            // Without a stored fraction in double class, fall back to scalar for now
-            _prob0 = _mm256_set1_pd(base);
-            _prob1 = _mm256_set1_pd(base);
-        } else {
-            double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
-            _prob0 = _mm256_set1_pd(base);
-            _prob1 = _mm256_set1_pd(base);
-        }
+    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+        debugCheckProbBounds(i, "SS_COLLAPSE_AMB");
+        // Transition: collapse from previous segment boundary using donor-marginal mass only
+        double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
+        __m256d _prob0 = _mm256_set1_pd(base);
+        __m256d _prob1 = _mm256_set1_pd(base);
         _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq);
         _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq);
         
@@ -1019,12 +995,7 @@ void haplotype_segment_double::COLLAPSE_HOM() {
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
     __m256d _sum0 = _mm256_set1_pd(0.0);
     __m256d _sum1 = _mm256_set1_pd(0.0);
-    // BUG #4 EXPERIMENTAL: Test normalization behavior
-    static const char* norm_env = std::getenv("SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION");
-    static const bool use_normalization = (norm_env && norm_env[0] != '\0' && norm_env[0] != '0');
-    __m256d _tFreq = use_normalization
-        ? _mm256_set1_pd((yt * probSumT) / n_cond_haps)
-        : _mm256_set1_pd(yt / n_cond_haps);
+    __m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = _mm256_set1_pd(nt / probSumT);
     __m256d _mismatch = _mm256_set1_pd(M.ed/M.ee);
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
@@ -1254,12 +1225,7 @@ inline
 void haplotype_segment_double::COLLAPSE_MIS() {
 	__m256d _sum0 = _mm256_set1_pd(0.0);
 	__m256d _sum1 = _mm256_set1_pd(0.0);
-	// BUG #4 EXPERIMENTAL: Test normalization behavior
-	static const char* norm_env = std::getenv("SHAPEIT5_NORMALIZE_COLLAPSE_TRANSITION");
-	static const bool use_normalization = (norm_env && norm_env[0] != '\0' && norm_env[0] != '0');
-	__m256d _tFreq = use_normalization
-	    ? _mm256_set1_pd((yt * probSumT) / n_cond_haps)
-	    : _mm256_set1_pd(yt / n_cond_haps);
+	__m256d _tFreq = _mm256_set1_pd(yt / n_cond_haps);
 	__m256d _nt = _mm256_set1_pd(nt / probSumT);
 	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
 		debugCheckProbBounds(i, "SS_COLLAPSE_MIS");
