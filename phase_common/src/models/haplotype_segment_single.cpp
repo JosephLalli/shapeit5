@@ -65,7 +65,8 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
     const uint8_t* _panel_codes,
     const std::vector<int>* _super_site_var_index) :
     G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site),
-    locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), super_site_var_index(_super_site_var_index), cond_idx(&idxH) {
+    locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), super_site_var_index(_super_site_var_index), cond_idx(&idxH),
+    supersites_enabled_flag(_super_sites && _locus_to_super_idx && _super_site_var_index && _panel_codes) {
 	segment_first = W.start_segment;
 	segment_last = W.stop_segment;
 	locus_first = W.start_locus;
@@ -219,7 +220,7 @@ void haplotype_segment_single::forward() {
                             break;
                     }
                 }
-            } else if (is_sibling) {
+            } else if (is_sibling && !M.ss_anchor_split_emissions) {
                 // Sibling at window start: neutral init; do not advance prev_abs_locus
                 INIT_MIS();
                 update_prev_locus = false;
@@ -249,7 +250,7 @@ void haplotype_segment_single::forward() {
                             break;
                     }
                 }
-            } else if (is_sibling) {
+            } else if (is_sibling && !M.ss_anchor_split_emissions) {
                 // Sibling within window: no-op (avoid renormalization)
                 update_prev_locus = false;
             } else {
@@ -275,7 +276,7 @@ void haplotype_segment_single::forward() {
                             break;
                     }
                 }
-            } else if (is_sibling) {
+            } else if (is_sibling && !M.ss_anchor_split_emissions) {
                 // Sibling at segment boundary: no-op and do not advance prev_abs_locus
                 update_prev_locus = false;
             } else {
@@ -367,7 +368,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 						break;
 				}
                 }
-                } else if (is_sibling) {
+                } else if (is_sibling && !M.ss_anchor_split_emissions) {
 					// Sibling at window end (backward): neutral init; do not advance prev_abs_locus
 					INIT_MIS();
 					update_prev_locus = false;
@@ -397,7 +398,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 						break;
 				}
                 }
-				} else if (is_sibling) {
+				} else if (is_sibling && !M.ss_anchor_split_emissions) {
 					// Sibling within window (backward): no-op
 					update_prev_locus = false;
 				} else {
@@ -423,7 +424,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 						break;
 				}
                 }
-				} else if (is_sibling) {
+				} else if (is_sibling && !M.ss_anchor_split_emissions) {
 					// Sibling at segment boundary (backward): no-op
 					update_prev_locus = false;
 				} else {

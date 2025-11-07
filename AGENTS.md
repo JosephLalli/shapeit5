@@ -104,18 +104,6 @@ Output Phased VCF/BCF
   - Transition probabilities `nt[i]`, `yt[i]` pre-computed from genetic map
   - Emission error rates `ed`, `ee` (typically ed/ee ≈ 0.001)
 
-**Supersite Data Structures** (when `--enable-supersites` is used):
-- `std::vector<SuperSite> super_sites`: Multi-allelic site metadata
-  - `global_site_id`: Anchor variant index (where HMM DP runs)
-  - `panel_offset`: Byte offset into packed 4-bit allele codes
-  - `var_start`, `var_count`: Member variant indices (CSR-style)
-  - `n_alts`: Number of alternate alleles (1-15)
-  - `class_prob_offset`: Offset into SC buffer for multivariant posteriors (Phase 3)
-  - `n_classes`: Number of allele classes (C = 1 + n_alts)
-- `std::vector<int> locus_to_super_idx`: Maps variant index → supersite index (or -1)
-- `std::vector<int> super_site_var_index`: Flat array of member variant indices
-- `std::vector<uint8_t> packed_allele_codes`: Compact 4-bit codes (2 per byte) for panel haplotypes
-
 **Graph Representation:**
 Each sample's genotype is stored as a directed acyclic graph (DAG) of segments:
 - Each **segment** represents a region where the phasing is locally determined
@@ -208,10 +196,6 @@ This is the computational core of SHAPEIT5. Each sample is processed independent
 **Per-Thread Data** (`compute_job` class):
 - `std::vector<double> T`: Transition probabilities per window
 - `std::vector<float> M`: Missing probabilities per window
-- **Supersite additions** (Phase 3):
-  - `std::vector<float> SC`: CurrentSuperClassPosteriors buffer storing P(class_c | hap) per missing supersite
-  - `std::vector<bool> anchor_has_missing`: Per-supersite flag indicating all members missing for this sample
-  - Read-only references to global supersite metadata (`super_sites`, `locus_to_super_idx`, `super_site_var_index`)
 
 **Thread Management**:
 ```cpp
@@ -329,13 +313,6 @@ The 8 lanes explore different phase configurations for the diploid sample:
   - If `HAP_GET(amb_code, h) == 1`: lane h "wants" haplotype 1's allele (REF or ALT)
   - `genotype::build()` computes `amb_code` based on heterozygous site patterns: `amb_code[h] = (h >> n_unf) % 2` for each HET site
   - With multiple HET sites, different lanes explore different phasing combinations
-- **Multiallelic heterozygous sites (supersites)**: Each lane expects a specific **allele class** (not just REF/ALT)
-  - `expected_class[h]` = which allele code lane h expects (0=REF, 1=ALT1, 2=ALT2, ...)
-  - Computed from `amb_code`: `expected_class[h] = (amb_mask & (1<<h)) ? c1 : c0`
-  - Where `c0`, `c1` are the two allele codes carried by the sample's haplotypes
-  - Example: genotype `ALT2|ALT3` → c0=2, c1=3 → some lanes expect class 2, others expect class 3
-- **Homozygous sites**: All lanes use identical emissions (no orientation ambiguity)
-- **Missing sites**: Imputation probabilities computed per-lane, allowing different predictions for different phase configurations
 
 **Example (2 biallelic heterozygous sites)**:
 ```
@@ -348,19 +325,6 @@ Missing site imputation:
   Lane 0: P(ALT) ≈ 0.001 (strongly prefers REF, consistent with cond_hap0)
   Lane 3: P(ALT) ≈ 0.999 (strongly prefers ALT, consistent with cond_hap1)
   Others: P(ALT) ≈ 0.5 (uncertain due to recombination)
-```
-
-**Example (multiallelic heterozygous supersite)**:
-```
-Target: ALT2|ALT3 at multiallelic site (codes: c0=2, c1=3)
-Lane semantics:
-  Lanes with amb_code bit=0: expect class 2 (ALT2)
-  Lanes with amb_code bit=1: expect class 3 (ALT3)
-Donor emissions:
-  If donor carries class 2: high emission for lanes expecting class 2, low for lanes expecting class 3
-  If donor carries class 3: high emission for lanes expecting class 3, low for lanes expecting class 2
-  If donor carries REF or other ALT: low emission for all lanes
-Result: Same diplotype sampling mechanism, but with multi-allelic class expectations per lane
 ```
 
 **Storage**:
@@ -393,31 +357,6 @@ void IMPUTE(missing_probabilities) {
     // Result: missing_probabilities[h] = P(allele=1 | data, lane h)
 }
 ```
-
-**Supersite Multivariant Imputation** (Phase 3, when `--enable-supersites` used):
-For missing supersites, compute multivariant distribution over all allele classes:
-```cpp
-void IMPUTE_SUPERSITE_MULTIVARIANT(SC, ss, ss_idx) {
-    // For each donor k, accumulate by their allele class
-    for (k in donors) {
-        class_c = ss_cond_codes[k];  // Which allele this donor carries
-        sum[class_c] += Alpha[k] * Beta[k] / AlphaSum;
-    }
-    
-    // Normalize: SC[offset + hap*C + c] = P(class_c | hap)
-    for (c in 0..n_classes) {
-        for (h in 0..7) {
-            SC[offset + h*C + c] = sum[c][h] / total;
-        }
-    }
-}
-```
-- **Mathematical Guarantee**: Sum over all classes equals 1.0 for each haplotype, ensuring mutual exclusivity
-- **Runtime lookups**: 
-  - Panel donor code: `unpackSuperSiteCode(panel_codes, ss.panel_offset, hap_idx)`
-  - Sample code: `getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, hap)`
-  - Multivariant posterior: `SC[class_prob_offset + hap*C + c]` = P(class_c | hap)
-- **Anchor gating**: Run DP only at `SuperSite.global_site_id`; sibling split records skip emission/transition
 
 **Transition Probability Computation**:
 At segment boundaries, compute probability of each diplotype transition:
@@ -649,7 +588,7 @@ else                                → AMB
 - **AMB**: Per-lane expected allele from `amb_code`, compare to `donor_code`
 - **MIS**: `emission = 1.0` (all donors equally likely)
 
-**Implementation**: `SS_INIT/RUN/COLLAPSE_{HOM,AMB,MIS}()` functions cache donor codes and apply same Li & Stephens transition/emission math as biallelic.
+**Implementation**: Cache donor codes and apply same Li & Stephens transition/emission math as biallelic.
 
 ### [5b] Backward Pass: Multivariant Imputation
 
@@ -720,7 +659,6 @@ for (ai in 0..n_alts) {
 ---
 
 ## Supersite Coding Patterns (Mirror Biallelic)
-- Function taxonomy: Extract `SS_INIT_*`, `SS_RUN_*`, `SS_COLLAPSE_*` with signatures/returns matching biallelic functions; dispatch from existing entry points after centralized classification.
 - Centralized classification:
   - Compute `c0`/`c1` via `getSampleSuperSiteAlleleCode` for both haplotypes.
   - Route to MIS if both missing, HOM if `c0==c1`, else AMB.
@@ -821,335 +759,6 @@ __m256 _prob = _emit[ah];  // Use g0 if donor has REF (ah=0), g1 if donor has AL
 
 ---
 
-## CRITICAL BUGS IN SUPERSITE 8-LANE IMPLEMENTATION (Nov 2, 2025)
-
-### **BUG #7: Fundamental Misinterpretation of Lane Semantics for Multiallelic Sites**
-
-**Status**: ❌ **CRITICAL - BLOCKS ALL HETEROZYGOUS MULTIALLELIC PHASING**
-
-**Location**: All `SS_*_AMB` functions in `haplotype_segment_single.h` and `haplotype_segment_double.h`
-
-**The Error**:
-The supersite code interprets `amb_code` as a direct lane-to-allele-class mapping:
-```cpp
-// INCORRECT INTERPRETATION:
-uint8_t expected_class[HAP_NUMBER];
-unsigned char amb_mask = G->Ambiguous[curr_abs_ambiguous];
-for (int h = 0; h < HAP_NUMBER; ++h) {
-    bool use_c1 = ((amb_mask >> h) & 1U);
-    expected_class[h] = use_c1 ? c1 : c0;
-}
-```
-
-**What this code assumes**:
-- Each lane h directly represents a specific haplotype (0 or 1)
-- `amb_mask bit h` tells us which haplotype lane h represents
-- We can assign the allele class (c0 or c1) that lane h's haplotype carries
-
-**The actual semantics**:
-- Each lane h represents a **phase configuration hypothesis** across all HET sites in the segment
-- `amb_mask bit h` tells us whether this HET site's phase configuration in lane h aligns with hap0 or hap1
-- **We cannot assign a single "expected class" to a lane** because that lane represents a hypothesis about **multiple sites' phasing**
-
-**Why Biallelic Works But Multiallelic Fails**:
-
-For **biallelic** 0|1 genotype at a single HET site:
-- Lanes with amb_code bit=0 explore hypothesis "this site is phased as hap0=REF, hap1=ALT"
-- Lanes with amb_code bit=1 explore hypothesis "this site is phased as hap0=ALT, hap1=REF"
-- Donor with allele=0 (REF) matches lanes expecting hap0's allele (bit=0), mismatches lanes expecting hap1's allele (bit=1)
-- The `_emit[ah]` array correctly provides per-lane emissions because there are only 2 alleles
-
-For **multiallelic** ALT2|ALT3 genotype (c0=2, c1=3):
-- Lanes with amb_code bit=0 explore hypothesis "this site is phased as hap0=ALT2, hap1=ALT3"
-- Lanes with amb_code bit=1 explore hypothesis "this site is phased as hap0=ALT3, hap1=ALT2"
-- **But current code assigns**: lanes with bit=0 get expected_class=2, lanes with bit=1 get expected_class=3
-- **This breaks when**:
-  - Donor carries ALT1 (code=1): Should mismatch all lanes, but code might assign match if expected_class happens to be 1
-  - Donor carries REF (code=0): Should mismatch all lanes (neither haplotype is REF), but code treats it as distinct from both expected classes
-  - **The fundamental issue**: We're comparing 4-bit codes (0-15) when we should be considering **which allele the donor has relative to which allele the lane's hypothesis expects for that haplotype**
-
-**Impact**:
-- **All heterozygous multiallelic sites get incorrect emission probabilities**
-- Lanes that should favor certain donor haplotypes instead favor wrong donors
-- Phase configurations that match the true biological phase get lower probability than incorrect configurations
-- **Result**: Extremely high error rates (likely >50%) for all HET multiallelic supersites
-
-**Root Cause**:
-The biallelic emission model cannot be directly extended to multiallelic sites because:
-1. Biallelic: 2 alleles → can use binary indexing `_emit[ah]` where ah ∈ {0,1}
-2. Multiallelic: C alleles → cannot use binary indexing, need per-lane class expectations
-3. **The lane semantics are about phase patterns, not about individual haplotypes**
-
----
-
-### **BUG #8: Multiallelic Sites Cannot Use Binary Phase Pattern Encoding**
-
-**Status**: ❌ **ARCHITECTURAL - REQUIRES REDESIGN**
-
-**Location**: `genotype_build.cpp`, Ambiguous array construction
-
-**The Problem**:
-The entire `Ambiguous` encoding system assumes **binary alleles**:
-```cpp
-for (unsigned int h = 0; h < HAP_NUMBER; h++) {
-    bool allele = ((h>>n_unf)%2);  // BINARY: either 0 or 1
-    if (allele) HAP_SET(Ambiguous[amb_idx], h);
-}
-```
-
-**Why this is insufficient for multiallelic**:
-- Encodes only 2 possible allele states per site (0 or 1)
-- For ALT2|ALT3 genotype, need to encode which lanes expect class 2 vs class 3
-- Current encoding loses information about **which specific ALT alleles** are involved
-- Cannot represent phase patterns like "lane 0 expects ALT2, lane 1 expects ALT3, lane 2 expects ALT2, ..."
-
-**Example Failure**:
-```
-Genotype at multiallelic site: ALT2|ALT3 (c0=2, c1=3)
-
-Current Ambiguous encoding (binary):
-  Lanes 0,2,4,6: amb_code bit=0 → assigned expected_class=2
-  Lanes 1,3,5,7: amb_code bit=1 → assigned expected_class=3
-
-What's missing:
-  - No encoding of which diplotype configurations are valid
-  - No way to represent that hap0 carries ALT2 and hap1 carries ALT3
-  - Cannot distinguish between:
-    * hap0=ALT2, hap1=ALT3 (actual genotype)
-    * hap0=ALT3, hap1=ALT2 (swapped phase)
-    * hap0=ALT2, hap1=ALT2 (homozygous, should be in HOM path)
-```
-
-**Architectural Limitation**:
-The segment/diplotype/lane system was designed for **at most 3 binary (heterozygous) sites per segment** (2^3 = 8 lanes). For multiallelic sites:
-- Need to track which of C allele classes each haplotype carries
-- Cannot represent this in 8-bit amb_code
-- Would need C^2 possible diploid configurations, not 2^n_het lane patterns
-
----
-
-### **BUG #9: Diplotype Masks Don't Constrain Multiallelic Configurations**
-
-**Status**: ❌ **ARCHITECTURAL - MISSING VALIDATION**
-
-**Location**: `genotype_build.cpp`, Diplotypes array construction
-
-**The Issue**:
-The `Diplotypes[s]` bitmask is built based on **binary heterozygous site patterns**:
-```cpp
-for (unsigned int vrel = 0; vrel < Lengths[s]; vrel++) {
-    bool f_het = VAR_GET_HET(MOD2(vabs+vrel),Variants[DIV2(vabs+vrel)]);
-    if (f_het) {
-        switch (n_unf) {
-        case 0: Diplotypes[s] &= MASK_UNF0; break;  // Constrains to 32 of 64 diplotypes
-        case 1: Diplotypes[s] &= MASK_UNF1; break;  // Constrains to 16 of 64 diplotypes
-        case 2: Diplotypes[s] &= MASK_UNF2; break;  // Constrains to 8 of 64 diplotypes
-        }
-    }
-    n_unf += f_het;
-}
-```
-
-**What's happening**:
-- MASK_UNF0 = 0x55AA55AA55AA55AAUL: constrains diplotypes based on 1st HET site
-- MASK_UNF1 = 0x3333CCCC3333CCCCUL: further constrains based on 2nd HET site
-- MASK_UNF2 = 0x0F0F0F0FF0F0F0F0UL: further constrains based on 3rd HET site
-- These masks ensure valid lane-to-diplotype mappings for binary alleles
-
-**What's broken for multiallelic**:
-- Multiallelic HET sites are marked as VAR_GET_HET (indistinguishable from biallelic HET)
-- The same binary masks get applied
-- **But**: A diplotype (hap0=2, hap1=3) cannot be represented in this system!
-  - `hap0=2` means "lane 2" but lanes represent phase patterns, not allele classes
-  - The diplotype masks encode **which phase configurations are valid**, not **which allele classes are valid**
-- **Result**: Invalid diplotype configurations get marked as valid, leading to incorrect sampling
-
-**Example**:
-```
-Segment with 1 biallelic HET (0|1) and 1 multiallelic HET (ALT2|ALT3):
-
-After applying masks:
-  - MASK_UNF0 applied for first HET: 32 diplotypes remain
-  - MASK_UNF1 applied for second HET: 16 diplotypes remain
-  
-But those 16 diplotypes encode phase patterns like:
-  - Diplotype 0 (0,0): both sites phase with hap0
-  - Diplotype 9 (1,1): both sites phase with hap1
-  - etc.
-
-None of these diplotypes encode "hap0 carries ALT2, hap1 carries ALT3"!
-The diplotype system is orthogonal to the allele class system.
-```
-
----
-
-### **BUG #10: Segment Boundaries Don't Align With Multiallelic Constraints**
-
-**Status**: ❌ **ARCHITECTURAL - PHASE CORRELATION LOSS**
-
-**Location**: `genotype_build.cpp`, segment boundary logic
-
-**The Problem**:
-Segments are created based on:
-1. Reaching 4 unfolded sites (HET or SCAFFOLD)
-2. Reaching max variant count (65535)
-3. Reaching max ambiguous count (255)
-
-**For multiallelic sites**:
-- Each multiallelic anchor counts as 1 HET site (if heterozygous)
-- Segments can span multiple multiallelic sites
-- **But**: The lane system cannot track phase correlations across different multiallelic sites
-
-**Example Failure**:
-```
-Segment contains:
-  - Variant 100: biallelic 0|1
-  - Variant 101: multiallelic ALT2|ALT3 (supersite anchor)
-  - Variant 102: multiallelic ALT1|ALT4 (different supersite anchor)
-
-Lane 0's hypothesis:
-  - For variant 100: hap0=0, hap1=1
-  - For variant 101: ??? (cannot encode "hap0=ALT2, hap1=ALT3" in lane pattern)
-  - For variant 102: ??? (cannot encode "hap0=ALT1, hap1=ALT4" in lane pattern)
-
-The amb_code for variant 101 encodes a binary pattern (bit 0 = expect hap0's allele)
-But "hap0's allele" is ALT2, which is not represented anywhere in the lane system!
-```
-
-**Architectural Mismatch**:
-- Lanes represent **binary phase patterns** across HET sites
-- Multiallelic sites require **C-way allele class assignments** per haplotype
-- These two systems are fundamentally incompatible within the same segment
-
----
-
-### **BUG #11: COLLAPSE Functions Don't Have Multiallelic Diplotype Context**
-
-**Status**: ❌ **CRITICAL - INCORRECT SEGMENT TRANSITIONS**
-
-**Location**: `SS_COLLAPSE_AMB` in `haplotype_segment_single.h`
-
-**The Issue**:
-At segment boundaries, COLLAPSE functions compute:
-```cpp
-__m256 _prob = _mm256_set1_ps(probSumK[k]);  // Sum across all diplotypes that include donor k
-```
-
-**What `probSumK[k]` represents** (from biallelic code):
-```cpp
-// In forward() when storing Alpha at segment boundary:
-for (int k = 0; k < n_cond_haps; k++) {
-    probSumK[k] = 0.0f;
-    for (int h = 0; h < HAP_NUMBER; h++) {
-        // Sum prob[k*8+h] for all lanes h that are valid in this diplotype configuration
-        probSumK[k] += prob[k*8 + h];  // (Simplified - actual code checks diplotype masks)
-    }
-}
-```
-
-**Why this breaks for multiallelic**:
-- `probSumK[k]` sums across lanes representing different **phase configuration hypotheses**
-- For multiallelic, different lanes have different `expected_class[h]` values
-- **Summing across lanes loses the allele class information**
-- When transitioning to next segment, the collapsed probability has no memory of which allele classes were involved
-
-**Example**:
-```
-Previous segment ends at multiallelic site with genotype ALT2|ALT3:
-  - Lane 0-3 had expected_class = {2,3,2,3,...}
-  - Lane 4-7 had expected_class = {3,2,3,2,...}
-  - probSumK[k] = sum of all 8 lanes for donor k
-  - This sum mixes lanes expecting different allele classes!
-
-Next segment begins:
-  - COLLAPSE function broadcasts probSumK[k] to all 8 lanes
-  - All lanes get same initial probability regardless of allele class
-  - **Loss of phase information from previous multiallelic site**
-```
-
----
-
-### **BUG #12: Missing Data Imputation Cannot Reconstruct Multiallelic Genotypes**
-
-**Status**: ⚠️ **FUNCTIONAL - PHASE 3 ADDRESSED IMPUTATION BUT NOT PHASING**
-
-**Location**: `genotype_managment.cpp`, `make()` function
-
-**Partial Fix Status**:
-Phase 3 (Oct 29, 2025) implemented multivariant imputation via `IMPUTE_SUPERSITE_MULTIVARIANT` which correctly:
-- Computes P(class_c | haplotype) for all classes c
-- Samples exactly one class per haplotype
-- Projects to split records ensuring mutual exclusivity
-
-**Remaining Issue**:
-The **phasing** of non-missing heterozygous multiallelic sites still relies on the broken lane system:
-```cpp
-// In make() for non-missing heterozygous variants:
-unsigned char hap0 = DIP_HAP0(DipSampled[s]);  // Which lane represents haplotype 0
-unsigned char hap1 = DIP_HAP1(DipSampled[s]);  // Which lane represents haplotype 1
-
-// For heterozygous sites, phase is determined by Ambiguous array
-// But for multiallelic sites, this doesn't encode which allele each haplotype carries!
-```
-
-**The Gap**:
-- Imputation (missing data) works correctly via multivariant posteriors
-- Phasing (non-missing HET data) uses broken lane→allele class mapping
-- **Result**: Non-missing HET multiallelic sites can still get incorrectly phased
-
----
-
-## Summary of Architectural Issues
-
-### Fundamental Incompatibility
-
-The current architecture has an **irreconcilable conflict**:
-
-1. **Segment/Lane System** (designed for binary alleles):
-   - 8 lanes encode 2^3 = 8 possible binary phase patterns
-   - Lanes represent hypotheses about how up to 3 HET sites phase together
-   - Works perfectly for biallelic: allele ∈ {REF, ALT} maps to phase ∈ {hap0, hap1}
-
-2. **Multiallelic System** (requires C-way allele encoding):
-   - Need to track which of C allele classes each haplotype carries
-   - C^2 possible diploid configurations (not 2^n_het phase patterns)
-   - Cannot represent "hap0=ALT2, hap1=ALT3" in lane-based phase pattern system
-
-### Why Supersite Phase 1-3 Couldn't Fix This
-
-- **Phase 1-2**: Focused on atomic HMM treatment and data structures
-  - Successfully treats multiallelic as single HMM locus ✓
-  - Successfully prevents double-counting via anchor gating ✓
-  - **But**: Inherited broken lane semantics from biallelic code ✗
-
-- **Phase 3**: Implemented multivariant imputation
-  - Successfully imputes missing multiallelic genotypes ✓
-  - Guarantees mutual exclusivity via multivariant sampling ✓
-  - **But**: Non-missing HET multiallelic still uses broken phasing ✗
-
-### Impact on Error Rates
-
-**Expected error rates by genotype class**:
-- **HOM multiallelic** (e.g., ALT2|ALT2): Should work correctly ✓
-  - Uses SS_*_HOM functions which compare donor code to single sample code
-  - No lane ambiguity, straightforward emission computation
-  
-- **HET multiallelic, fully missing** (./. at all splits): Should work correctly ✓
-  - Uses multivariant imputation (Phase 3 implementation)
-  - Samples from correct posterior distribution
-  
-- **HET multiallelic, partially observed** (e.g., 0/1 at one split): **BROKEN** ✗
-  - Classification sees different alleles in c0 vs c1
-  - Routes to SS_*_AMB functions
-  - Applies incorrect lane→expected_class mapping
-  - **Extremely high error rates expected (>50%)**
-
-- **HET multiallelic, fully observed** (e.g., 0/1 at split1, 0/0 at split2): **BROKEN** ✗
-  - Same lane semantics issue as partially observed
-  - **Extremely high error rates expected (>50%)**
-
----
-
 ## Supersite Implementation Status & Roadmap
 
 **Done:**
@@ -1160,9 +769,9 @@ The current architecture has an **irreconcilable conflict**:
 - ✅ Clean compilation (both single and double precision)
 - ✅ AMB lane semantics (per-lane expected class using G.Ambiguous mask)
 
-**Newly Discovered Bugs (Unnecessary Divergence from Biallelic):**
+**Previously addressed bugs/design antipatterns**
 
-**BUG #1: Duplicate SS_*_MIS functions**
+**Issue #1: Duplicate SS_*_MIS functions**
 - **Issue**: `SS_INIT_MIS()`, `SS_RUN_MIS()`, and `SS_COLLAPSE_MIS()` are identical to biallelic `INIT_MIS()`, `RUN_MIS()`, `COLLAPSE_MIS()`
 - **Impact**: Code duplication, maintenance burden
 - **Fix**: Have supersite MIS classification directly call biallelic MIS functions (missing data is representation-agnostic)
@@ -1170,7 +779,7 @@ The current architecture has an **irreconcilable conflict**:
 - **Implementation**: All 6 dispatcher switch statements in `haplotype_segment_{single,double}.h` (INIT/RUN/COLLAPSE for HOM/AMB) now call biallelic `INIT_MIS()`, `RUN_MIS()`, `COLLAPSE_MIS()` directly instead of `SS_*_MIS()` wrappers
 - **Verification**: Clean compilation of phase_common and tests
 
-**BUG #2: Inconsistent sibling handling between INIT and RUN/COLLAPSE**
+**Issue #2: Inconsistent sibling handling between INIT and RUN/COLLAPSE**
 - **Issue**: `INIT_HOM/AMB` at siblings call `INIT_MIS()`, but `RUN/COLLAPSE` just return early without state update
 - **Impact**: Asymmetric behavior - INIT siblings get neutral probabilities, RUN/COLLAPSE siblings keep stale state
 - **Fix**: Standardize - all functions now call appropriate MIS functions at siblings (uniform approach)
@@ -1179,13 +788,13 @@ The current architecture has an **irreconcilable conflict**:
 - **Rationale**: Siblings at same chromosomal position have yt≈0, so MIS functions act as identity operations (copy forward anchor probabilities). This ensures correct bookkeeping and genetic distance tracking while having negligible computational cost.
 - **Verification**: Clean compilation of phase_common and tests
 
-**BUG #3: Missing bookkeeping updates at sibling loci**
+**Issue #3: Missing bookkeeping updates at sibling loci**
 - **Issue**: Sibling loci return early without updating `curr_abs_ambiguous`, `curr_abs_missing`, `AlphaMissing`, etc.
 - **Impact**: Missing data imputation and segment indexing may be incorrect for supersites
-- **Fix**: Add bookkeeping updates even when skipping DP (as documented in AGENTS.md patterns)
-- **Status**: ⏳ TODO
+- **Fix**: Add bookkeeping updates even when skipping DP
+- **Status**: Fixed (Nov 5, 2025)
 
-**BUG #4: Transition probability normalization in COLLAPSE**
+**Issue #4: Transition probability normalization in COLLAPSE**
 - **Issue**: Historical uncertainty on whether to scale `_tFreq` by `probSumT` in COLLAPSE
 - **Resolution**: Fixed. COLLAPSE uses `_tFreq = yt / n_cond_haps` (uniform over K). No env flag.
 - **Rationale**:
@@ -1193,7 +802,7 @@ The current architecture has an **irreconcilable conflict**:
   - Conservation: Σ_k[probSumK[k]*(nt/probSumT) + yt/K] = nt + yt = 1.0
   - Matches biallelic and supersite paths; simplifies implementation.
 
-**BUG #5: Duplicate emission logic in SS_COLLAPSE_AMB**
+**Issue #5: Duplicate emission logic in SS_COLLAPSE_AMB**
 - **Issue**: Two separate 30+ line code paths for `ss_anchor_split_emissions` mode vs full-supersite mode
 - **Impact**: Code duplication, maintenance burden
 - **Fix**: Extract common transition code, parameterize only emission computation
@@ -1205,7 +814,7 @@ The current architecture has an **irreconcilable conflict**:
   - Reduced ~60 lines duplicate code to ~45 lines unified path per file
 - **Verification**: Clean compilation with -O3 -mavx2 -mfma optimization flags
 
-**BUG #6: Emission application divergence**
+**Issue #6: Emission application divergence**
 - **Issue**: Biallelic uses inline conditional multiplication, supersite precomputes emission vectors
 - **Impact**: Different code paths for same operation; harder to verify correctness
 - **Analysis**: The divergence exists because biallelic operates on binary (0/1) alleles while supersites operate on 4-bit codes (0-15) with per-lane semantics
@@ -1218,6 +827,7 @@ The current architecture has an **irreconcilable conflict**:
   - Both patterns implement identical Li & Stephens emission probabilities
   - Rationale documented in code comments for reviewer clarity
 - **Status**: ✅ DOCUMENTED (Nov 2, 2025) - No code change needed; patterns are mathematically equivalent and each optimized for their use case
+- **Verification**: Clean compilation with -O3 -mavx2 -mfma optimization flags
 
 **Known Implementation Debt:**
 - Window starts may land on supersite siblings; ideally adjust to anchors or non-member loci when `--enable-supersites` is set
@@ -1225,7 +835,7 @@ The current architecture has an **irreconcilable conflict**:
 
 ---
 
-## TODO: Scaffolding Support for Supersites
+## TODO (P3): Scaffolding Support for Supersites
 
 ### Overview
 SHAPEIT5 supports trio/duo scaffolding (`--pedigree` option) where known parent-child relationships are used to phase heterozygous sites. This feature currently assumes biallelic variants and will require significant modification to support multiallelic supersites.
@@ -1400,11 +1010,11 @@ if (options.count("haploids")) {
 }
 ```
 
-**Challenge:** Haploid samples can't be heterozygous at multiallelic sites either.
+**Haploid Challenge:** Haploid samples can't be heterozygous at multiallelic sites either.
 - Need to ensure haploid samples don't get marked as HET at supersite anchors
 - Or, ensure scaffolding logic skips haploid samples at supersites
 
-### Implementation Strategy
+### Trio/scaffolding Implementation Strategy
 
 #### Phase 1: Detection and Validation
 1. **Detect supersite trio inconsistencies**
@@ -1457,29 +1067,10 @@ if (options.count("haploids")) {
    - Currently scaffold file provides biallelic phased genotypes
    - Would need to specify multiallelic allele codes in scaffold format
 
-### Files Requiring Modification
-
-1. **`genotype_mendel.cpp`**: Core scaffolding logic
-   - `scaffoldTrio()`, `scaffoldDuoFather()`, `scaffoldDuoMother()`
-   - Add supersite detection and handling
-
-2. **`genotype_reader_reading.cpp`**: Scaffold file reading
-   - May need to handle multiallelic scaffold representations
-
-3. **`super_site_accessor.h`**: Add helper functions
-   - `validateSuperSiteMendelianInheritance()`
-   - `scaffoldSuperSite()`
-
-4. **`phaser_initialise.cpp`**: Integration
-   - Ensure scaffolding runs before `updateSuperSiteAnchorHetBits()` (if implemented)
-
-5. **Tests**: Add trio scaffolding test cases
-   - `tests/data/trio_multiallelic.vcf`
-   - Validation scripts
 
 ### Priority
 
-- **Short-term (P0)**: Add skip logic to prevent incorrect scaffolding at supersites
+- **Short-term (P0)**: Verify skip logic to prevent incorrect scaffolding at supersites
 - **Medium-term (P1)**: Implement multiallelic-aware trio validation and Mendelian violation detection
 - **Long-term (P2)**: Full multiallelic scaffolding support with allele code translation
 
@@ -1488,6 +1079,8 @@ if (options.count("haploids")) {
 ---
 
 ## Supersite Runtime Configuration
+
+Note: some of these may be out of date.
 
 **CLI Flags:**
 - `--enable-supersites`: Enable multiallelic phasing support (default: off)
@@ -1512,12 +1105,12 @@ if (options.count("haploids")) {
 
 ---
 
-## Current Problem & Rollout Plan (Supersite ↔ Biallelic Parity)
+## Supersite ↔ Biallelic Parity
 
 ### Problem Summary
 
 - We want the supersite representation (split multiallelic records grouped by position) to be functionally equivalent to the biallelic representation at the level of the HMM’s anchor loci while retaining strict multiallelic information for imputation.
-- Discrepancies observed when comparing a 5‑variant biallelic setup to a 10‑variant supersite setup (5 anchors + 5 siblings):
+- Discrepancies were observed when comparing a 5‑variant biallelic setup to a 10‑variant supersite setup (5 anchors + 5 siblings):
   - Extra sibling steps previously introduced additional transitions and per‑step normalization. Fixes applied:
     - Siblings are now true no‑ops (no emission/transition math, do not advance `prev_abs_locus`).
     - Recombination at identical map positions is set to zero (`yt=0`) by returning `0` when `cm` ties.
@@ -1608,8 +1201,185 @@ Summary of issues encountered while making the 10‑variant supersite setup (5 a
 - Forward path gating
   - Fixes: at window start, siblings INIT neutrally; within windows and at collapses, siblings set `update_prev_locus=false`. This preserves forward/backward probabilities across sibling → anchor with no change.
 
-- Instrumentation & validation
-  - Added: anchor‑only forward windows comparing normalized α; donor×lane mask grids; donor ALT parity (bial vs anchor‑ALT); stepwise windows to locate first divergence; trace lines when anchor paths use mask.
-  - Verbose flags: `SHAPEIT5_TEST_TRACE=1` for detailed traces, `SHAPEIT5_TEST_VERBOSE=1` for strict assertions in tests.
 
-Outcome: With the above, anchor parity holds (normalized α and raw α/probSumH at anchor window ends), and whole‑window likelihoods match when sibling zero‑distance is honored in the test harness.
+# Our current task:
+# **"BUG #11": COLLAPSE Functions Don't Have Multiallelic Diplotype Context**
+
+## Task: Preserve and use column-side marginals at segment boundaries in `phase_common`
+
+### Goal
+At genotype-graph segment boundaries in `phase_common`, stop broadcasting only the row marginal (`probSumK`) when seeding the next segment. Instead, also carry the column marginal (`probSumH`, 8 SIMD lanes) from the previous segment and seed via a row×column outer product with recombination mixing, then apply the (two-class) supersite emission mask `{a,b}` built from 4-bit allele IDs.
+
+### Why
+Broadcasting row marginals flattens the second-chain prior (column side) and erases per-lane class skew created by the previous segment—this is harmless-ish for biallelic ref|alt but can be materially wrong for supersite hets like alt1|alt2. Carrying `probSumH` fixes this with negligible overhead and unchanged vectorization.
+
+---
+
+## Codebase
+- `main/phase_common/src/models/haplotype_segment_single.{h,cpp}`
+- `main/phase_common/src/phaser/phaser_algorithm.cpp`
+- (If needed) headers that define per-segment storage structs for forward states
+
+Assume AVX2 `_mm256_*` intrinsics are used today; keep the same structure.
+
+---
+
+## High-level changes
+
+1) Persist per-segment column marginals
+   - Add `AlphaLaneSum`: per-segment 8-lane sums (column marginal) at segment end.
+   - You already compute `probSumH` (lane sums) and `probSumT` (total). Persist them at the moment you finalize a segment in the forward pass.
+
+2) Outer-product seeding in `COLLAPSE_*`
+   - Replace broadcast seeding (`set1(probSumK[k])`) with:
+     - `row_mix[k] = nt * (prevProbSumK[k] / prevProbSumT) + yt * (1.0f / K)`
+     - `col_mix[8] = nt * (prevProbSumH[j] / prevProbSumT) + yt * (1.0f / LANES)`  (LANES=8)
+     - `base(k, lanes) = row_mix[k] * col_mix(lanes)` (vector multiply)
+   - Then apply the two-class emission mask for the supersite `{a,b}` using 4-bit donor allele IDs.
+
+3) Backward consistency
+   - In `SET_FIRST_TRANS` for the first segment in a window, compute initial diplotype weights from the product of marginals and apply the same `{a,b}` emission mask. (This mirrors forward seeding.)
+
+4) Feature flag / fallback
+   - Keep the current behavior (broadcast) as a fallback code path (e.g., if a compile-time flag is off, or if the previous segment didn’t produce valid sums).
+   - Default: ON when supersites are active; otherwise keep current path for classic biallelic sites (identical result either way).
+
+---
+
+## Concrete edits
+
+### 1) Header: store lane marginals per segment
+File: `haplotype_segment_single.h`
+
+Add members (aligned for AVX2):
+
+// At top of class
+static constexpr int LANES = 8;
+
+struct alignas(32) Lane8 { float v[LANES]; };
+
+std::vector<Lane8> AlphaLaneSum;   // per-seg column marginals (probSumH)
+std::vector<float> AlphaTot;       // per-seg totals (probSumT) if not already present
+
+Initialize/resize alongside `Alpha` / `AlphaSum` in the constructor or `init()`.
+
+### 2) Forward: persist lane sums at segment end
+File: `haplotype_segment_single.cpp`
+
+In the forward pass, wherever you finalize a segment (right after computing `probSumH` and `probSumT` for that segment), persist:
+
+// Assume seg_idx is the index of the segment just finalized
+for (int j = 0; j < LANES; ++j) AlphaLaneSum[seg_idx].v[j] = probSumH[j];
+AlphaTot[seg_idx] = probSumT;
+
+This should live right where you already store `Alpha` / `AlphaSum` for the segment.
+
+### 3) Build multiallelic (two-class) emission vectors
+Still in `haplotype_segment_single.cpp`, add a helper that produces lane masks from donor 4-bit IDs for the next segment’s first locus (the supersite).
+
+inline __m256 make_mask_eq_class(const uint8_t lane_cls[LANES], uint8_t a, float eps) {
+    alignas(32) float m[LANES];
+    for (int j=0;j<LANES;++j) m[j] = (lane_cls[j]==a) ? 1.0f : eps;
+    return _mm256_load_ps(m);
+}
+
+You’ll need the donors’ allele class per lane at the supersite. If today you derive a 1-bit `amb_code`, generalize to a `uint8_t lane_cls[LANES]` fetched from the supersite metadata (each 4-bit ID ∈ {0..15}).
+
+### 4) Replace broadcast in `COLLAPSE_HOM/AMB/MIS`
+Find the three collapse routines in `haplotype_segment_single.cpp` (or the switch that calls them) where you currently do:
+
+__m256 prob = _mm256_set1_ps(probSumK[k]);            // ← broadcast
+// mixing:
+prob = nt * prob / prevProbSumT + yt * (1.0f / K);
+// emission vector multiply (2-class today)
+
+Replace with outer-product seeding:
+
+const float invK = 1.0f / K;
+const float invL = 1.0f / LANES;
+const float invT = 1.0f / prevProbSumT;
+
+// Build column mix once per collapse
+alignas(32) float col_mix_arr[LANES];
+for (int j=0;j<LANES;++j)
+    col_mix_arr[j] = nt * (prevProbSumH[j] * invT) + yt * invL;
+const __m256 col_mix = _mm256_load_ps(col_mix_arr);
+
+for (int k=0; k<K; ++k) {
+    // Row mixing
+    const float row_mix_k = nt * (prevProbSumK[k] * invT) + yt * invK;
+
+    // Outer product prior (rank-1)
+    __m256 base = _mm256_mul_ps(_mm256_set1_ps(row_mix_k), col_mix);
+
+    // Emission: two-class {a,b} from 4-bit IDs
+    // Inputs needed here:
+    //   cls_k: 4-bit class ID for donor k at this supersite
+    //   lane_cls[LANES]: 4-bit class IDs for each SIMD lane at this supersite
+    __m256 emit;
+    if (isHOM) {
+        if (cls_k == a) emit = make_mask_eq_class(lane_cls, a, eps);
+        else            emit = _mm256_set1_ps(eps);      // whole row penalized
+    } else if (isHET) {
+        if      (cls_k == a) emit = make_mask_eq_class(lane_cls, b, eps);
+        else if (cls_k == b) emit = make_mask_eq_class(lane_cls, a, eps);
+        else                 emit = _mm256_set1_ps(eps); // whole row penalized
+    } else { // MIS
+        emit = _mm256_set1_ps(1.0f);
+    }
+
+    __m256 out = _mm256_mul_ps(base, emit);
+    _mm256_store_ps(&prob[k*LANES], out);
+}
+
+// Then recompute probSumH[LANES] and probSumT exactly as today (sum across rows and lanes).
+// Keep existing underflow scaling / renormalization.
+
+HOM/AMB/MIS specifics:
+- HOM: a == b
+- AMB: genuine het {a,b}, a != b
+- MIS: emission is all ones; or keep current missing logic
+
+### 5) Backward: `SET_FIRST_TRANS`
+Where you set the initial diplotype distribution for the first segment, current code likely multiplies independent per-hap marginals already. Ensure you:
+- Use both per-hap marginals (row and column) derived from the (backward) state at that boundary.
+- Multiply by the same `{a,b}` emission mask to zero/penalize illegal pairs.
+
+This keeps forward/backward consistent.
+
+### 6) Thread the data
+- Ensure `prevProbSumK` and `prevProbSumH` used in `COLLAPSE_*` refer to the previous segment’s stored values:
+  - `prevProbSumK` is your existing per-row sums (e.g., `AlphaSum[seg-1]` or equivalent).
+  - `prevProbSumH` is `AlphaLaneSum[seg-1].v`.
+  - `prevProbSumT` is `AlphaTot[seg-1]`.
+- Guard for `seg==0` (use neutral prior—your existing `INIT_*` path for the first segment).
+
+---
+
+## Tests
+
+1) Three-donor toy (K=3, LANES=8 but populate only 3 lanes):
+   - Prev segment supersite: target 0/1; donors at end: k1=0, k2=2, k3=1.
+   - Next segment supersite: target 1/2; donors at start: k1=1, k2=0, k3=1.
+   - Set `e=1e-4`, low recomb `y=1e-3`.
+   - Expected: column marginal for class 2 (prev end) ≪ class 0/1; with outer-product, legal (1,2)/(2,1) cells start much smaller than broadcast; after emission+normalize, posterior differs from broadcast by >20% relative.
+
+2) Biallelic sanity: ref|alt → ref|alt with balanced donors.
+   - Outer-product and broadcast produce near-identical normalized distributions (relative diff < 1e-3).
+
+3) Performance sanity: Same runtime (±1–2%) vs baseline on a real window (e.g., K≈64). No extra allocations in inner loop.
+
+---
+
+## Notes / constraints
+- Keep AVX2 pattern: one `_mm256_set1_ps(row_mix_k)` per row, one vector multiply with `col_mix`, then emission vec multiply. No per-lane branching.
+- `lane_cls[LANES]` must be available for the supersite (per donor lane). If not present, fall back to biallelic masks (current code path).
+- Memory overhead: `AlphaLaneSum`: 32 bytes × (#segments) per individual. Negligible.
+- Backward underflow: unchanged; still use your current scaling and double-precision fallback.
+
+---
+
+## Acceptance criteria
+- Compiles and passes existing tests.
+- New unit tests confirm: multiallelic supersite case diverges from broadcast in the expected direction; biallelic case remains effectively unchanged.
+- No measurable slowdown and no increase in numerical underflow incidents.

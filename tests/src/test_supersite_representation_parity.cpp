@@ -660,7 +660,8 @@ int main() {
 
     set_panel(0, {1,0, 0,1, 0,0, 1,0}); // v500
     set_panel(1, {0,1, 0,0, 0,0, 0,1}); // ss_A_C
-    set_panel(2, {0,0, 1,0, 1,1, 0,0}); // ss_A_G
+    // Scenario requirement: siblings monomorphic (0/0) for both conditioning and target
+    set_panel(2, {0,0, 0,0, 0,0, 0,0}); // ss_A_G (sibling)
     set_panel(3, {1,0, 0,0, 1,1, 0,0}); // v2000
     set_panel(4, {1,1, 1,1, 0,0, 1,1}); // v2500
 
@@ -836,7 +837,7 @@ int main() {
     Orientation best_with_ss = orientation_argmax(G_with_ss, H, M_with_ss, &ctx);
 
     // Expected phasing sequence
-    const Orientation expected{{ALT_REF, REF_ALT, REF_REF, REF_REF, ALT_ALT}};
+    const Orientation expected{{REF_ALT, ALT_REF, REF_REF, REF_REF, ALT_ALT}};
 
     auto assert_orientation = [&](const Orientation& obs, const std::string& label) {
         for (size_t locus = 0; locus < obs.phases.size(); ++locus) {
