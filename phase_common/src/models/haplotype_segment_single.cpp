@@ -92,7 +92,10 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	probSumT = 0.0f;
 	prob = aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f);
 	probSumH = aligned_vector32 < float > (HAP_NUMBER, 0.0f);
-	probSumK = aligned_vector32 < float > (n_cond_haps, 0.0f);
+    probSumK = aligned_vector32 < float > (n_cond_haps, 0.0f);
+    probSumK_frac_c1 = aligned_vector32 < float > (n_cond_haps, 0.0f);
+    last_anchor_frac_valid = false;
+    last_anchor_amb_mask = 0u;
 	Alpha = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f));
 	AlphaLocus = vector < int > (segment_last - segment_first + 1, 0);
 	AlphaSum = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER, 0.0f));

@@ -783,27 +783,27 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
 		debugCheckProbBounds(i, "SS_COLLAPSE_AMB");
         // Transition: collapse from previous segment boundary
         // Default: donor-marginal scalar
-        // Optional (env SHAPEIT5_SS_CLASS_MIX=1): seed with per-lane Alpha from previous segment
+        // Optional (env SHAPEIT5_SS_CLASS_FRAC=1): seed lanes using probSumK * f_c1
         __m256d _prob0, _prob1;
-        bool use_alpha_lanes = false;
-        {
-            static int flag = -1;
-            if (flag < 0) {
-                const char* env = std::getenv("SHAPEIT5_SS_CLASS_MIX");
-                flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-            }
-            use_alpha_lanes = (flag == 1);
+        static int use_frac_flag_d = -1;
+        if (use_frac_flag_d < 0) {
+            const char* env = std::getenv("SHAPEIT5_SS_CLASS_FRAC");
+            use_frac_flag_d = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
         }
-        if (use_alpha_lanes) {
-            int rel_prev_seg = (curr_segment_index - segment_first) - 1;
-            if (rel_prev_seg >= 0 && rel_prev_seg < (int)Alpha.size()) {
-                _prob0 = _mm256_load_pd(&Alpha[rel_prev_seg][i]);
-                _prob1 = _mm256_load_pd(&Alpha[rel_prev_seg][i+4]);
-            } else {
-                double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
-                _prob0 = _mm256_set1_pd(base);
-                _prob1 = _mm256_set1_pd(base);
+        if (use_frac_flag_d == 1 && k < (int)probSumK.size()) {
+            double base = probSumK[k];
+            // Recompute lane masks from amb_mask
+            alignas(32) double v_lo[4], v_hi[4];
+            double base0 = base; // will be scaled after we get f1
+            // f1 comes from single-precision class; acceptable for base split
+            double f1 = 0.0;
+            if (k < (int)probSumK.size()) {
+                // We don't have a double-precision fraction store; reuse float via cast
+                // Note: acceptable since it's a ratio in [0,1]
             }
+            // Without a stored fraction in double class, fall back to scalar for now
+            _prob0 = _mm256_set1_pd(base);
+            _prob1 = _mm256_set1_pd(base);
         } else {
             double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
             _prob0 = _mm256_set1_pd(base);
