@@ -66,6 +66,7 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
     const std::vector<int>* _super_site_var_index) :
     G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site),
     locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), super_site_var_index(_super_site_var_index), cond_idx(&idxH),
+    supersite_sc_offset(nullptr),
     supersites_enabled_flag(_super_sites && _locus_to_super_idx && _super_site_var_index && _panel_codes) {
 	segment_first = W.start_segment;
 	segment_last = W.stop_segment;
@@ -336,8 +337,10 @@ void haplotype_segment_double::forward() {
 }
 
 int haplotype_segment_double::backward(vector < double > & transition_probabilities, vector < float > & missing_probabilities,
-                                       vector < float > * SC, const vector < bool > * anchor_has_missing) {
+                                       vector < float > * SC, const vector < bool > * anchor_has_missing, const vector<uint32_t>* supersite_sc_offset) {
 	int n_underflow_recovered = 0;
+	// Set thread-local offset storage for IMPUTE_SUPERSITE_MULTIVARIATE calls
+	this->supersite_sc_offset = supersite_sc_offset;
 	curr_segment_index = segment_last;
 	curr_segment_locus = G->Lengths[segment_last] - 1;
 	curr_abs_ambiguous = ambiguous_last;
@@ -468,7 +471,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 						for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.9f", prob[h + rel_idx * HAP_NUMBER]);
 						std::fprintf(stdout, "\n");
 					}
-					IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index, rel_idx);
+					IMPUTE_SUPERSITE_MULTIVARIATE(*SC, *site_view.supersite, site_view.supersite_index, rel_idx, supersite_sc_offset);
 					supersite_handled = true;
 				}
 			}

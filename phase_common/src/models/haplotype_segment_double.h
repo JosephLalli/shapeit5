@@ -97,6 +97,7 @@ private:
 	const uint8_t* panel_codes;
 	const std::vector<int>* super_site_var_index;
 	const std::vector<unsigned int>* cond_idx;
+	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets (set during backward)
 	aligned_vector32<uint8_t> ss_cond_codes;
 	aligned_vector32<double> ss_emissions;
 	aligned_vector32<double> ss_emissions_h1;
@@ -316,7 +317,7 @@ private:
 	
 	void SUMK();
 	void IMPUTE(std::vector < float > & );
-	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx, int rel_missing_index);  // Phase 3
+	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx, int rel_missing_index, const std::vector<uint32_t>* supersite_sc_offset);  // Phase 3
 	bool TRANS_HAP();
 	bool TRANS_DIP_MULT();
 	bool TRANS_DIP_ADD();
@@ -337,7 +338,8 @@ public:
 	void forward();
 	int backward(std::vector < double > &, std::vector < float > &, 
 	            std::vector < float > * SC = nullptr,
-	            const std::vector < bool > * anchor_has_missing = nullptr);  // Phase 3: optional supersite posteriors
+	            const std::vector < bool > * anchor_has_missing = nullptr,
+	            const std::vector<uint32_t>* supersite_sc_offset = nullptr);  // Phase 3: optional supersite posteriors
 	
 	// Supersite cache management (Phase 3)
 	// Cache is per-segment and automatically reset when new segment created.
@@ -1519,7 +1521,7 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
 // Computes P(class_c | Alpha, Beta) for each class c in {0=REF, 1=ALT1, ..., n_alts}
 // Writes to SC buffer at ss.class_prob_offset
 inline
-void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx, int rel_missing_index) {
+void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx, int rel_missing_index, const std::vector<uint32_t>* supersite_sc_offset) {
     // Unpack conditioning haplotype codes once
     for (int k = 0; k < (int)n_cond_haps; ++k) {
         unsigned int gh = (*cond_idx)[k];
@@ -1527,10 +1529,10 @@ void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float
     }
     
     const int C = ss.n_classes;  // 1 + n_alts
-    const uint32_t offset = ss.class_prob_offset;
+    const uint32_t offset = (*supersite_sc_offset)[ss_idx];  // Use thread-local offset instead of shared SuperSite field
     
-    // RACE CONDITION VERIFICATION: This assertion should fire with multithreaded supersites
-    // if another thread has corrupted ss.class_prob_offset, causing SC writes to wrong memory location
+    // RACE CONDITION FIX: Using thread-local offset to prevent memory corruption
+    // Previous race condition: multiple threads overwrote ss.class_prob_offset simultaneously
     assert(offset + HAP_NUMBER * C <= SC.size());
     
     // Compute 1 / AlphaSum for normalization

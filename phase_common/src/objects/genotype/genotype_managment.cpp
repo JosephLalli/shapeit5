@@ -42,6 +42,7 @@ genotype::genotype(unsigned int _index) {
 	super_site_var_index = nullptr;
 	SC = nullptr;
 	anchor_has_missing = nullptr;
+	supersite_sc_offset = nullptr;
 }
 
 genotype::~genotype() {
@@ -94,7 +95,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				if (vabs == ss.global_site_id) {
 					// Anchor: sample multivariant and project to all splits
 					int C = (int)ss.n_classes;
-					uint32_t offset = ss.class_prob_offset;
+					uint32_t offset = supersite_sc_offset ? (*supersite_sc_offset)[ss_idx] : 0;
 					
 					// Sample one class per haplotype from multivariant
 					// SC[offset + hap*C + c] = P(class_c | hap)
@@ -289,11 +290,13 @@ const std::vector<SuperSite>* _super_sites,
 const std::vector<int>* _locus_to_super_idx,
 const std::vector<int>* _super_site_var_index,
 const std::vector<float>* _SC,
-const std::vector<bool>* _anchor_has_missing)
+const std::vector<bool>* _anchor_has_missing,
+const std::vector<uint32_t>* _supersite_sc_offset)
 {
 super_sites = _super_sites;
 locus_to_super_idx = _locus_to_super_idx;
 super_site_var_index = _super_site_var_index;
 SC = _SC;
 anchor_has_missing = _anchor_has_missing;
+supersite_sc_offset = _supersite_sc_offset;
 }

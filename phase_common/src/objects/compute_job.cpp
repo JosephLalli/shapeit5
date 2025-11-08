@@ -124,9 +124,10 @@ void compute_job::make(unsigned int ind, double min_window_size) {
 		}
 	}
 	
-	//5. Phase 3: Populate anchor_has_missing and allocate SC
+	//5. Phase 3: Populate anchor_has_missing and allocate SC with thread-local offsets
 	if (super_sites && locus_to_super_idx && super_site_var_index) {
 		anchor_has_missing.assign(super_sites->size(), false);
+		supersite_sc_offset.assign(super_sites->size(), 0);
 		
 		// Check each supersite: if ALL members are missing for this sample, set flag
 		for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
@@ -145,17 +146,17 @@ void compute_job::make(unsigned int ind, double min_window_size) {
 			anchor_has_missing[ss_idx] = all_missing;
 		}
 		
-		// Allocate SC: compute total size and set class_prob_offset for each supersite
+		// Allocate SC: compute total size and set thread-local offsets for each supersite
 		uint32_t total_size = 0;
 		for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
-			SuperSite& ss = const_cast<SuperSite&>((*super_sites)[ss_idx]);
-			ss.n_classes = 1 + ss.n_alts;  // REF + ALT1..ALTn
+			const SuperSite& ss = (*super_sites)[ss_idx];
+			// Note: ss.n_classes is now set immutably during buildSuperSites()
 			
 			if (anchor_has_missing[ss_idx]) {
-				ss.class_prob_offset = total_size;
+				supersite_sc_offset[ss_idx] = total_size;
 				total_size += HAP_NUMBER * ss.n_classes;  // 8 lanes × C classes
 			} else {
-				ss.class_prob_offset = 0;  // Not used
+				supersite_sc_offset[ss_idx] = 0;  // Not used, but set for consistency
 			}
 		}
 		

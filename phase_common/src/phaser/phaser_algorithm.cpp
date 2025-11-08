@@ -64,7 +64,8 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 			HS.forward();
 			outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M,
 			                      enable_supersites ? &threadData[id_worker].SC : nullptr,
-			                      enable_supersites ? &threadData[id_worker].anchor_has_missing : nullptr);
+			                      enable_supersites ? &threadData[id_worker].anchor_has_missing : nullptr,
+			                      enable_supersites ? &threadData[id_worker].supersite_sc_offset : nullptr);
 		} else {
 			//Try single precision as this is faster
             haplotype_segment_single HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M,
@@ -76,7 +77,8 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 			HS.forward();
 			outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M,
 			                      enable_supersites ? &threadData[id_worker].SC : nullptr,
-			                      enable_supersites ? &threadData[id_worker].anchor_has_missing : nullptr);
+			                      enable_supersites ? &threadData[id_worker].anchor_has_missing : nullptr,
+			                      enable_supersites ? &threadData[id_worker].supersite_sc_offset : nullptr);
 
 			//Underflow happening with single precision, rerun using double precision
 			if (outcome != 0) {
@@ -115,7 +117,8 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 			&locus_to_super_idx,
 			&super_site_var_index,
 			&threadData[id_worker].SC,
-			&threadData[id_worker].anchor_has_missing
+			&threadData[id_worker].anchor_has_missing,
+			&threadData[id_worker].supersite_sc_offset
 		);
 	}
 

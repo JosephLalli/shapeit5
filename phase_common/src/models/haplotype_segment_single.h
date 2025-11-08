@@ -97,6 +97,7 @@ private:
 	const uint8_t* panel_codes;
 	const std::vector<int>* super_site_var_index;
 	const std::vector<unsigned int>* cond_idx;
+	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets (set during backward)
 	aligned_vector32<uint8_t> ss_cond_codes;
 	aligned_vector32<float> ss_emissions;
 	aligned_vector32<float> ss_emissions_h1;
@@ -212,7 +213,7 @@ private:
 	
 	void SUMK();
 	void IMPUTE(std::vector < float > & );
-	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector<float>& SC, const SuperSite& ss, int ss_idx, int rel_missing_index);
+	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector<float>& SC, const SuperSite& ss, int ss_idx, int rel_missing_index, const std::vector<uint32_t>* supersite_sc_offset);
 	bool TRANS_HAP();
 	bool TRANS_DIP_MULT();
 	bool TRANS_DIP_ADD();
@@ -233,7 +234,8 @@ public:
 	void forward();
 	int backward(std::vector < double > &, std::vector < float > &, 
 	             std::vector<float>* SC = nullptr, 
-	             const std::vector<bool>* anchor_has_missing = nullptr);
+	             const std::vector<bool>* anchor_has_missing = nullptr,
+	             const std::vector<uint32_t>* supersite_sc_offset = nullptr);
 	
 	// Supersite cache management (for future use if segments become reusable)
 	// Note: Currently not needed as segments are created fresh per window,
@@ -1269,7 +1271,8 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
     std::vector<float>& SC,
     const SuperSite& ss,
     int ss_idx,
-    int rel_missing_index)
+    int rel_missing_index,
+    const std::vector<uint32_t>* supersite_sc_offset)
 {
     // Unpack conditioning haplotype allele codes for this supersite
     // (same as in forward: 0=REF, 1..n_alts=ALT1..ALTn)
@@ -1279,10 +1282,10 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
     }
     
     int C = (int)ss.n_classes;  // 1 + n_alts
-    uint32_t offset = ss.class_prob_offset;
+    uint32_t offset = (*supersite_sc_offset)[ss_idx];  // Use thread-local offset instead of shared SuperSite field
     
-    // RACE CONDITION VERIFICATION: This assertion should fire with multithreaded supersites
-    // if another thread has corrupted ss.class_prob_offset, causing SC writes to wrong memory location
+    // RACE CONDITION FIX: Using thread-local offset to prevent memory corruption
+    // Previous race condition: multiple threads overwrote ss.class_prob_offset simultaneously
     assert(offset + HAP_NUMBER * C <= SC.size());
     
     // Initialize per-class accumulators (8 lanes = 8 samples)

@@ -142,6 +142,7 @@ public:
 	const std::vector<int>* super_site_var_index;
 	const std::vector<float>* SC;  // CurrentSuperClassPosteriors from compute_job
 	const std::vector<bool>* anchor_has_missing;
+	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets
 
 	//METHODS
 	genotype(unsigned int);
@@ -153,7 +154,8 @@ public:
 	                          const std::vector<int>* _locus_to_super_idx,
 	                          const std::vector<int>* _super_site_var_index,
 	                          const std::vector<float>* _SC,
-	                          const std::vector<bool>* _anchor_has_missing);
+	                          const std::vector<bool>* _anchor_has_missing,
+	                          const std::vector<uint32_t>* _supersite_sc_offset = nullptr);
 	void build();
 	void sample(std::vector < double > &, std::vector < float > &);
 	void sampleForward(std::vector < double > &, std::vector < float > &);

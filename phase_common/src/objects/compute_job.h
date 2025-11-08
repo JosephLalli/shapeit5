@@ -51,6 +51,7 @@ public:
 	// Phase 3: Supersite multi-class posteriors (per window)
 	std::vector < float > SC;  // CurrentSuperClassPosteriors: layout [ss0: HAP_NUMBER*C, ss1: HAP_NUMBER*C, ...]
 	std::vector < bool > anchor_has_missing;  // Per-supersite flag: true if all members missing for this sample
+	std::vector < uint32_t > supersite_sc_offset;  // Thread-local SC offsets parallel to anchor_has_missing
 
 	//Windows
 	window_set Windows;
