@@ -106,6 +106,31 @@ void setup_panel_codes(vector<uint8_t>& packed_codes,
     }
 }
 
+// Helper: Apply the standard multiallelic + biallelic pattern starting at base_idx
+void apply_segment_pattern(genotype& G, int base_idx) {
+    int anchor = base_idx + 0;
+    int split1 = base_idx + 1;
+    int split2 = base_idx + 2;
+    int het1 = base_idx + 3;
+    int het2 = base_idx + 4;
+
+    VAR_SET_HET(MOD2(anchor), G.Variants[DIV2(anchor)]);
+    VAR_SET_HAP0(MOD2(anchor), G.Variants[DIV2(anchor)]);
+    VAR_CLR_HAP1(MOD2(anchor), G.Variants[DIV2(anchor)]);
+
+    VAR_CLR_HAP0(MOD2(split1), G.Variants[DIV2(split1)]);
+    VAR_SET_HAP1(MOD2(split1), G.Variants[DIV2(split1)]);
+
+    VAR_CLR_HAP0(MOD2(split2), G.Variants[DIV2(split2)]);
+    VAR_CLR_HAP1(MOD2(split2), G.Variants[DIV2(split2)]);
+
+    VAR_SET_HET(MOD2(het1), G.Variants[DIV2(het1)]);
+    VAR_SET_HAP1(MOD2(het1), G.Variants[DIV2(het1)]);
+
+    VAR_SET_HET(MOD2(het2), G.Variants[DIV2(het2)]);
+    VAR_SET_HAP0(MOD2(het2), G.Variants[DIV2(het2)]);
+}
+
 /**
  * TEST 1: Per-Lane probSumK Analysis (Bug #11 Detection)
  * 
@@ -157,17 +182,17 @@ bool test_single_multiallelic_per_segment() {
     
     // Mark variant 0 as HET (ALT2|ALT3 → c0=2, c1=3)
     VAR_SET_HET(MOD2(0), G.Variants[DIV2(0)]);
-    VAR_SET_HAP0(MOD2(0), G.Variants[DIV2(0)]);  // hap0 = ALT (at anchor split)
-    VAR_SET_HAP1(MOD2(0), G.Variants[DIV2(0)]);  // hap1 = ALT (at anchor split)
+    VAR_CLR_HAP0(MOD2(0), G.Variants[DIV2(0)]);  // hap0 = REF (at ALT1 split, carries ALT2)
+    VAR_CLR_HAP1(MOD2(0), G.Variants[DIV2(0)]);  // hap1 = REF (at ALT1 split, carries ALT3)
     
     // Mark siblings 1,2 appropriately for ALT2|ALT3
-    // Split 1 (ALT1): both haps are REF at this split
-    VAR_CLR_HAP0(MOD2(1), G.Variants[DIV2(1)]);
+    // Split 1 (ALT2): hap0=ALT, hap1=REF (carries ALT2 on hap0)
+    VAR_SET_HAP0(MOD2(1), G.Variants[DIV2(1)]);
     VAR_CLR_HAP1(MOD2(1), G.Variants[DIV2(1)]);
     
-    // Split 2 (ALT2): hap0=ALT, hap1=REF
-    VAR_SET_HAP0(MOD2(2), G.Variants[DIV2(2)]);
-    VAR_CLR_HAP1(MOD2(2), G.Variants[DIV2(2)]);
+    // Split 2 (ALT3): hap0=REF, hap1=ALT (carries ALT3 on hap1)
+    VAR_CLR_HAP0(MOD2(2), G.Variants[DIV2(2)]);
+    VAR_SET_HAP1(MOD2(2), G.Variants[DIV2(2)]);
     
     // Variant 3: biallelic HET to force segment boundary
     VAR_SET_HET(MOD2(3), G.Variants[DIV2(3)]);
@@ -289,37 +314,37 @@ bool test_single_multiallelic_per_segment() {
     }
     
     // THE BUG #11 TEST:
-    // Donor 0 carries ALT2, so lanes expecting ALT2 should strongly favor it
-    // Donor 1 carries ALT3, so lanes expecting ALT3 should strongly favor it
+    // Donor 2 carries ALT2, so lanes expecting ALT2 should strongly favor it
+    // Donor 3 carries ALT3, so lanes expecting ALT3 should strongly favor it
     // But after SUMK(), both get same total probability, losing the distinction
     
     cout << "\n  Bug #11 Analysis:" << endl;
-    cout << "    - Donor 0 (carries ALT2): lanes_c0=" << lanes_expect_c0_sum[0] 
-         << " vs lanes_c1=" << lanes_expect_c1_sum[0] << endl;
-    cout << "    - Donor 1 (carries ALT3): lanes_c0=" << lanes_expect_c0_sum[1]
-         << " vs lanes_c1=" << lanes_expect_c1_sum[1] << endl;
+    cout << "    - Donor 2 (carries ALT2): lanes_c0=" << lanes_expect_c0_sum[2] 
+         << " vs lanes_c1=" << lanes_expect_c1_sum[2] << endl;
+    cout << "    - Donor 3 (carries ALT3): lanes_c0=" << lanes_expect_c0_sum[3]
+         << " vs lanes_c1=" << lanes_expect_c1_sum[3] << endl;
     
     // CRITICAL BUG #11 DETECTION:
     // If per-lane information is preserved correctly:
-    // - Donor 0 (ALT2) should have lanes_c0 >> lanes_c1 
-    // - Donor 1 (ALT3) should have lanes_c1 >> lanes_c0
+    // - Donor 2 (ALT2) should have lanes_c0 >> lanes_c1 
+    // - Donor 3 (ALT3) should have lanes_c1 >> lanes_c0
     // If these are equal, the bug is masking the expected behavior
     
     bool test_passed = true;
     bool bug11_detected = false;
     
     // Check if lanes are distinguishing allele classes
-    float ratio_d0 = (lanes_expect_c1_sum[0] > 0) ? 
-                      lanes_expect_c0_sum[0] / lanes_expect_c1_sum[0] : 999.0;
-    float ratio_d1 = (lanes_expect_c0_sum[1] > 0) ? 
-                      lanes_expect_c1_sum[1] / lanes_expect_c0_sum[1] : 999.0;
+    float ratio_d2 = (lanes_expect_c1_sum[2] > 0) ? 
+                      lanes_expect_c0_sum[2] / lanes_expect_c1_sum[2] : 999.0;
+    float ratio_d3 = (lanes_expect_c0_sum[3] > 0) ? 
+                      lanes_expect_c1_sum[3] / lanes_expect_c0_sum[3] : 999.0;
     
-    cout << "    - Expected: Donor 0 should favor c0 lanes, Donor 1 should favor c1 lanes" << endl;
-    cout << "    - Donor 0 c0/c1 ratio: " << ratio_d0 << " (should be >> 1.0)" << endl;
-    cout << "    - Donor 1 c1/c0 ratio: " << ratio_d1 << " (should be >> 1.0)" << endl;
+    cout << "    - Expected: Donor 2 should favor c0 lanes, Donor 3 should favor c1 lanes" << endl;
+    cout << "    - Donor 2 c0/c1 ratio: " << ratio_d2 << " (should be >> 1.0)" << endl;
+    cout << "    - Donor 3 c1/c0 ratio: " << ratio_d3 << " (should be >> 1.0)" << endl;
     
     // If lanes are NOT differentiating (ratio ≈ 1.0), Bug #11 or related issue exists
-    if (ratio_d0 < 2.0 || ratio_d1 < 2.0) {
+    if (ratio_d2 < 2.0 || ratio_d3 < 2.0) {
         cout << "\n  ✗ BUG #11 DETECTED: Lanes are not differentiating allele classes!" << endl;
         cout << "    Lanes expecting different alleles show similar probabilities." << endl;
         cout << "    This indicates either:" << endl;
@@ -418,49 +443,45 @@ bool test_multiple_multiallelic_one_segment() {
 bool test_segment_transition_multiallelic() {
     cout << "\n=== TEST 3: Segment Transition Impact (Bug #11 Critical Test) ===" << endl;
     
-    int n_variants = 6;
+    const int repeats = 2;
+    const int variants_per_repeat = 6;
+    int n_variants = repeats * variants_per_repeat;
     int n_cond_haps = 4;
     
     variant_map V;
     create_test_variant_map(V, n_variants);
     genotype G(n_variants);
     create_test_genotype(G, n_variants);
-    
-    // Setup: variants 0-2 are multiallelic (segment 1 end)
-    //        variant 3 is biallelic HET (forces new segment)
-    //        variants 4-5 are in segment 2
-    
-    vector<SuperSite> super_sites(1);
-    super_sites[0] = create_test_supersite(0, 0, 3, 2);
-    
+    vector<SuperSite> super_sites(repeats);
     vector<int> locus_to_super_idx(n_variants, -1);
-    locus_to_super_idx[0] = locus_to_super_idx[1] = locus_to_super_idx[2] = 0;
-    
-    vector<int> super_site_var_index = {0, 1, 2};
+    vector<int> super_site_var_index;
+    super_site_var_index.reserve(repeats * 3);
     
     vector<uint8_t> allele_codes = {0, 1, 2, 3};
+    vector<uint8_t> packed_codes_template;
+    setup_panel_codes(packed_codes_template, allele_codes);
     vector<uint8_t> packed_codes;
-    setup_panel_codes(packed_codes, allele_codes);
+    packed_codes.reserve(packed_codes_template.size() * repeats);
     
-    // Multiallelic HET at position 0-2 (ALT1|ALT2)
-    VAR_SET_HET(MOD2(0), G.Variants[DIV2(0)]);
-    VAR_SET_HAP0(MOD2(0), G.Variants[DIV2(0)]);
-    VAR_SET_HAP1(MOD2(0), G.Variants[DIV2(0)]);
+    for (int rep = 0; rep < repeats; ++rep) {
+        int base_idx = rep * variants_per_repeat;
+        uint32_t var_start = super_site_var_index.size();
+        for (int i = 0; i < 3; ++i) {
+            super_site_var_index.push_back(base_idx + i);
+            locus_to_super_idx[base_idx + i] = rep;
+        }
+        super_sites[rep] = create_test_supersite(base_idx, var_start, 3, 2);
+        super_sites[rep].panel_offset = packed_codes.size();
+        packed_codes.insert(packed_codes.end(), packed_codes_template.begin(), packed_codes_template.end());
+        apply_segment_pattern(G, base_idx);
+    }
     
-    // Biallelic HET at position 3 (forces segment break)
-    VAR_SET_HET(MOD2(3), G.Variants[DIV2(3)]);
-    VAR_SET_HAP1(MOD2(3), G.Variants[DIV2(3)]);
-    
-    // Another biallelic HET at position 4
-    VAR_SET_HET(MOD2(4), G.Variants[DIV2(4)]);
-    VAR_SET_HAP0(MOD2(4), G.Variants[DIV2(4)]);
-    
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr);
     G.build();
     
     cout << "  Genotype built: " << G.n_segments << " segments" << endl;
-    cout << "  Segment 0 length: " << G.Lengths[0] << " variants" << endl;
-    if (G.n_segments > 1) {
-        cout << "  Segment 1 length: " << G.Lengths[1] << " variants" << endl;
+    for (int s = 0; s < G.n_segments; ++s) {
+        cout << "  Segment " << s << " length: " << G.Lengths[s] << " variants" << endl;
     }
     
     // Setup HMM
@@ -535,22 +556,55 @@ bool test_segment_transition_multiallelic() {
     }
     
     // Check transition probabilities are valid
-    cout << "  Transition probabilities at segment boundary:" << endl;
+    cout << "  Transition probabilities at segment boundary (showing up to 10 entries):" << endl;
     bool all_valid = true;
-    double trans_sum = 0.0;
-    for (size_t i = 0; i < trans_probs.size() && i < 10; ++i) {
-        cout << "    Trans " << i << ": " << fixed << setprecision(6) << trans_probs[i];
-        if (isnan(trans_probs[i]) || trans_probs[i] < 0 || trans_probs[i] > 1.0) {
-            cout << " [INVALID]";
-            all_valid = false;
+    const size_t max_print = std::min<size_t>(10, trans_probs.size());
+    double shown_sum = 0.0;
+    double trans_sum_all = 0.0;
+    for (size_t i = 0; i < trans_probs.size(); ++i) {
+        double val = trans_probs[i];
+        trans_sum_all += val;
+        bool invalid = isnan(val) || val < -1e-6 || val > 1.0 + 1e-6;
+        if (invalid) all_valid = false;
+        if (i < max_print) {
+            cout << "    Trans " << i << ": " << fixed << setprecision(6) << val;
+            if (invalid) cout << " [INVALID]";
+            cout << endl;
+            shown_sum += val;
         }
-        trans_sum += trans_probs[i];
-        cout << endl;
+    }
+    if (trans_probs.size() > max_print) {
+        cout << "    ... (" << (trans_probs.size() - max_print) << " more entries not shown)" << endl;
+    }
+    cout << "  Sum of shown probs: " << shown_sum << endl;
+    
+    double expected_total = static_cast<double>(G.n_segments);
+    cout << "  Sum of ALL transition probs: " << trans_sum_all
+         << " (expected ≈ " << expected_total
+         << " because the vector stores one normalized block per segment)" << endl;
+    if (fabs(trans_sum_all - expected_total) > 0.01 * expected_total) {
+        cout << "  ⚠ WARNING: Transition probs total differs from expected aggregate!" << endl;
+        all_valid = false;
     }
     
-    cout << "  Sum of transition probs: " << trans_sum << endl;
-    if (fabs(trans_sum - 1.0) > 0.01) {
-        cout << "  ⚠ WARNING: Transition probs don't sum to 1.0!" << endl;
+    struct TransitionBlock {
+        size_t start;
+        size_t end;
+    };
+    vector<TransitionBlock> blocks;
+    blocks.reserve(G.n_segments);
+    size_t offset = 0;
+    unsigned int prev_dip = 1;
+    for (unsigned int s = 0; s < G.n_segments; ++s) {
+        unsigned int curr_dip = G.countDiplotypes(G.Diplotypes[s]);
+        size_t block_size = static_cast<size_t>(prev_dip) * curr_dip;
+        blocks.push_back({offset, offset + block_size});
+        offset += block_size;
+        prev_dip = curr_dip;
+    }
+    if (offset != trans_probs.size()) {
+        cout << "  ⚠ WARNING: Transition block accounting mismatch ("
+             << offset << " vs " << trans_probs.size() << ")" << endl;
         all_valid = false;
     }
     
@@ -567,18 +621,39 @@ bool test_segment_transition_multiallelic() {
     
     cout << "\n  Bug #11 Critical Test: Transition probability distribution" << endl;
     
-    // Calculate variance of transition probabilities
-    double mean_trans = trans_sum / trans_probs.size();
-    double variance = 0.0;
-    for (size_t i = 0; i < trans_probs.size(); ++i) {
-        double diff = trans_probs[i] - mean_trans;
-        variance += diff * diff;
+    double mean_trans = 0.0;
+    double std_dev = 0.0;
+    if (!blocks.empty()) {
+        const TransitionBlock& last_block = blocks.back();
+        size_t block_size = last_block.end - last_block.start;
+        double block_sum = 0.0;
+        for (size_t idx = last_block.start; idx < last_block.end; ++idx) {
+            block_sum += trans_probs[idx];
+        }
+        cout << "    Last transition block size: " << block_size << " entries, sum = "
+             << block_sum << endl;
+        if (fabs(block_sum - 1.0) > 0.01) {
+            cout << "    ⚠ WARNING: Last block does not sum to ~1.0" << endl;
+            all_valid = false;
+        }
+        
+        mean_trans = block_sum / static_cast<double>(block_size ? block_size : 1);
+        double variance = 0.0;
+        if (block_size > 0) {
+            for (size_t idx = last_block.start; idx < last_block.end; ++idx) {
+                double diff = trans_probs[idx] - mean_trans;
+                variance += diff * diff;
+            }
+            variance /= static_cast<double>(block_size);
+            std_dev = sqrt(variance);
+        }
+    } else {
+        cout << "    ⚠ WARNING: No transition blocks available for analysis" << endl;
+        all_valid = false;
     }
-    variance /= trans_probs.size();
-    double std_dev = sqrt(variance);
     
-    cout << "    Mean transition prob: " << mean_trans << endl;
-    cout << "    Std deviation: " << std_dev << endl;
+    cout << "    Mean transition prob (last block): " << mean_trans << endl;
+    cout << "    Std deviation (last block): " << std_dev << endl;
     
     // If Bug #11 causes loss of information, transition probs become uniform
     // Uniform distribution of 8 diplotypes: all = 1/8 = 0.125, std_dev ≈ 0
