@@ -1186,7 +1186,35 @@ Note: some of these may be out of date.
 - `--ss-anchor-split-emissions` (hmm_parameters): enable biallelic presentation at supersite anchors (strict 4‑bit storage retained).
 - `SHAPEIT5_TEST_TRACE=1`: emit trace lines (including `build_view` and anchor diagnostics) to help debug parity.
 
-### Bug Retrospective & Fixes (Supersite Expansion Parity)
+### Bug Retrospective & Fixes
+
+#### Supersite SC Buffer Race Condition
+
+**Issue**: Substantial accuracy reduction when supersites are enabled, manifested as K values (conditioning set size) increasing instead of decreasing during HMM iterations. Investigation revealed a race condition where multiple threads simultaneously modify `SuperSite.class_prob_offset` in `compute_job::make()`, causing memory corruption and heap scribbling that affects neighboring data structures like IBD2 tracks.
+
+**Root Cause**: The `class_prob_offset` field in the `SuperSite` struct was being concurrently written by multiple worker threads without synchronization, leading to:
+- Overlapping SC buffer writes between threads
+- Memory corruption affecting adjacent data structures  
+- Incorrect offset calculations for supersite class posterior storage
+- K value divergence due to corrupted conditioning set management
+
+**Fix**: Redesigned supersite SC buffer architecture to use thread-local storage:
+- **Removed** `class_prob_offset` field from `SuperSite` struct to eliminate shared write target
+- **Added** `supersite_sc_offset` vector to `compute_job` class for per-thread offset management
+- **Updated** all `IMPUTE_SUPERSITE_MULTIVARIATE` calls to accept thread-local offset parameter
+- **Modified** `setSuperSiteContext()` to use thread-local offset storage
+- **Added** race condition verification assertions in debug builds
+
+**Files Modified**:
+- `phase_common/src/models/super_site_accessor.h` - Removed race condition target field
+- `phase_common/src/objects/compute_job.{h,cpp}` - Added thread-local offset management
+- `phase_common/src/models/haplotype_segment_{single,double}.{h,cpp}` - Updated function signatures
+- `phase_common/src/objects/genotype/genotype_{header.h,managment.cpp}` - Updated context setting
+- Multiple test files - Fixed compilation after struct field removal
+
+**Result**: Eliminates memory corruption while preserving full supersite functionality and maintaining thread safety.
+
+#### Supersite Expansion Parity
 
 Summary of issues encountered while making the 10‑variant supersite setup (5 anchors + 5 siblings) parity‑equivalent to the 5‑biallelic setup at anchors, and the fixes applied:
 

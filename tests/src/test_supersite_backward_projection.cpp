@@ -105,12 +105,13 @@ int main() {
     // class_prob_offset moved to thread-local storage (no longer part of SuperSite)
     std::vector<float> SC(HAP_NUMBER * ss.n_classes, 0.0f);
     std::vector<bool> anchor_has_missing(1, true);
+    std::vector<uint32_t> supersite_sc_offset(1, 0);  // Thread-local offset vector for test
     // Use relative missing index 0 (first missing slot)
     HS.curr_rel_missing = 0;
-    HS.IMPUTE_SUPERSITE_MULTIVARIATE(SC, ss, /*ss_idx=*/0, /*rel_missing_index=*/0);
+    HS.IMPUTE_SUPERSITE_MULTIVARIATE(SC, ss, /*ss_idx=*/0, /*rel_missing_index=*/0, &supersite_sc_offset);
 
     // Attach SC to genotype and project
-    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, &SC, &anchor_has_missing);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, &SC, &anchor_has_missing, &supersite_sc_offset);
     std::vector<unsigned char> Dip(1, 1); // hap0=0, hap1=1
     std::vector<float> Mprob; // unused
     G.make(Dip, Mprob);

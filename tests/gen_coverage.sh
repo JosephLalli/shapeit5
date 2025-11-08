@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tools/gen_coverage.sh
 # Makefile-based coverage for C++ projects (no CMake).
-# Produces coverage/lcov.info readable by VS Code Coverage Gutters.
+# Produces tests/coverage/lcov.info readable by VS Code Coverage Gutters.
 
 set -euo pipefail
 
@@ -99,8 +99,8 @@ emit_lcov_clang() {
 
   # Gather candidate binaries/libraries for coverage attribution
   # (adjust or extend these paths to match your repo layout)
-  mapfile -t bins < <(find . -type f -perm -111 \
-    -not -path "*/.git/*" -not -path "*/static_bins/*" 2>/dev/null)
+  mapfile -t bins < <(find ./phase_common/bin ./phase_rare/bin ./tests/bin \
+      -type f -perm -111 2>/dev/null | grep -v static_bins || true)
 
   if (( ${#bins[@]} == 0 )); then
     echo "No executables found to attribute coverage."
@@ -135,7 +135,7 @@ main() {
   else
     emit_lcov_gcc
   fi
-  echo "Done. Open coverage/lcov.info with Coverage Gutters."
+  echo "Done. Open tests/coverage/lcov.info with Coverage Gutters."
 }
 
 main "$@"

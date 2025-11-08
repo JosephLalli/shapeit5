@@ -105,6 +105,7 @@ int main() {
     // class_prob_offset moved to thread-local storage (no longer part of SuperSite)
     std::vector<float> SC(HAP_NUMBER * ss.n_classes, -1.0f);
     std::vector<bool> anchor_has_missing(1, true);
+    std::vector<uint32_t> supersite_sc_offset(1, 0);  // Thread-local offset vector for test
 
     // Run forward/backward
     haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
@@ -127,7 +128,7 @@ int main() {
     for (int h = 0; h < HAP_NUMBER; ++h) HS.AlphaSumMissing[0][h] = 1.0f;
 
     // Invoke multivariant imputation directly (anchor context)
-    HS.IMPUTE_SUPERSITE_MULTIVARIATE(SC, ss, /*ss_idx=*/0, /*rel_missing_index=*/0);
+    HS.IMPUTE_SUPERSITE_MULTIVARIATE(SC, ss, /*ss_idx=*/0, /*rel_missing_index=*/0, &supersite_sc_offset);
 
     // Verify per-haplotype normalization: sum_c SC[h*C+c] ≈ 1.0
     int C = ss.n_classes;
