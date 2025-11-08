@@ -23,6 +23,34 @@
 #include <objects/genotype/genotype_header.h>
 #include <models/super_site_accessor.h>
 
+#if !defined(__OPTIMIZE__)
+#include <cstdlib>
+#include <iostream>
+
+namespace {
+template <typename Vec>
+inline void supersite_debug_require(const Vec* vec, size_t required, const char* vec_name, const char* func) {
+	if (!vec) {
+		std::cerr << "[supersite debug] " << func << ": " << vec_name << " pointer is null" << std::endl;
+		std::abort();
+	}
+	const size_t size = vec->size();
+	if (size < required) {
+		std::cerr << "[supersite debug] " << func << ": " << vec_name
+				  << " size=" << size << " required>=" << required << std::endl;
+		std::abort();
+	}
+}
+
+inline void supersite_debug_check_var_count(uint16_t var_count, const char* func) {
+	if (var_count == 0) {
+		std::cerr << "[supersite debug] " << func << ": supersite var_count is zero" << std::endl;
+		std::abort();
+	}
+}
+} // namespace
+#endif
+
 using namespace std;
 
 genotype::genotype(unsigned int _index) {
@@ -88,6 +116,25 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 			// Phase 3: Check if this is a missing supersite anchor
 			int ss_idx = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
 			
+#if !defined(__OPTIMIZE__)
+			if (ss_idx >= 0) {
+				const char* dbg_func = __func__;
+				supersite_debug_require(super_sites, static_cast<size_t>(ss_idx) + 1, "super_sites", dbg_func);
+				supersite_debug_require(locus_to_super_idx, static_cast<size_t>(vabs) + 1, "locus_to_super_idx", dbg_func);
+				supersite_debug_require(super_site_var_index, static_cast<size_t>((*super_sites)[ss_idx].var_start) + (*super_sites)[ss_idx].var_count, "super_site_var_index", dbg_func);
+				supersite_debug_check_var_count((*super_sites)[ss_idx].var_count, dbg_func);
+				if (anchor_has_missing) {
+					supersite_debug_require(anchor_has_missing, static_cast<size_t>(ss_idx) + 1, "anchor_has_missing", dbg_func);
+				}
+				if (SC) {
+					supersite_debug_require(supersite_sc_offset, static_cast<size_t>(ss_idx) + 1, "supersite_sc_offset", dbg_func);
+					const size_t offset_debug = (*supersite_sc_offset)[ss_idx];
+					const size_t required_debug = offset_debug + static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>((*super_sites)[ss_idx].n_classes);
+					supersite_debug_require(SC, required_debug, "SC", dbg_func);
+				}
+			}
+#endif
+
 			if (ss_idx >= 0 && anchor_has_missing && (*anchor_has_missing)[ss_idx] && SC) {
 				// This is a supersite with missing data
 				const SuperSite& ss = (*super_sites)[ss_idx];
@@ -151,9 +198,11 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					}
 					
 					// Skip to end of supersite
-					// vabs will be incremented by loop, so set to last member
-					vabs = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
-					vrel = vabs - (vabs - vrel);  // Adjust vrel to match
+					// vabs will be incremented by loop, so set to last member and advance vrel accordingly
+					unsigned int last_member_vabs = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
+					unsigned int skip_count = (last_member_vabs >= vabs) ? (last_member_vabs - vabs) : 0;
+					vabs = last_member_vabs;
+					vrel += skip_count;
 					m++;  // One missing event per supersite
 					continue;
 				}
@@ -225,9 +274,9 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 							}
 						}
 						
-						// Skip siblings: advance vabs to last member, adjust vrel accordingly
+						// Skip siblings: advance vabs to last member and advance vrel to account for consumed variants
 						unsigned int last_member_vabs = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
-						unsigned int skip_count = last_member_vabs - vabs;
+						unsigned int skip_count = (last_member_vabs >= vabs) ? (last_member_vabs - vabs) : 0;
 						vabs = last_member_vabs;
 						vrel += skip_count;
 						a++;  // One ambiguous event per supersite

@@ -111,18 +111,88 @@ static void apply_orientation(genotype& G, const Orientation& orient) {
     G.build();
 }
 
-static window make_full_window(int stop_locus) {
-    window W;
+static window make_full_window(const genotype& G,
+                               const SuperSiteContext* ctx,
+                               int stop_locus) {
+    window W{};
     W.start_locus = 0;
     W.stop_locus = stop_locus;
     W.start_segment = 0;
-    W.stop_segment = 0;
-    W.start_ambiguous = 0;
-    W.stop_ambiguous = -1;
+
+    // Determine stop segment index
+    unsigned int locus_acc = 0;
+    unsigned int seg_idx = 0;
+    while (seg_idx < G.n_segments) {
+        unsigned int seg_len = (seg_idx < G.Lengths.size()) ? G.Lengths[seg_idx] : 0;
+        if (seg_len == 0) break;
+        if (locus_acc + seg_len - 1 >= static_cast<unsigned int>(stop_locus)) break;
+        locus_acc += seg_len;
+        seg_idx++;
+    }
+    W.stop_segment = static_cast<int>(seg_idx);
+
+    // Supersite helpers (optional)
+    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
+    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
+
+    // Compute ambiguous bounds limited to [0, stop_locus]
+    int first_amb = -1;
+    int last_amb = -1;
+    int amb_count = 0;
+
+    for (int v = 0; v <= stop_locus; ) {
+        int ss_idx = (super_sites && locus_to_super_idx && v < static_cast<int>(locus_to_super_idx->size()))
+                     ? (*locus_to_super_idx)[v]
+                     : -1;
+        bool is_anchor = false;
+        unsigned int advance = 1;
+        bool consider_variant = true;
+
+        if (ss_idx >= 0 && super_sites) {
+            const SuperSite& ss = (*super_sites)[ss_idx];
+            is_anchor = (v == static_cast<int>(ss.global_site_id));
+            if (is_anchor) {
+                advance = ss.var_count;
+            } else {
+                consider_variant = false; // supersite sibling
+            }
+        }
+
+        bool is_amb = false;
+        if (consider_variant) {
+            unsigned char var_code = G.Variants[DIV2(v)];
+            is_amb = VAR_GET_AMB(MOD2(v), var_code) != 0;
+            if (!is_amb && (VAR_GET_SCA(MOD2(v), var_code) != 0)) {
+                is_amb = true;
+            }
+
+            if (is_amb) {
+                if (first_amb < 0) first_amb = amb_count;
+                last_amb = amb_count;
+                amb_count++;
+            }
+        }
+
+        if (advance == 0) advance = 1;
+        v += static_cast<int>(advance);
+    }
+
+    if (amb_count > 0) {
+        W.start_ambiguous = 0;
+        W.stop_ambiguous = last_amb;
+    } else {
+        W.start_ambiguous = 0;
+        W.stop_ambiguous = -1;
+    }
+
+    // Missing values (dataset-specific: none present)
     W.start_missing = 0;
     W.stop_missing = -1;
+
+    // Transition indices (no transitions in micro dataset)
     W.start_transition = 0;
     W.stop_transition = -1;
+
     return W;
 }
 
@@ -468,22 +538,6 @@ int main() {
     // =====================================================================
     // Build supersites and run forward/backward on both datasets
     // =====================================================================
-    const window W5 = make_full_window(static_cast<int>(V5.size()) - 1);
-    const window W10 = make_full_window(static_cast<int>(V10.size()) - 1);
-    const std::vector<unsigned int> idxH = {0u,1u,2u,3u,4u,5u,6u,7u};
-
-    hmm_parameters M5 = make_hmm_params_5var(V5.size(), H5.n_hap);
-    hmm_parameters M10 = make_hmm_params_10var(V10.size(), H10.n_hap);
-
-    // Verbose-only: identical cm at sibling pairs
-    if (env_true("SHAPEIT5_TEST_VERBOSE")) {
-        for (int i = 1; i < (int)V10.size(); i += 2) {
-            float cm_even = M10.cm[i - 1];
-            float cm_odd  = M10.cm[i];
-            assert(cm_even == cm_odd && "Sibling cm must be identical");
-        }
-    }
-
     SuperSiteContext ctx5 = build_supersites(V5, H5);
     SuperSiteContext ctx10 = build_supersites(V10, H10);
     
@@ -512,8 +566,24 @@ int main() {
         std::cout << "  Continuing with actual count for debugging..." << std::endl;
     }
 
+    const window W5 = make_full_window(G5, &ctx5, static_cast<int>(V5.size()) - 1);
+    const window W10 = make_full_window(G10, &ctx10, static_cast<int>(V10.size()) - 1);
+    const std::vector<unsigned int> idxH = {0u,1u,2u,3u,4u,5u,6u,7u};
+
+    hmm_parameters M5 = make_hmm_params_5var(V5.size(), H5.n_hap);
+    hmm_parameters M10 = make_hmm_params_10var(V10.size(), H10.n_hap);
+
     M5.markSuperSiteSiblings(ctx5.super_sites, ctx5.locus_to_super_idx);
     M10.markSuperSiteSiblings(ctx10.super_sites, ctx10.locus_to_super_idx);
+
+    // Verbose-only: identical cm at sibling pairs
+    if (env_true("SHAPEIT5_TEST_VERBOSE")) {
+        for (int i = 1; i < (int)V10.size(); i += 2) {
+            float cm_even = M10.cm[i - 1];
+            float cm_odd  = M10.cm[i];
+            assert(cm_even == cm_odd && "Sibling cm must be identical");
+        }
+    }
 
     std::cout << std::endl;
     std::cout << "Running forward/backward on both datasets..." << std::endl;
@@ -532,8 +602,8 @@ int main() {
     bool anchor_parity_ok = true;
     const double tol = 1e-9;
     for (int a = 0; a < 5; ++a) {
-        window Wa5 = make_full_window(a);
-        window Wa10 = make_full_window(2 * a);
+    window Wa5 = make_full_window(G5, &ctx5, a);
+    window Wa10 = make_full_window(G10, &ctx10, 2 * a);
         FBResult fa5 = run_forward_only(G5, H5, M5, Wa5, idxH, &ctx5);
         FBResult fa10 = run_forward_only(G10, H10, M10, Wa10, idxH, &ctx10);
 
@@ -622,8 +692,11 @@ int main() {
                 for (unsigned int k = 0; k < H5.n_hap; ++k) {
                     unsigned int gh = idxH[k];
                     int bial_alt = H5.H_opt_var.get(locus5, gh) ? 1 : 0;
-                    uint8_t dcode = unpackSuperSiteCode(ctx10.packed_codes.data(), v10.supersite->panel_offset, gh);
-                    int ss_alt = (dcode == v10.anchor_class) ? 1 : 0;
+                    int ss_alt = 0;
+                    if (!ctx10.packed_codes.empty()) {
+                        uint8_t dcode = unpackSuperSiteCode(ctx10.packed_codes.data(), v10.supersite->panel_offset, gh);
+                        ss_alt = (dcode == v10.anchor_class) ? 1 : 0;
+                    }
                     std::cout << "      " << k << "      " << bial_alt << "       " << ss_alt << "\n";
                 }
 
@@ -655,8 +728,11 @@ int main() {
                     for (unsigned int k = 0; k < H5.n_hap; ++k) {
                         unsigned int gh = idxH[k];
                         int bial_alt = H5.H_opt_var.get(locus5, gh) ? 1 : 0;
-                        uint8_t dcode = unpackSuperSiteCode(ctx10.packed_codes.data(), v10.supersite->panel_offset, gh);
-                        int ss_alt = (dcode == v10.anchor_class) ? 1 : 0;
+                        int ss_alt = 0;
+                        if (!ctx10.packed_codes.empty()) {
+                            uint8_t dcode = unpackSuperSiteCode(ctx10.packed_codes.data(), v10.supersite->panel_offset, gh);
+                            ss_alt = (dcode == v10.anchor_class) ? 1 : 0;
+                        }
                         assert(bial_alt == ss_alt && "Donor ALT parity (bial vs SS anchor ALT) must hold");
                     }
                     // Full mask parity
@@ -695,8 +771,8 @@ int main() {
         std::cout << "    Stepwise parity to anchor " << a << "..." << std::endl;
         bool step_diverged = false;
         for (int l = 0; l <= a; ++l) {
-            window Wst5 = make_full_window(l);
-            window Wst10 = make_full_window(2 * l);
+            window Wst5 = make_full_window(G5, &ctx5, l);
+            window Wst10 = make_full_window(G10, &ctx10, 2 * l);
             FBResult fst5 = run_forward_only(G5, H5, M5, Wst5, idxH, &ctx5);
             FBResult fst10 = run_forward_only(G10, H10, M10, Wst10, idxH, &ctx10);
             double max_step_norm = 0.0;

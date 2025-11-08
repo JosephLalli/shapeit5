@@ -396,6 +396,9 @@ void haplotype_segment_double::ss_load_cond_codes(const SuperSite& ss, int ss_id
     // Return if already cached
     if (ss_cached[ss_idx]) return;
     
+    // Return if panel codes not available (no supersites built)
+    if (panel_codes == nullptr) return;
+    
     // Unpack and cache conditioning haplotype codes
     ss_cond_codes.resize(n_cond_haps);
     for (int k = 0; k < (int)n_cond_haps; ++k) {
@@ -1144,6 +1147,11 @@ void haplotype_segment_double::RUN_AMB() {
         }
     }
     // Biallelic path
+    fprintf(stderr, "RUN_AMB biallelic path: curr_abs_ambiguous=%d, G->Ambiguous.size()=%zu\n", curr_abs_ambiguous, G->Ambiguous.size());
+    if (curr_abs_ambiguous < 0 || curr_abs_ambiguous >= (int)G->Ambiguous.size()) {
+        fprintf(stderr, "RUN_AMB: Invalid curr_abs_ambiguous index %d, returning\n", curr_abs_ambiguous);
+        return;
+    }
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
         g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0;
@@ -1448,9 +1456,11 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
             }
         }
         // Unpack conditioning hap codes
-        for (int k = 0; k < (int)n_cond_haps; ++k) {
-            unsigned int gh = (*cond_idx)[k];
-            ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+        if (panel_codes != nullptr) {
+            for (int k = 0; k < (int)n_cond_haps; ++k) {
+                unsigned int gh = (*cond_idx)[k];
+                ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+            }
         }
         // Initialize per-class accumulators (up to SUPERSITE_MAX_ALTS+1)
         __m256d sum_lo_classes[SUPERSITE_MAX_ALTS + 1];
@@ -1522,6 +1532,14 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
 // Writes to SC buffer at ss.class_prob_offset
 inline
 void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx, int rel_missing_index, const std::vector<uint32_t>* supersite_sc_offset) {
+    fprintf(stderr, "IMPUTE_SUPERSITE_MULTIVARIATE called: panel_codes=%p ss_idx=%d SC.size()=%zu\n", 
+            (void*)panel_codes, ss_idx, SC.size());
+    // Return early if panel codes not available (no supersites built)
+    if (panel_codes == nullptr) {
+        fprintf(stderr, "IMPUTE_SUPERSITE_MULTIVARIATE: early return, panel_codes is nullptr\n");
+        return;
+    }
+    
     // Unpack conditioning haplotype codes once
     for (int k = 0; k < (int)n_cond_haps; ++k) {
         unsigned int gh = (*cond_idx)[k];
@@ -1529,10 +1547,17 @@ void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float
     }
     
     const int C = ss.n_classes;  // 1 + n_alts
-    const uint32_t offset = (*supersite_sc_offset)[ss_idx];  // Use thread-local offset instead of shared SuperSite field
     
-    // RACE CONDITION FIX: Using thread-local offset to prevent memory corruption
-    // Previous race condition: multiple threads overwrote ss.class_prob_offset simultaneously
+    // Calculate offset - use thread-local offset if available, otherwise fallback to simple calculation
+    uint32_t offset;
+    if (supersite_sc_offset != nullptr) {
+        offset = (*supersite_sc_offset)[ss_idx];  // Use thread-local offset to prevent race conditions
+    } else {
+        // Fallback for tests: assume simple layout with supersite index * (lanes * classes)
+        offset = static_cast<uint32_t>(ss_idx) * HAP_NUMBER * C;
+    }
+    
+    // Bounds check: ensure we don't write beyond SC buffer
     assert(offset + HAP_NUMBER * C <= SC.size());
     
     // Compute 1 / AlphaSum for normalization

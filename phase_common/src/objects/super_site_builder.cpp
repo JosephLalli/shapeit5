@@ -102,6 +102,11 @@ void buildSuperSites(
 
             // Pack codes: 2 per byte (4 bits each)
             uint32_t n_bytes = static_cast<uint32_t>((H.n_hap + 1) / 2);
+            
+            // Debug logging for buffer allocation
+            fprintf(stderr, "buildSuperSites: supersite %zu at bp=%u, H.n_hap=%lu, n_bytes=%u, panel_offset=%u, buffer_size_before=%zu\n",
+                    super_sites_out.size(), ss.bp, H.n_hap, n_bytes, current_panel_offset, packed_allele_codes_out.size());
+            
             for (uint32_t byte_idx = 0; byte_idx < n_bytes; ++byte_idx) {
                 uint8_t packed = 0;
                 uint32_t hap0 = byte_idx * 2;
@@ -111,6 +116,9 @@ void buildSuperSites(
                 packed_allele_codes_out.push_back(packed);
             }
             current_panel_offset += n_bytes;
+            
+            fprintf(stderr, "buildSuperSites: supersite %zu completed, buffer_size_after=%zu\n",
+                    super_sites_out.size(), packed_allele_codes_out.size());
 
             super_sites_out.push_back(ss);
         }

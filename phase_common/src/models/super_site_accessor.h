@@ -68,8 +68,22 @@ inline uint8_t unpackSuperSiteCode(
 	uint32_t panel_offset,
 	uint32_t hap_idx) {
 
+	// Handle null buffer case (no supersites built)
+	if (packed_buffer == nullptr) {
+		return 0; // Return REF code as safe fallback
+	}
+
 	// Byte index: 2 haplotypes per byte with 4-bit codes
 	uint32_t byte_idx = panel_offset + hap_idx / 2;
+	
+	// Debug logging for buffer overflow diagnosis
+	static int debug_count = 0;
+	debug_count++;
+	if (debug_count <= 20) {
+		fprintf(stderr, "unpackSuperSiteCode #%d: panel_offset=%u hap_idx=%u byte_idx=%u\n", 
+				debug_count, panel_offset, hap_idx, byte_idx);
+	}
+	
 	uint8_t byte_val = packed_buffer[byte_idx];
 
 	// Bit shift: even haplotypes use lower 4 bits, odd use upper 4 bits

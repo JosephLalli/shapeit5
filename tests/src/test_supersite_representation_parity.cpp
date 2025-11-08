@@ -278,12 +278,14 @@ static FBState run_forward_only(genotype& G,
 
 static inline bool is_anchor_site(const haplotype_segment_double& HS, int locus) {
     if (!(HS.super_sites && HS.locus_to_super_idx)) return false;
+    if (locus < 0 || locus >= static_cast<int>(HS.locus_to_super_idx->size())) return false;
     int ss_idx = (*HS.locus_to_super_idx)[locus];
     return (ss_idx >= 0 && locus == static_cast<int>((*HS.super_sites)[ss_idx].global_site_id));
 }
 
 static inline bool is_sibling_site(const haplotype_segment_double& HS, int locus) {
     if (!(HS.super_sites && HS.locus_to_super_idx)) return false;
+    if (locus < 0 || locus >= static_cast<int>(HS.locus_to_super_idx->size())) return false;
     int ss_idx = (*HS.locus_to_super_idx)[locus];
     return (ss_idx >= 0 && locus != static_cast<int>((*HS.super_sites)[ss_idx].global_site_id));
 }
@@ -492,6 +494,12 @@ static FBResult run_forward_backward(genotype& G,
                                      const window& W,
                                      const std::vector<unsigned int>& idxH,
                                      const SuperSiteContext* ctx) {
+    fprintf(stderr, "run_forward_backward: starting with ctx=%p\n", (void*)ctx);
+    if (ctx) {
+        fprintf(stderr, "run_forward_backward: ctx has %zu supersites, packed_codes.size()=%zu\n", 
+                ctx->super_sites.size(), ctx->packed_codes.size());
+    }
+    
     const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
     const std::vector<bool>* is_super_site = ctx ? &ctx->is_super_site : nullptr;
     const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
@@ -503,10 +511,13 @@ static FBResult run_forward_backward(genotype& G,
                                 super_sites, is_super_site, locus_to_super_idx,
                                 panel_codes, super_site_var_index);
 
+    fprintf(stderr, "run_forward_backward: HS constructed, calling forward()\n");
     HS.forward();
+    fprintf(stderr, "run_forward_backward: forward() completed\n");
 
     std::vector<double> transition_probabilities(G.countTransitions(), 0.0);
     std::vector<float> missing_probabilities;
+    fprintf(stderr, "run_forward_backward: calling backward()\n");
     HS.backward(transition_probabilities, missing_probabilities,
                 /*SC*/nullptr, /*anchor_has_missing*/nullptr);
 
