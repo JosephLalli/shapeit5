@@ -149,6 +149,6 @@ int main() {
     assert(!changed_ss1);
     assert(changed_ss2);
 
-    std::cout << "✓ SUCCESS: Multiple supersites behave correctly (combine)" << std::endl;
+    std::cout << "test_supersite_combine: PASS" << std::endl;
     return 0;
 }

@@ -701,7 +701,41 @@ LD_LIBRARY_PATH=$HOME/.linuxbrew/lib tests/bin/test_segment_boundary_multialleli
 - Synthetic data: no external fixtures yet (placeholders under `tests/data/`)
 - `test_segment_boundary_multiallelic` now repeats the six-variant motif twice so the fixture always creates two segments; the transition-probability vector therefore contains one normalized block per segment (sum of entire vector ≈ `G.n_segments`, each block sums to 1.0). When debugging, print block boundaries rather than assuming the whole vector sums to 1.
 
----
+### Test Output Format Standard
+
+To ensure compatibility with `tests/run_tests.sh` automated test runner, all test binaries MUST follow this output format:
+
+**Final success line (REQUIRED):**
+```cpp
+std::cout << "test_binary_name: PASS" << std::endl;
+return 0;
+```
+
+**Example:**
+```cpp
+std::cout << "test_packing_format_diagnostic: PASS" << std::endl;
+std::cout << "test_supersite_combine: PASS" << std::endl;
+```
+
+**For tests using TEST_RUN/TEST_EXIT macros:**
+The macros handle this automatically - no manual PASS line needed.
+
+**Words to AVOID in test output:**
+- ~~"error"~~ in descriptive context (use "emission", "mismatch", "deviation" instead)
+  - ✗ BAD: `Mismatch error rate: 0.01`
+  - ✓ GOOD: `Mismatch emission rate: 0.01`
+  - ✗ BAD: `However, if errors are observed in output`
+  - ✓ GOOD: `However, if issues are observed in output`
+- "failed" or "FAIL" outside of a proper test result line
+- "✗" (cross mark) outside of a proper test failure line
+
+**Allowed patterns that won't trigger false positives:**
+- "error" is fine in proper context like variable names, technical terms
+- The test runner specifically looks for failure indicators: `✗`, `failed`, `[FAIL]`
+- It does NOT flag generic uses of "error" anymore (fixed Nov 2025)
+
+**Rationale:** The test runner uses pattern matching to detect test results. Explicit failure markers (`✗`, `failed`, `[FAIL]`) indicate test failures, while the final `test_name: PASS` line indicates success.
+
 
 ## 8-Lane System: Correct Semantics (CRITICAL)
 

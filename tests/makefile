@@ -10,20 +10,23 @@ bindir := bin
 
 # Phase_common objects required by some tests (define BEFORE using it)
 PHASE_COMMON_OBJS := \
-    $(objdir)/phase_variant.o \
-    $(objdir)/phase_variant_map.o \
-    $(objdir)/phase_bitmatrix.o \
-    $(objdir)/phase_bitvector.o \
-    $(objdir)/phase_haplotype_set.o \
-    $(objdir)/phase_conditioning_set_managment.o \
-    $(objdir)/phase_super_site_builder.o \
-    $(objdir)/phase_ibd2_tracks.o \
-    $(objdir)/haplotype_segment_single.o \
-    $(objdir)/haplotype_segment_double.o \
-    $(objdir)/hmm_parameters.o \
-    $(objdir)/genotype_build.o \
-    $(objdir)/genotype_managment_from_pc.o \
-    $(objdir)/test_toolbox.o
+	$(objdir)/phase_variant.o \
+	$(objdir)/phase_variant_map.o \
+	$(objdir)/phase_bitmatrix.o \
+	$(objdir)/phase_bitvector.o \
+	$(objdir)/phase_genotype_set.o \
+	$(objdir)/phase_haplotype_set.o \
+	$(objdir)/phase_conditioning_set_managment.o \
+	$(objdir)/phase_super_site_builder.o \
+	$(objdir)/phase_ibd2_tracks.o \
+	$(objdir)/haplotype_segment_single.o \
+	$(objdir)/haplotype_segment_double.o \
+	$(objdir)/hmm_parameters.o \
+	$(objdir)/genotype_build.o \
+	$(objdir)/genotype_managment_from_pc.o \
+	$(objdir)/genotype_sweep.o \
+	$(objdir)/genotype_mendel.o \
+	$(objdir)/test_toolbox.o
 
 TEST_BINARIES := \
     $(bindir)/test_supersite_emissions \
@@ -31,6 +34,7 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_accessor \
     $(bindir)/test_supersite_unpack \
     $(bindir)/test_supersite_builder \
+	$(bindir)/test_supersite_anchor_encoding \
     $(bindir)/test_supersite_hmm \
     $(bindir)/test_supersite_hmm_states \
     $(bindir)/test_missing_multiallelic_multinomial \
@@ -84,6 +88,9 @@ $(bindir)/test_supersite_unpack: $(objdir)/test_supersite_unpack.o
 
 $(bindir)/test_supersite_builder: $(objdir)/test_supersite_builder.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_supersite_anchor_encoding: $(objdir)/test_supersite_anchor_encoding.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS) --coverage -lgcov
 
 $(bindir)/test_supersite_hmm: $(objdir)/test_supersite_hmm.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
@@ -188,6 +195,7 @@ $(objdir)/phase_bitvector.o: ../phase_common/src/containers/bitvector.cpp
 $(objdir)/phase_haplotype_set.o: ../phase_common/src/containers/haplotype_set.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
+
 $(objdir)/phase_conditioning_set_managment.o: ../phase_common/src/containers/conditioning_set/conditioning_set_managment.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
@@ -204,6 +212,16 @@ $(objdir)/haplotype_segment_double.o: ../phase_common/src/models/haplotype_segme
 	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/hmm_parameters.o: ../phase_common/src/objects/hmm_parameters.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+# Compile rule for genotype_set
+$(objdir)/phase_genotype_set.o: ../phase_common/src/containers/genotype_set.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+$(objdir)/genotype_sweep.o: ../phase_common/src/objects/genotype/genotype_sweep.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+$(objdir)/genotype_mendel.o: ../phase_common/src/objects/genotype/genotype_mendel.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 # Provide toolbox globals exactly once

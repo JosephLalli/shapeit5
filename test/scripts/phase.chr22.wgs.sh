@@ -42,7 +42,7 @@ fi
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.supersites.split_emissions.bcf \
   --thread 64 \
-#  --enable-supersites
+  --enable-supersites
 
 wait
 exit 0

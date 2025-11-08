@@ -14,3 +14,4 @@ simulate/bin/simulate
 ligate/bin/ligate
 logs/underflow.tsv
 AGENTS copy.md
+tests/coverage

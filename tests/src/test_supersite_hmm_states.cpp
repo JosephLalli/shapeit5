@@ -234,6 +234,6 @@ int main() {
         assert_close(static_cast<double>(missing_single[i]), static_cast<double>(missing_double[i]), tol, "missing_prob");
     }
 
-    std::cout << "  OK" << std::endl;
+    std::cout << "test_supersite_hmm_states: PASS" << std::endl;
     return 0;
 }

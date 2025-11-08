@@ -10,6 +10,12 @@ dummy_build_folder_obj := $(shell mkdir -p obj)
 CXXFLAG=-O3 -mavx2 -mfma
 LDFLAG=-O3
 
+ifeq ($(COVERAGE),1) 
+	CXXFLAG += -O0 -g --coverage 
+	CFLAG += -O0 -g --coverage 
+	LDFLAG += --coverage
+endif
+
 #COMMIT TRACING
 COMMIT_VERS=$(shell git rev-parse --short HEAD)
 COMMIT_DATE=$(shell git log -1 --format=%cd --date=short)
@@ -33,6 +39,7 @@ EXEFILE=bin/$(NAME)_static
 
 # Only search for libraries if goals != clean
 ifeq (,$(filter clean,$(MAKECMDGOALS)))
+
 
 #################################
 # HTSLIB for static compilation #

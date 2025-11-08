@@ -115,7 +115,7 @@ void test_all_biallelic() {
     std::cout << "    Hap 0: [REF=0, REF=0, REF=0]" << std::endl;
     std::cout << "    Hap 1: [ALT=1, ALT=1, ALT=1]" << std::endl;
     std::cout << "  Target sample: [0|0, 0|0, 0|0] (homozygous REF)" << std::endl;
-    std::cout << "  Mismatch error rate: 0.01" << std::endl;
+    std::cout << "  Mismatch emission rate: 0.01" << std::endl;
     std::cout << "  Transition rate: 0.05 (95% stay, 5% switch)" << std::endl;
     std::cout << std::endl;
     

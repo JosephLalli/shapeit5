@@ -172,6 +172,6 @@ int main() {
     std::cout << "    - Trade-off: simplicity vs memory efficiency" << std::endl;
     std::cout << std::endl;
     
-    std::cout << "All diagnostic tests passed!" << std::endl;
+    std::cout << "test_packing_format_diagnostic: PASS" << std::endl;
     return 0;
 }

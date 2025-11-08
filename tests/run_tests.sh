@@ -182,7 +182,7 @@ parse_test_output() {
         is_test_line=false
         if [[ "$lc_line" == *"test"* ]]; then
             is_test_line=true
-        elif [[ "$lc_line" == *"pass"* ]] || [[ "$lc_line" == *"fail"* ]] || [[ "$lc_line" == *"ok"* ]] || [[ "$lc_line" == *"error"* ]]; then
+        elif [[ "$lc_line" == *"pass"* ]] || [[ "$lc_line" == *"fail"* ]] || [[ "$lc_line" == *"ok"* ]]; then
             is_test_line=true
         fi
 
@@ -202,8 +202,9 @@ parse_test_output() {
             
             echo "${binary_name}::${test_desc}: PASS (${duration}s)" | tee -a "$CURRENT_LOG"
             
-        # Check for failed tests
-        elif $is_test_line && [[ "$lc_line" == *"✗"* || "$lc_line" == *"failed"* || "$lc_line" == *"[fail]"* || "$lc_line" == *"error"* ]]; then
+        # Check for failed tests - be more specific to avoid false positives
+        # Only flag explicit failure indicators, not words like "error" in descriptive context
+        elif $is_test_line && [[ "$lc_line" == *"✗"* || "$lc_line" == *"failed"* || "$lc_line" == *"[fail]"* ]]; then
             found_individual_tests=true
             ((individual_tests_in_binary++))
             ((failed_in_binary++))
