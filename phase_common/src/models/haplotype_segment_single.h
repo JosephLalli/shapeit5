@@ -24,6 +24,7 @@
 #define _HAPLOTYPE_SEGMENT_SINGLE_H
 
 #include <algorithm>
+#include <cassert>
 #include <utils/otools.h>
 #include <objects/compute_job.h>
 #include <objects/hmm_parameters.h>
@@ -1279,6 +1280,10 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
     
     int C = (int)ss.n_classes;  // 1 + n_alts
     uint32_t offset = ss.class_prob_offset;
+    
+    // RACE CONDITION VERIFICATION: This assertion should fire with multithreaded supersites
+    // if another thread has corrupted ss.class_prob_offset, causing SC writes to wrong memory location
+    assert(offset + HAP_NUMBER * C <= SC.size());
     
     // Initialize per-class accumulators (8 lanes = 8 samples)
     // sum[c] = Σ_k [Alpha_k × Beta_k × 1{donor_k carries class_c}]

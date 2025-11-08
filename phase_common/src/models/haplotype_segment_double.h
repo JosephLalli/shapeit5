@@ -24,6 +24,7 @@
 #define _HAPLOTYPE_SEGMENT_DOUBLE_H
 
 #include <algorithm>
+#include <cassert>
 #include <cstdio>
 #include <limits>
 #include <utils/otools.h>
@@ -1527,6 +1528,10 @@ void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float
     
     const int C = ss.n_classes;  // 1 + n_alts
     const uint32_t offset = ss.class_prob_offset;
+    
+    // RACE CONDITION VERIFICATION: This assertion should fire with multithreaded supersites
+    // if another thread has corrupted ss.class_prob_offset, causing SC writes to wrong memory location
+    assert(offset + HAP_NUMBER * C <= SC.size());
     
     // Compute 1 / AlphaSum for normalization
     __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[rel_missing_index][0]);
