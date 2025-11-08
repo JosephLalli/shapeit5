@@ -687,6 +687,20 @@ Alignment items for supersites:
 - Don't overload `rare_allele` to signal supersite siblings (e.g., `rare_allele=2`). Use explicit supersite gating (`locus_to_super_idx`, `super_sites`) consistently in HMM paths.
 - Don't start windows at supersite siblings when `--enable-supersites` is set; adjust window starts to the anchor or a non‑member locus.
 
+## Testing Conventions
+
+```bash
+make -C tests                      # Build all test binaries
+make -C tests test-run             # Build + run all (sets LD_LIBRARY_PATH)
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib tests/bin/test_supersite_hmm_states
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib tests/bin/test_segment_boundary_multiallelic
+```
+
+- **Test harnesses** use `#define private public` to expose internals for state validation
+- **`test_toolbox.cpp`** defines global objects (`rng`, `vrb`, etc.) via `_DECLARE_TOOLBOX_HERE` (instantiate exactly once)
+- Synthetic data: no external fixtures yet (placeholders under `tests/data/`)
+- `test_segment_boundary_multiallelic` now repeats the six-variant motif twice so the fixture always creates two segments; the transition-probability vector therefore contains one normalized block per segment (sum of entire vector ≈ `G.n_segments`, each block sums to 1.0). When debugging, print block boundaries rather than assuming the whole vector sums to 1.
+
 ---
 
 ## 8-Lane System: Correct Semantics (CRITICAL)

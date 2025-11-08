@@ -111,11 +111,13 @@ make -C tests                      # Unit tests only
 make -C tests                      # Build all test binaries
 make -C tests test-run             # Build + run all (sets LD_LIBRARY_PATH)
 LD_LIBRARY_PATH=$HOME/.linuxbrew/lib tests/bin/test_supersite_hmm_states
+LD_LIBRARY_PATH=$HOME/.linuxbrew/lib tests/bin/test_segment_boundary_multiallelic
 ```
 
 - **Test harnesses** use `#define private public` to expose internals for state validation
 - **`test_toolbox.cpp`** defines global objects (`rng`, `vrb`, etc.) via `_DECLARE_TOOLBOX_HERE` (instantiate exactly once)
 - Synthetic data: no external fixtures yet (placeholders under `tests/data/`)
+- `test_segment_boundary_multiallelic` now repeats the six-variant motif twice so the fixture always creates two segments; the transition-probability vector therefore contains one normalized block per segment (sum of entire vector ≈ `G.n_segments`, each block sums to 1.0). When debugging, print block boundaries rather than assuming the whole vector sums to 1.
 
 ### Integration Tests (`test/scripts/`)
 ```bash
