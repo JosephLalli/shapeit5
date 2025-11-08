@@ -164,7 +164,7 @@ private:
         __m256 col_mix;
         float row_stay = 0.0f, row_switch = 0.0f;
         int rel_prev_seg = (curr_segment_index - segment_first) - 1;
-        const bool use_outer = prepare_outer_product_mix(rel_prev_seg, col_mix, row_stay, row_switch, !M.ss_anchor_split_emissions);
+        const bool use_outer = prepare_outer_product_mix(rel_prev_seg, col_mix, row_stay, row_switch, true);
         const __m256 tFreq = use_outer ? _mm256_set1_ps(0.0f) : _mm256_set1_ps(yt / n_cond_haps);
         const __m256 ntv = use_outer ? _mm256_set1_ps(0.0f) : _mm256_set1_ps(nt / probSumT);
         const __m256i zero = _mm256_setzero_si256();
@@ -426,6 +426,10 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
 	// Load cached conditioning haplotype codes
 	ss_load_cond_codes(ss, ss_idx);
 
+	// DEBUG: Check if we're in trace mode
+	const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+	bool trace_enabled = (tr && tr[0] != '\0' && tr[0] != '0');
+
 	// Build per-lane expected class vector
 	uint8_t expected_class[HAP_NUMBER];
 	unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
@@ -438,6 +442,23 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
 			expected_class[h] = use_c1 ? c1 : c0;
 		}
 	}
+	
+	// DEBUG: Print emission setup
+	if (trace_enabled) {
+		std::fprintf(stdout, "SS_RUN_AMB: locus=%d c0=%u c1=%u amb_mask=0x%02x\n", 
+		             curr_abs_locus, (unsigned)c0, (unsigned)c1, (unsigned)amb_mask);
+		std::fprintf(stdout, "  Expected classes per lane:");
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			std::fprintf(stdout, " %u", (unsigned)expected_class[h]);
+		}
+		std::fprintf(stdout, "\n");
+		std::fprintf(stdout, "  Panel codes:");
+		for (int k = 0; k < (int)n_cond_haps; ++k) {
+			std::fprintf(stdout, " %u", (unsigned)ss_cond_codes[k]);
+		}
+		std::fprintf(stdout, "\n");
+	}
+	
 	alignas(32) int expv[HAP_NUMBER];
 	for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
 	__m256i exp_vec = _mm256_load_si256((__m256i*)expv);
@@ -551,6 +572,10 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
 	// Load cached conditioning haplotype codes
 	ss_load_cond_codes(ss, ss_idx);
 
+	// DEBUG: Check if we're in trace mode
+	const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+	bool trace_enabled = (tr && tr[0] != '\0' && tr[0] != '0');
+
 	// Build per-lane expected class vector
 	uint8_t expected_class[HAP_NUMBER];
 	unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
@@ -562,6 +587,17 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
 			bool use_c1 = ((amb_mask >> h) & 1U);
 			expected_class[h] = use_c1 ? c1 : c0;
 		}
+	}
+	
+	// DEBUG: Print emission setup
+	if (trace_enabled) {
+		std::fprintf(stdout, "SS_COLLAPSE_AMB: locus=%d c0=%u c1=%u amb_mask=0x%02x\n", 
+		             curr_abs_locus, (unsigned)c0, (unsigned)c1, (unsigned)amb_mask);
+		std::fprintf(stdout, "  Expected classes per lane:");
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			std::fprintf(stdout, " %u", (unsigned)expected_class[h]);
+		}
+		std::fprintf(stdout, "\n");
 	}
 	
 	// Precompute emission vectors based on mode (BUG FIX #5: unified code path)
@@ -629,6 +665,12 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
 		} else {
 			// Standard mode: donor code is full 4-bit class
 			donor_code = (int)ss_cond_codes[k];
+		}
+		
+		// DEBUG: Print donor info
+		if (trace_enabled) {
+			std::fprintf(stdout, "  Donor %d: raw_code=%u donor_code=%d\n", 
+			             k, (unsigned)ss_cond_codes[k], donor_code);
 		}
 		
 		__m256i dc_vec = _mm256_set1_epi32(donor_code);
@@ -771,8 +813,7 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
         const SuperSite& ss = (*super_sites)[ss_idx];
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: treat as uninformative locus (BUG FIX #2)
-            RUN_MIS();
+            // Sibling: true no-op (preserve probability state, no DP)
             return true;
         }
         
@@ -819,8 +860,7 @@ void haplotype_segment_single::COLLAPSE_HOM() {
         const SuperSite& ss = (*super_sites)[ss_idx];
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: treat as uninformative locus (BUG FIX #2)
-            COLLAPSE_MIS();
+            // Sibling: true no-op (preserve probability state, no DP)
             return;
         }
         
@@ -909,8 +949,7 @@ void haplotype_segment_single::RUN_AMB() {
         const SuperSite& ss = (*super_sites)[ss_idx];
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: treat as uninformative locus (BUG FIX #2)
-            RUN_MIS();
+            // Sibling: true no-op (preserve probability state, no DP)
             return;
         }
 
@@ -997,8 +1036,7 @@ void haplotype_segment_single::COLLAPSE_AMB() {
         const SuperSite& ss = (*super_sites)[ss_idx];
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: treat as uninformative locus (BUG FIX #2)
-            COLLAPSE_MIS();
+            // Sibling: true no-op (preserve probability state, no DP)
             return;
         }
 
@@ -1098,10 +1136,26 @@ bool haplotype_segment_single::TRANS_HAP() {
 	unsigned int  curr_rel_segment_index = curr_segment_index-segment_first;
 	yt = M.getForwardTransProb(AlphaLocus[curr_rel_segment_index - 1], prev_abs_locus);
 	nt = 1.0f - yt;
-	float fact1 = nt / AlphaSumSum[curr_rel_segment_index - 1];
+	
+	// Guard against zero/near-zero AlphaSumSum from previous segment.
+	// Root cause: If prev segment has Lengths[s] = 0 (empty segment), the forward pass storage
+	// code (haplotype_segment_single.cpp:291-295) never executes because the condition
+	// `curr_segment_locus == Lengths[s] - 1` becomes `0 == MAX_UINT` (unsigned wraparound),
+	// leaving AlphaSumSum[s] at its initialized value of 0.0f.
+	// This can occur with genotypes having zero variants or other edge cases in segment building.
+	// Signal underflow to trigger double-precision retry in production pipeline.
+	const float prev_total = AlphaSumSum[curr_rel_segment_index - 1];
+	const float epsilon = 1e-30f;
+	if (prev_total < epsilon) {
+		// Return true to signal underflow and trigger double-precision fallback
+		sumHProbs = 0.0f;
+		return true;
+	}
+	
+	float fact1 = nt / prev_total;
 	for (int h1 = 0 ; h1 < HAP_NUMBER ; h1++) {
 		__m256 _sum = _mm256_set1_ps(0.0f);
-		float fact2 = (AlphaSum[curr_rel_segment_index-1][h1]/AlphaSumSum[curr_rel_segment_index-1]) * yt / n_cond_haps;
+		float fact2 = (AlphaSum[curr_rel_segment_index-1][h1]/prev_total) * yt / n_cond_haps;
 		for (int k = 0 ; k < n_cond_haps ; k ++) {
 			__m256 _alpha = _mm256_set1_ps(Alpha[curr_rel_segment_index-1][k*HAP_NUMBER + h1] * fact1 + fact2);
 			__m256 _beta = _mm256_load_ps(&prob[k*HAP_NUMBER]);

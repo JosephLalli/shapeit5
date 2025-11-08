@@ -193,7 +193,7 @@ void haplotype_segment_double::forward() {
 						case EmitKind::Mis: SS_INIT_MIS(); break;
 					}
 				}
-			} else if (is_sibling && !M.ss_anchor_split_emissions) {
+			} else if (is_sibling) {
 				// Sibling at window start: initialize neutrally but do not advance prev_abs_locus
 				INIT_MIS();
 				update_prev_locus = false;
@@ -227,7 +227,7 @@ void haplotype_segment_double::forward() {
 							break;
 					}
 				}
-			} else if (is_sibling && !M.ss_anchor_split_emissions) {
+			} else if (is_sibling) {
 				// Sibling within window: no-op propagation (avoid renormalization)
 				update_prev_locus = false;
 			} else {
@@ -251,7 +251,7 @@ void haplotype_segment_double::forward() {
 						case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
 					}
 				}
-			} else if (is_sibling && !M.ss_anchor_split_emissions) {
+			} else if (is_sibling) {
 				// Sibling at segment boundary: no-op and do not advance prev_abs_locus
 				update_prev_locus = false;
 			} else {
@@ -384,7 +384,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 						case EmitKind::Mis: SS_INIT_MIS(); break;
 					}
 				}
-			} else if (is_sibling && !M.ss_anchor_split_emissions) {
+			} else if (is_sibling) {
 				// Sibling at window end: neutral init; do not advance prev_abs_locus
 				INIT_MIS();
 				update_prev_locus = false;
@@ -414,7 +414,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 							break;
 					}
 				}
-			} else if (is_sibling && !M.ss_anchor_split_emissions) {
+			} else if (is_sibling) {
 				// Sibling within window (backward): no-op propagation
 				update_prev_locus = false;
 			} else {
@@ -434,7 +434,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 						case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
 					}
 				}
-			} else if (is_sibling && !M.ss_anchor_split_emissions) {
+			} else if (is_sibling) {
 				// Sibling at segment boundary (backward): no-op
 				update_prev_locus = false;
 			} else {

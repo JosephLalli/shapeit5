@@ -25,7 +25,7 @@ if [[ 'x' == 'y' ]]; then
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.og.bcf \
   --thread 64 &
-# fi
+#fi
 
 /usr/bin/time ../phase_common/bin/phase_common \
   --input $in_bcf \
@@ -41,11 +41,11 @@ fi
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.supersites.split_emissions.bcf \
-  --enable-supersites \
-  --thread 64 &
+  --thread 64 \
+#  --enable-supersites
 
 wait
-
+exit 0
 ../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
   --estimation "$scaffold_bcf_prefix.og.bcf" \

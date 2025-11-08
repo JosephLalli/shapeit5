@@ -248,7 +248,7 @@ private:
         __m256d col_mix0, col_mix1;
         double row_stay = 0.0, row_switch = 0.0;
         int rel_prev_seg = (curr_segment_index - segment_first) - 1;
-        const bool use_outer = prepare_outer_product_mix(rel_prev_seg, col_mix0, col_mix1, row_stay, row_switch, !M.ss_anchor_split_emissions);
+        const bool use_outer = prepare_outer_product_mix(rel_prev_seg, col_mix0, col_mix1, row_stay, row_switch, true);
         __m256d tFreq0 = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(yt / n_cond_haps);
         __m256d tFreq1 = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(yt / n_cond_haps);
         __m256d ntv = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(nt / probSumT);
@@ -962,8 +962,7 @@ bool haplotype_segment_double::RUN_HOM(char rare_allele) {
         
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: treat as uninformative locus (BUG FIX #2)
-            RUN_MIS();
+            // Sibling: true no-op (preserve probability state, no DP)
             return true;
         }
         
@@ -1023,8 +1022,7 @@ void haplotype_segment_double::COLLAPSE_HOM() {
         
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: treat as uninformative locus (BUG FIX #2)
-            COLLAPSE_MIS();
+            // Sibling: true no-op (preserve probability state, no DP)
             return;
         }
         
@@ -1129,8 +1127,7 @@ void haplotype_segment_double::RUN_AMB() {
         
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: treat as uninformative locus (BUG FIX #2)
-            RUN_MIS();
+            // Sibling: true no-op (preserve probability state, no DP)
             return;
         }
         
@@ -1190,8 +1187,7 @@ void haplotype_segment_double::COLLAPSE_AMB() {
         
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: treat as uninformative locus (BUG FIX #2)
-            COLLAPSE_MIS();
+            // Sibling: true no-op (preserve probability state, no DP)
             return;
         }
         
@@ -1342,11 +1338,31 @@ bool haplotype_segment_double::TRANS_HAP() {
 	unsigned int  curr_rel_segment_index = curr_segment_index-segment_first;
 	yt = M.getForwardTransProb(AlphaLocus[curr_rel_segment_index - 1], prev_abs_locus);
 	nt = 1.0 - yt;
-	double fact1 = nt / AlphaSumSum[curr_rel_segment_index - 1];
+	
+	// Guard against zero/near-zero AlphaSumSum (can occur at window boundaries on supersite siblings,
+	// or extreme underflow in forward pass). In double precision, use uniform prior as last resort.
+	const double prev_total = AlphaSumSum[curr_rel_segment_index - 1];
+	const double epsilon = 1e-60;  // Double precision epsilon
+	double fact1, uniform_weight;
+	bool use_uniform = (prev_total < epsilon);
+	
+	if (use_uniform) {
+		fact1 = 0.0;
+		uniform_weight = 1.0 / (n_cond_haps * HAP_NUMBER);
+	} else {
+		fact1 = nt / prev_total;
+		uniform_weight = 0.0;  // Not used, but initialize to avoid uninitialized read
+	}
+	
 	for (int h1 = 0 ; h1 < HAP_NUMBER ; h1++) {
 		__m256d _sum0 = _mm256_set1_pd(0.0);
 		__m256d _sum1 = _mm256_set1_pd(0.0);
-		double fact2 = (AlphaSum[curr_rel_segment_index-1][h1]/AlphaSumSum[curr_rel_segment_index-1]) * yt / n_cond_haps;
+		double fact2;
+		if (use_uniform) {
+			fact2 = uniform_weight;
+		} else {
+			fact2 = (AlphaSum[curr_rel_segment_index-1][h1]/prev_total) * yt / n_cond_haps;
+		}
 		for (int k = 0 ; k < n_cond_haps ; k ++) {
 			__m256d _alpha = _mm256_set1_pd(Alpha[curr_rel_segment_index-1][k*HAP_NUMBER + h1] * fact1 + fact2);
 			__m256d _beta0 = _mm256_load_pd(&prob[k*HAP_NUMBER+0]);

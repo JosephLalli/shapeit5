@@ -50,7 +50,9 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_combine \
     $(bindir)/test_supersite_representation_parity \
     $(bindir)/test_supersite_expansion_parity \
-    $(bindir)/test_segment_boundary_multiallelic
+    $(bindir)/test_segment_boundary_multiallelic \
+    $(bindir)/test_supersite_transition_underflow \
+    $(bindir)/test_empty_segment
 #    $(bindir)/test_supersite_expected_codes  # TODO: File missing, commented out for now
 
 # Default goal: only build test binaries (do not build bin/tests)
@@ -133,6 +135,12 @@ $(bindir)/test_packing_format_diagnostic: $(objdir)/test_packing_format_diagnost
 $(bindir)/test_segment_boundary_multiallelic: $(objdir)/test_segment_boundary_multiallelic.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
+$(bindir)/test_supersite_transition_underflow: $(objdir)/test_supersite_transition_underflow.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_empty_segment: $(objdir)/test_empty_segment.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
 $(bindir)/test_supersite_expected_codes: $(objdir)/test_supersite_expected_codes.o
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
@@ -180,47 +188,11 @@ $(objdir)/hmm_parameters.o: ../phase_common/src/objects/hmm_parameters.cpp
 $(objdir)/test_toolbox.o: src/test_toolbox.cpp
 	$(CXX) $(CXXFLAG) -D_DECLARE_TOOLBOX_HERE -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
-$(objdir)/test_supersite_anchor_gating.o: src/test_supersite_anchor_gating.cpp
+# Pattern rule for all other test source files
+$(objdir)/test_%.o: src/test_%.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
-$(objdir)/test_supersite_backward_sc.o: src/test_supersite_backward_sc.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_mutual_exclusivity_make.o: src/test_supersite_mutual_exclusivity_make.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_boundary_conditions.o: src/test_supersite_boundary_conditions.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_float_double_parity.o: src/test_supersite_float_double_parity.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_class_microcases.o: src/test_supersite_class_microcases.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_no_double_counting.o: src/test_supersite_no_double_counting.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_backward_parity.o: src/test_supersite_backward_parity.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_perf_smoke.o: src/test_supersite_perf_smoke.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_combine.o: src/test_supersite_combine.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_representation_parity.o: src/test_supersite_representation_parity.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_expansion_parity.o: src/test_supersite_expansion_parity.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_segment_boundary_multiallelic.o: src/test_segment_boundary_multiallelic.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
-
-$(objdir)/test_supersite_expected_codes.o: src/test_supersite_expected_codes.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
+# Pattern rule above handles all test_*.cpp compilation automatically
 
 .PHONY: test-run
 test-run: test-binaries
