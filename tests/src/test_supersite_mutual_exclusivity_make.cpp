@@ -63,12 +63,13 @@ int main() {
 
     // Prepare SC: C = 1 + n_alts = 3; offset=0; prefer ALT1 for hap0, ALT2 for hap1
     ss.n_classes = 1 + ss.n_alts; // 3
-    ss.class_prob_offset = 0;
+    uint32_t offset = 0;  // Local offset for test (class_prob_offset moved to thread-local storage)
     std::vector<float> SC(HAP_NUMBER * ss.n_classes, 0.0f);
+    std::vector<uint32_t> supersite_sc_offset(1, offset);  // Thread-local offset vector for test
     auto set_row = [&](int hap, float p_ref, float p_alt1, float p_alt2) {
-        SC[ss.class_prob_offset + hap*ss.n_classes + 0] = p_ref;
-        SC[ss.class_prob_offset + hap*ss.n_classes + 1] = p_alt1;
-        SC[ss.class_prob_offset + hap*ss.n_classes + 2] = p_alt2;
+        SC[offset + hap*ss.n_classes + 0] = p_ref;
+        SC[offset + hap*ss.n_classes + 1] = p_alt1;
+        SC[offset + hap*ss.n_classes + 2] = p_alt2;
     };
     // hap0 → ALT1, hap1 → ALT2, others uniform
     set_row(0, 0.0f, 1.0f, 0.0f);
@@ -77,7 +78,7 @@ int main() {
 
     // Mark supersite as missing at anchor
     std::vector<bool> anchor_has_missing(1, true);
-    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, &SC, &anchor_has_missing);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, &SC, &anchor_has_missing, &supersite_sc_offset);
 
     // Choose hap indices for this segment: hap0=0, hap1=1 → diplotype index d = 0*8 + 1 = 1
     std::vector<unsigned char> DipSampled(1, 1);

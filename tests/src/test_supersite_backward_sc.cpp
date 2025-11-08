@@ -102,7 +102,7 @@ int main() {
     // Prepare supersite SC context (C = 1 + n_alts = 3), offset=0
     SuperSite& ss = super_sites[0];
     ss.n_classes = 1 + ss.n_alts; // 3
-    ss.class_prob_offset = 0;
+    // class_prob_offset moved to thread-local storage (no longer part of SuperSite)
     std::vector<float> SC(HAP_NUMBER * ss.n_classes, -1.0f);
     std::vector<bool> anchor_has_missing(1, true);
 

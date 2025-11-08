@@ -82,7 +82,7 @@ SuperSite create_test_supersite(uint32_t anchor_id, uint32_t var_start,
     ss.var_start = var_start;
     ss.var_count = var_count;
     ss.n_alts = n_alts;
-    ss.class_prob_offset = 0;
+    // class_prob_offset moved to thread-local storage (no longer part of SuperSite)
     ss.n_classes = 1 + n_alts;
     return ss;
 }

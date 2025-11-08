@@ -102,7 +102,7 @@ int main() {
 
     // Prepare SC buffer and flags for the supersite; compute per-hap class posteriors
     ss.n_classes = 1 + ss.n_alts; // 3
-    ss.class_prob_offset = 0;
+    // class_prob_offset moved to thread-local storage (no longer part of SuperSite)
     std::vector<float> SC(HAP_NUMBER * ss.n_classes, 0.0f);
     std::vector<bool> anchor_has_missing(1, true);
     // Use relative missing index 0 (first missing slot)

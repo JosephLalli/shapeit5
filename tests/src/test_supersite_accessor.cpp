@@ -24,9 +24,8 @@ static SuperSite make_supersite(unsigned int site_id, unsigned char chr, int bp,
     ss.panel_offset = panel_offset;
     ss.var_start = var_start;
     ss.var_count = var_count;
-    // Note: n_classes and class_prob_offset are set by compute_job, not in test helper
+    // Note: n_classes is set by buildSuperSites(), class_prob_offset moved to thread-local storage
     ss.n_classes = 0;
-    ss.class_prob_offset = 0;
     return ss;
 }
 

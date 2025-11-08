@@ -55,10 +55,19 @@ TEST_BINARIES := \
     $(bindir)/test_empty_segment
 #    $(bindir)/test_supersite_expected_codes  # TODO: File missing, commented out for now
 
+# Thread Safety Tests
+THREADING_TEST_BINARIES := \
+    $(bindir)/test_phaser_threading_safety \
+    $(bindir)/test_conditioning_set_threading \
+    $(bindir)/test_supersite_threading_safety \
+    $(bindir)/test_ibd2_threading_safety
+
 # Default goal: only build test binaries (do not build bin/tests)
 .DEFAULT_GOAL := test-binaries
-.PHONY: test-binaries
+.PHONY: test-binaries threading-tests all-tests
 test-binaries: $(TEST_BINARIES)
+threading-tests: $(THREADING_TEST_BINARIES)
+all-tests: $(TEST_BINARIES) $(THREADING_TEST_BINARIES)
 
 # Link rules for each test
 $(bindir)/test_supersite_emissions: $(objdir)/test_supersite_emissions.o
@@ -144,6 +153,19 @@ $(bindir)/test_empty_segment: $(objdir)/test_empty_segment.o $(PHASE_COMMON_OBJS
 $(bindir)/test_supersite_expected_codes: $(objdir)/test_supersite_expected_codes.o
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
+# Thread Safety Test Link Rules
+$(bindir)/test_phaser_threading_safety: $(objdir)/test_phaser_threading_safety.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS) -lpthread
+
+$(bindir)/test_conditioning_set_threading: $(objdir)/test_conditioning_set_threading.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS) -lpthread
+
+$(bindir)/test_supersite_threading_safety: $(objdir)/test_supersite_threading_safety.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS) -lpthread
+
+$(bindir)/test_ibd2_threading_safety: $(objdir)/test_ibd2_threading_safety.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS) -lpthread
+
 # Explicit compile rules for external sources (not under tests/src)
 $(objdir)/genotype_managment_from_pc.o: ../phase_common/src/objects/genotype/genotype_managment.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
@@ -194,7 +216,7 @@ $(objdir)/test_%.o: src/test_%.cpp
 
 # Pattern rule above handles all test_*.cpp compilation automatically
 
-.PHONY: test-run
+.PHONY: test-run test-threading-run
 test-run: test-binaries
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_emissions
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_emissions_real
@@ -208,9 +230,18 @@ test-run: test-binaries
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_forward_backward_comprehensive
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_packing_format_diagnostic
 
+# Run threading safety tests
+test-threading-run: threading-tests
+	@echo "=== Running Thread Safety Tests ==="
+	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_phaser_threading_safety
+	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_conditioning_set_threading
+	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_threading_safety
+	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_ibd2_threading_safety
+	@echo "=== Thread Safety Tests Complete ==="
+
 # Add extra cleaning without conflicting with common 'clean'
 .PHONY: clean-extra
 clean: clean-extra
 
 clean-extra:
-	$(RM) $(TEST_BINARIES) $(PHASE_COMMON_OBJS)
+	$(RM) $(TEST_BINARIES) $(THREADING_TEST_BINARIES) $(PHASE_COMMON_OBJS)
