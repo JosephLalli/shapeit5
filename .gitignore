@@ -12,7 +12,11 @@ tests/bin/
 tests/obj/
 simulate/bin/simulate
 ligate/bin/ligate
-logs/underflow.tsv
+logs/*
 AGENTS copy.md
 tests/coverage
-test/logs/underflow.tsv
+test/logs/*
+tests/logs/*
+tests/out/*
+
+tests/out/**

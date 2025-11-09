@@ -34,6 +34,7 @@
 #include <cstdio>
 #include <limits>
 #include <cstdlib>
+#include <cstring>
 
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
@@ -115,7 +116,15 @@ private:
 	// EMISSION HELPERS
 	MatchMask init_match_mask;
 	bool prepare_outer_product_mix(int rel_prev_segment, __m256& col_mix, float& row_stay, float& row_switch, bool allow_outer = true);
-    void trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling) const;
+    void trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling, int expected_delta) const;
+    mutable int trace_forward_pre_cursor;
+    mutable int trace_forward_pre_locus;
+    mutable bool trace_forward_pre_valid;
+    mutable int trace_backward_pre_cursor;
+    mutable int trace_backward_pre_locus;
+    mutable bool trace_backward_pre_valid;
+    mutable bool trace_forward_active;
+    mutable bool trace_backward_active;
 
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();

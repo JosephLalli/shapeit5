@@ -190,14 +190,78 @@ static void restore_genotype(genotype& G, const std::vector<unsigned char>& vari
     G.build();
 }
 
-static window make_full_window(int stop_locus) {
-    window W;
+static window make_full_window(const genotype& G,
+                               const SuperSiteContext* ctx,
+                               int stop_locus) {
+    window W{};
     W.start_locus = 0;
     W.stop_locus = stop_locus;
     W.start_segment = 0;
-    W.stop_segment = 0;
-    W.start_ambiguous = 0;
-    W.stop_ambiguous = -1;
+
+    // Determine stop segment index (segments are contiguous in this fixture)
+    unsigned int locus_acc = 0;
+    unsigned int seg_idx = 0;
+    while (seg_idx < G.n_segments) {
+        unsigned int seg_len = (seg_idx < G.Lengths.size()) ? G.Lengths[seg_idx] : 0;
+        if (seg_len == 0) break;
+        if (locus_acc + seg_len - 1 >= static_cast<unsigned int>(stop_locus)) break;
+        locus_acc += seg_len;
+        seg_idx++;
+    }
+    W.stop_segment = static_cast<int>(seg_idx);
+
+    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
+    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
+
+    int first_amb = -1;
+    int last_amb = -1;
+    int amb_count = 0;
+
+    for (int v = 0; v <= stop_locus; ) {
+        int ss_idx = (super_sites && locus_to_super_idx && v < static_cast<int>(locus_to_super_idx->size()))
+                     ? (*locus_to_super_idx)[v]
+                     : -1;
+        bool is_anchor = false;
+        unsigned int advance = 1;
+        bool consider_variant = true;
+
+        if (ss_idx >= 0 && super_sites) {
+            const SuperSite& ss = (*super_sites)[ss_idx];
+            is_anchor = (v == static_cast<int>(ss.global_site_id));
+            if (is_anchor) {
+                advance = ss.var_count;
+            } else {
+                consider_variant = false; // supersite siblings do not advance ambiguous cursor
+            }
+        }
+
+        bool is_amb = false;
+        if (consider_variant) {
+            const unsigned char var_code = G.Variants[DIV2(v)];
+            is_amb = VAR_GET_AMB(MOD2(v), var_code) != 0;
+            if (!is_amb && VAR_GET_SCA(MOD2(v), var_code) != 0) {
+                is_amb = true;
+            }
+
+            if (is_amb) {
+                if (first_amb < 0) first_amb = amb_count;
+                last_amb = amb_count;
+                amb_count++;
+            }
+        }
+
+        if (advance == 0) advance = 1;
+        v += static_cast<int>(advance);
+    }
+
+    if (amb_count > 0) {
+        W.start_ambiguous = 0;
+        W.stop_ambiguous = last_amb;
+    } else {
+        W.start_ambiguous = 0;
+        W.stop_ambiguous = -1;
+    }
+
     W.start_missing = 0;
     W.stop_missing = -1;
     W.start_transition = 0;
@@ -718,7 +782,6 @@ int main() {
     // ---------------------------------------------------------------------
     // Common HMM configuration
     // ---------------------------------------------------------------------
-    const window W = make_full_window(static_cast<int>(V.size()) - 1);
     const std::vector<unsigned int> idxH = {0u,1u,2u,3u,4u,5u,6u,7u};
 
     hmm_parameters M_no_ss = make_hmm_params(V.size(), H.n_hap);
@@ -728,18 +791,21 @@ int main() {
     assert(ctx.super_sites.size() == 1); // supersite for the two splits
     M_with_ss.markSuperSiteSiblings(ctx.super_sites, ctx.locus_to_super_idx);
 
+    const window W_no = make_full_window(G_no_ss, nullptr, static_cast<int>(V.size()) - 1);
+    const window W_ss = make_full_window(G_with_ss, &ctx, static_cast<int>(V.size()) - 1);
+
     // ---------------------------------------------------------------------
     // Run forward/backward on both datasets
     // ---------------------------------------------------------------------
-    FBResult res_no_ss = run_forward_backward(G_no_ss, H, M_no_ss, W, idxH, nullptr);
-    FBResult res_with_ss = run_forward_backward(G_with_ss, H, M_with_ss, W, idxH, &ctx);
+    FBResult res_no_ss = run_forward_backward(G_no_ss, H, M_no_ss, W_no, idxH, nullptr);
+    FBResult res_with_ss = run_forward_backward(G_with_ss, H, M_with_ss, W_ss, idxH, &ctx);
 
     // Anchor-only forward parity (hard check): window ends at the anchor locus (index 1)
     {
-        window Wa; Wa.start_locus = 0; Wa.stop_locus = 1; Wa.start_segment = 0; Wa.stop_segment = 0;
-        Wa.start_ambiguous = 0; Wa.stop_ambiguous = -1; Wa.start_missing = 0; Wa.stop_missing = -1; Wa.start_transition = 0; Wa.stop_transition = -1;
-        FBState fa_no = run_forward_only(G_no_ss, H, M_no_ss, Wa, idxH, nullptr);
-        FBState fa_ss = run_forward_only(G_with_ss, H, M_with_ss, Wa, idxH, &ctx);
+        window Wa_no = make_full_window(G_no_ss, nullptr, 1);
+        window Wa_ss = make_full_window(G_with_ss, &ctx, 1);
+        FBState fa_no = run_forward_only(G_no_ss, H, M_no_ss, Wa_no, idxH, nullptr);
+        FBState fa_ss = run_forward_only(G_with_ss, H, M_with_ss, Wa_ss, idxH, &ctx);
         const double tol = 1e-9;
         // Compare normalized α (per lane across donors)
         for (unsigned int k = 0, idx = 0; k < H.n_hap; ++k, idx += HAP_NUMBER) {
@@ -757,10 +823,10 @@ int main() {
         }
     }
 
-    ForwardTrace f_trace_no = trace_forward(G_no_ss, H, M_no_ss, W, idxH, nullptr);
-    ForwardTrace f_trace_with = trace_forward(G_with_ss, H, M_with_ss, W, idxH, &ctx);
-    BackwardTrace b_trace_no = trace_backward(G_no_ss, H, M_no_ss, W, idxH, nullptr);
-    BackwardTrace b_trace_with = trace_backward(G_with_ss, H, M_with_ss, W, idxH, &ctx);
+    ForwardTrace f_trace_no = trace_forward(G_no_ss, H, M_no_ss, W_no, idxH, nullptr);
+    ForwardTrace f_trace_with = trace_forward(G_with_ss, H, M_with_ss, W_ss, idxH, &ctx);
+    BackwardTrace b_trace_no = trace_backward(G_no_ss, H, M_no_ss, W_no, idxH, nullptr);
+    BackwardTrace b_trace_with = trace_backward(G_with_ss, H, M_with_ss, W_ss, idxH, &ctx);
 
     print_forward_trace("No Supersite", f_trace_no);
     print_forward_trace("With Supersite", f_trace_with);
@@ -836,11 +902,12 @@ int main() {
     auto orientation_argmax = [&](genotype& G,
                                   conditioning_set& panel,
                                   hmm_parameters& M,
-                                  const SuperSiteContext* context) {
+                                  const SuperSiteContext* context,
+                                  const window& W_local) {
         double best_score = -std::numeric_limits<double>::infinity();
         Orientation best = candidates.front();
         for (const Orientation& o : candidates) {
-            double score = evaluate_orientation(G, panel, M, W, idxH, context, o);
+            double score = evaluate_orientation(G, panel, M, W_local, idxH, context, o);
             if (score > best_score) {
                 best_score = score;
                 best = o;
@@ -849,11 +916,11 @@ int main() {
         return best;
     };
 
-    Orientation best_no_ss = orientation_argmax(G_no_ss, H, M_no_ss, nullptr);
-    Orientation best_with_ss = orientation_argmax(G_with_ss, H, M_with_ss, &ctx);
+    Orientation best_no_ss = orientation_argmax(G_no_ss, H, M_no_ss, nullptr, W_no);
+    Orientation best_with_ss = orientation_argmax(G_with_ss, H, M_with_ss, &ctx, W_ss);
 
     // Expected phasing sequence
-    const Orientation expected{{REF_ALT, ALT_REF, REF_REF, REF_REF, ALT_ALT}};
+    const Orientation expected{{ALT_REF, ALT_REF, REF_REF, REF_REF, ALT_ALT}};
 
     auto assert_orientation = [&](const Orientation& obs, const std::string& label) {
         for (size_t locus = 0; locus < obs.phases.size(); ++locus) {

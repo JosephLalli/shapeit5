@@ -24,6 +24,7 @@
 #include <models/site_emission_adapter.h>
 #include <mutex>
 #include <cstdio>
+#include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -58,23 +59,94 @@ static bool supersite_trace_enabled() {
 
 } // namespace
 
-void haplotype_segment_single::trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling) const {
+void haplotype_segment_single::trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling, int expected_delta) const {
 	if (!supersite_trace_enabled()) return;
+	if (!stage) stage = "";
 	if (ambiguous_first > ambiguous_last) return;
+
+	const bool forward_stage = (std::strcmp(stage, "fwd_pre") == 0) || (std::strcmp(stage, "fwd_post") == 0);
+	const bool backward_stage = (std::strcmp(stage, "bwd_pre") == 0) || (std::strcmp(stage, "bwd_post") == 0);
+
+	int actual_delta = 0;
+	bool delta_valid = false;
+
+	if (forward_stage && trace_forward_active) {
+		if (std::strcmp(stage, "fwd_pre") == 0) {
+			trace_forward_pre_cursor = curr_abs_ambiguous;
+			trace_forward_pre_locus = locus;
+			trace_forward_pre_valid = true;
+		} else if (std::strcmp(stage, "fwd_post") == 0) {
+			if (trace_forward_pre_valid && trace_forward_pre_locus == locus) {
+				actual_delta = curr_abs_ambiguous - trace_forward_pre_cursor;
+				delta_valid = true;
+			}
+			trace_forward_pre_valid = false;
+		}
+	} else if (backward_stage && trace_backward_active) {
+		if (std::strcmp(stage, "bwd_pre") == 0) {
+			trace_backward_pre_cursor = curr_abs_ambiguous;
+			trace_backward_pre_locus = locus;
+			trace_backward_pre_valid = true;
+		} else if (std::strcmp(stage, "bwd_post") == 0) {
+			if (trace_backward_pre_valid && trace_backward_pre_locus == locus) {
+				actual_delta = curr_abs_ambiguous - trace_backward_pre_cursor;
+				delta_valid = true;
+			}
+			trace_backward_pre_valid = false;
+		}
+	} else {
+		if (std::strcmp(stage, "bwd_pre") == 0) {
+			trace_backward_pre_valid = false;
+		} else if (std::strcmp(stage, "fwd_pre") == 0) {
+			trace_forward_pre_valid = false;
+		}
+	}
+
+	if (delta_valid && actual_delta != expected_delta) {
+		std::fprintf(stdout,
+				 "[ss-amb-delta][single] stage=%s locus=%d curr_abs_ambiguous=%d expected_delta=%d actual_delta=%d seg_idx=%d is_sibling=%d\n",
+				 stage,
+				 locus,
+				 curr_abs_ambiguous,
+				 expected_delta,
+				 actual_delta,
+				 curr_segment_index,
+				 static_cast<int>(is_sibling));
+		assert(actual_delta == expected_delta && "ambiguous cursor delta mismatch");
+	}
+
 	const int lower = ambiguous_first;
 	const int upper = ambiguous_last;
 	if (curr_abs_ambiguous < lower || curr_abs_ambiguous > upper) {
 		std::fprintf(stdout,
-					 "[ss-amb-drift][single] stage=%s locus=%d curr_abs_ambiguous=%d range=[%d,%d] rel=%d seg_idx=%d is_sibling=%d\n",
-					 stage,
-					 locus,
-					 curr_abs_ambiguous,
-					 lower,
-					 upper,
-					 curr_abs_ambiguous - lower,
-					 curr_segment_index,
-					 static_cast<int>(is_sibling));
+				 "[ss-amb-drift][single] stage=%s locus=%d curr_abs_ambiguous=%d range=[%d,%d] rel=%d seg_idx=%d is_sibling=%d\n",
+				 stage,
+				 locus,
+				 curr_abs_ambiguous,
+				 lower,
+				 upper,
+				 curr_abs_ambiguous - lower,
+				 curr_segment_index,
+				 static_cast<int>(is_sibling));
 	}
+
+	std::string delta_buffer;
+	const char* delta_repr = "NA";
+	if (delta_valid) {
+		delta_buffer = std::to_string(actual_delta);
+		delta_repr = delta_buffer.c_str();
+	}
+	std::fprintf(stdout,
+			 "[ss-amb-cursor][single] stage=%s locus=%d curr_abs_ambiguous=%d range=[%d,%d] actual_delta=%s expected_delta=%d seg_idx=%d is_sibling=%d\n",
+			 stage,
+			 locus,
+			 curr_abs_ambiguous,
+			 lower,
+			 upper,
+			 delta_repr,
+			 expected_delta,
+			 curr_segment_index,
+			 static_cast<int>(is_sibling));
 }
 
 haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M,
@@ -134,6 +206,15 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
         }
     }
 
+	trace_forward_pre_cursor = 0;
+	trace_forward_pre_locus = -1;
+	trace_forward_pre_valid = false;
+	trace_backward_pre_cursor = 0;
+	trace_backward_pre_locus = -1;
+	trace_backward_pre_valid = false;
+	trace_forward_active = false;
+	trace_backward_active = false;
+
     // Test-only diagnostics
     if (supersite_trace_enabled()) {
         std::fprintf(stdout,
@@ -179,7 +260,9 @@ void haplotype_segment_single::forward() {
 	curr_abs_ambiguous = ambiguous_first;
 	curr_abs_missing = missing_first;
 	prev_abs_locus = locus_first;
-    if (supersite_trace_enabled()) std::fprintf(stderr, "FWD1 seg=%d lf=%d ll=%d\n", curr_segment_index, locus_first, locus_last);
+	if (supersite_trace_enabled()) std::fprintf(stderr, "FWD1 seg=%d lf=%d ll=%d\n", curr_segment_index, locus_first, locus_last);
+	trace_forward_active = true;
+	trace_backward_active = false;
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
@@ -214,10 +297,10 @@ void haplotype_segment_single::forward() {
 		const bool hmm_amb = (emit == EmitKind::Amb);
 		const bool hmm_hom = (emit == EmitKind::Hom);
 		const bool data_mis = hmm_mis && !is_sibling;
-		const bool data_amb = hmm_amb;
+		const bool data_amb = hmm_amb && !is_sibling;
 		yt = (curr_abs_locus == locus_first)?0.0:M.getForwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
-		trace_ambiguous_cursor("fwd_pre", curr_abs_locus, is_sibling);
+		trace_ambiguous_cursor("fwd_pre", curr_abs_locus, is_sibling, 0);
 
 		if (supersite_trace_enabled()) {
 			std::fprintf(stdout,
@@ -332,12 +415,13 @@ void haplotype_segment_single::forward() {
 
 		curr_segment_locus ++;
 		curr_abs_ambiguous += data_amb;
-		trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling);
+		trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling, data_amb ? 1 : 0);
 		if (curr_segment_locus >= G->Lengths[curr_segment_index]) {
 			curr_segment_index++;
 			curr_segment_locus = 0;
 		}
 	}
+	trace_forward_active = false;
 }
 
 int haplotype_segment_single::backward(vector < double > & transition_probabilities, vector < float > & missing_probabilities, 
@@ -351,6 +435,8 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	curr_abs_missing = missing_last;
 	curr_abs_transition = transition_last;
 	prev_abs_locus = locus_last;
+	trace_forward_active = false;
+	trace_backward_active = true;
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
@@ -374,10 +460,10 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		const bool hmm_amb = (emit == EmitKind::Amb);
 		const bool hmm_hom = (emit == EmitKind::Hom);
 		const bool data_mis = hmm_mis && !is_sibling;
-		const bool data_amb = hmm_amb;
+		const bool data_amb = hmm_amb && !is_sibling;
 		yt = (curr_abs_locus == locus_last)?0.0:M.getBackwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
-		trace_ambiguous_cursor("bwd_pre", curr_abs_locus, is_sibling);
+		trace_ambiguous_cursor("bwd_pre", curr_abs_locus, is_sibling, 0);
 
         if (curr_abs_locus == locus_last) {
             if (is_anchor) {
@@ -502,13 +588,14 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 		curr_segment_locus--;
 		curr_abs_ambiguous -= data_amb;
-		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling);
+		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, data_amb ? -1 : 0);
 		if (curr_segment_locus < 0 && curr_segment_index > 0) {
 			curr_segment_index--;
 			curr_segment_locus = G->Lengths[curr_segment_index] - 1;
 		}
 	}
-	return n_underflow_recovered;
+		trace_backward_active = false;
+		return n_underflow_recovered;
 }
 
 void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_probabilities) {

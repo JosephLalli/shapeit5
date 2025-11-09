@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <limits>
 #include <cstdlib>
+#include <cstring>
 #include <utils/otools.h>
 #include <objects/compute_job.h>
 #include <objects/hmm_parameters.h>
@@ -114,7 +115,15 @@ private:
 	// EMISSION HELPERS
 	MatchMask init_match_mask;
 	bool prepare_outer_product_mix(int rel_prev_segment, __m256d& col_mix_lo, __m256d& col_mix_hi, double& row_stay, double& row_switch, bool allow_outer = true);
-    void trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling) const;
+    void trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling, int expected_delta) const;
+    mutable int trace_forward_pre_cursor;
+    mutable int trace_forward_pre_locus;
+    mutable bool trace_forward_pre_valid;
+    mutable int trace_backward_pre_cursor;
+    mutable int trace_backward_pre_locus;
+    mutable bool trace_backward_pre_valid;
+    mutable bool trace_forward_active;
+    mutable bool trace_backward_active;
 
 	inline bool debugTraceEnabled() const {
 		const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
