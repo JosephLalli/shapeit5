@@ -334,6 +334,7 @@ void test_supersite_stress() {
     TEST_RUN("supersite_stress", []() {
         MockSuperSiteThreading mock;
         mock.num_supersites = 50; // More SuperSites for stress
+        mock.num_threads = 6;     // Match the stress-thread count
         mock.setup_test_data();
         
         TEST_STRESS("supersite_high_load", 3, 6, [&](int thread_id) {

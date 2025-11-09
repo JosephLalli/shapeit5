@@ -2,6 +2,16 @@
 
 CXX=g++ -std=c++17
 
+SANITIZE ?= none
+
+SANITIZE_FLAGS :=
+SANITIZE_LDFLAGS :=
+
+ifeq ($(SANITIZE),thread)
+SANITIZE_FLAGS += -fsanitize=thread -fno-omit-frame-pointer -g
+SANITIZE_LDFLAGS += -fsanitize=thread
+endif
+
 
 #create folders
 dummy_build_folder_bin := $(shell mkdir -p bin)
@@ -16,6 +26,9 @@ ifeq ($(COVERAGE),1)
 	CFLAG += -O0 -g --coverage 
 	LDFLAG += --coverage
 endif
+
+CXXFLAG += $(SANITIZE_FLAGS)
+LDFLAG += $(SANITIZE_LDFLAGS)
 
 #COMMIT TRACING
 COMMIT_VERS=$(shell git rev-parse --short HEAD)
@@ -130,6 +143,8 @@ debug: BOOST_INC=/usr/include
 debug: BOOST_LIB_IO=/usr/lib/x86_64-linux-gnu/libboost_iostreams.a
 debug: BOOST_LIB_PO=/usr/lib/x86_64-linux-gnu/libboost_program_options.a
 debug: $(BFILE)
+debug: CXXFLAG+= $(SANITIZE_FLAGS)
+debug: LDFLAG+= $(SANITIZE_LDFLAGS)
 
 curnagl: DYN_LIBS=-lz -lpthread -lcrypto /dcsrsoft/spack/hetre/v1.1/spack/opt/spack/linux-rhel8-zen2/gcc-9.3.0/xz-5.2.5-3zvzfm67t6ebuerybemshylrysbphghz/lib/liblzma.so /dcsrsoft/spack/hetre/v1.1/spack/opt/spack/linux-rhel8-zen2/gcc-9.3.0/bzip2-1.0.8-tsmb67uwhlqn5g6h6etjvftugq7y6mtl/lib/libbz2.so /dcsrsoft/spack/hetre/v1.1/spack/opt/spack/linux-rhel8-zen2/gcc-9.3.0/curl-7.74.0-fcqjhj645xhqp2ilrzafwqtqqnu7g42v/lib/libcurl.so
 curnagl: HTSSRC=/dcsrsoft/spack/hetre/v1.1/spack/opt/spack/linux-rhel8-zen2/gcc-9.3.0/htslib-1.12-p4n5q4icj4g5e4of7mxq2i5xly4v4tax
@@ -159,6 +174,8 @@ wally: $(BFILE)
 static_exe: CXXFLAG=-O2 -mavx2 -mfma -D__COMMIT_ID__=\"$(COMMIT_VERS)\" -D__COMMIT_DATE__=\"$(COMMIT_DATE)\"
 static_exe: LDFLAG=-O2
 static_exe: $(EXEFILE)
+static_exe: CXXFLAG+= $(SANITIZE_FLAGS)
+static_exe: LDFLAG+= $(SANITIZE_LDFLAGS)
 
 # static desktop Robin
 static_exe_robin_desktop: CXXFLAG=-O2 -mavx2 -mfma -D__COMMIT_ID__=\"$(COMMIT_VERS)\" -D__COMMIT_DATE__=\"$(COMMIT_DATE)\"
@@ -170,6 +187,8 @@ static_exe_robin_desktop: BOOST_INC=/usr/include
 static_exe_robin_desktop: BOOST_LIB_IO=$(HTSSRC)/boost/lib/libboost_iostreams.a
 static_exe_robin_desktop: BOOST_LIB_PO=$(HTSSRC)/boost/lib/libboost_program_options.a
 static_exe_robin_desktop: $(EXEFILE)
+static_exe_robin_desktop: CXXFLAG+= $(SANITIZE_FLAGS)
+static_exe_robin_desktop: LDFLAG+= $(SANITIZE_LDFLAGS)
 
 
 #COMPILATION RULES
