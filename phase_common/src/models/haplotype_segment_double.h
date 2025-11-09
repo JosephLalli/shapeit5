@@ -146,6 +146,10 @@ private:
 	void INIT_HOM();
 	void INIT_AMB();
 	void INIT_MIS();
+	void handle_sibling_bookkeeping(const SiteView& site_view);
+	void INIT_SIB(const SiteView& site_view);
+	void RUN_SIB(const SiteView& site_view);
+	void COLLAPSE_SIB(const SiteView& site_view);
     void INIT_FROM_MASK(const MatchMask& mask, double mismatch_penalty) {
         const char* tr_d = std::getenv("SHAPEIT5_TEST_TRACE");
         if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
@@ -846,18 +850,27 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
     __m256d _nt = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(nt / probSumT);
 
     for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        debugCheckProbBounds(i, "SS_COLLAPSE_AMB");
-        // Transition: collapse from previous segment boundary using donor-marginal mass only
+        // Transition: collapse from previous segment boundary using donor/column marginals
         double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
-        __m256d _prob0 = _mm256_set1_pd(base);
-        __m256d _prob1 = _mm256_set1_pd(base);
-        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
-        
+        __m256d _prob0;
+        __m256d _prob1;
+        if (use_outer) {
+            double row_mix = row_stay * base + row_switch;
+            __m256d row_vec = _mm256_set1_pd(row_mix);
+            _prob0 = _mm256_mul_pd(col_mix0, row_vec);
+            _prob1 = _mm256_mul_pd(col_mix1, row_vec);
+        } else {
+            _prob0 = _mm256_set1_pd(base);
+            _prob1 = _mm256_set1_pd(base);
+            _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+            _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+        }
+        debugCheckProbBounds(i, "SS_COLLAPSE_AMB");
+
         // Emission: compute donor code based on mode, then compare to expected per lane
         // BUG #6 DOCUMENTED: Supersite uses per-lane array computation (required for double precision)
         // vs. biallelic inline conditional (optimized for binary alleles)
-        // Both implement: emit[h] = (donor_matches_expected[h]) ? 1.0 : (ed/ee)
+        // Both implement: emit[h] = (donor_matches_expected[h]) ? 1.0 : (M.ed/M.ee)
         int donor_code;
         if (M.ss_anchor_split_emissions) {
             int anchor_code = 0; 
@@ -1301,6 +1314,26 @@ void haplotype_segment_double::INIT_MIS() {
 	fill(prob.begin(), prob.end(), 1.0/(HAP_NUMBER * n_cond_haps));
 	fill(probSumH.begin(), probSumH.end(), 1.0/HAP_NUMBER);
 	probSumT = 1.0;
+}
+
+inline
+void haplotype_segment_double::handle_sibling_bookkeeping(const SiteView& site_view) {
+	trace_ambiguous_cursor("sib", curr_abs_locus, true, 0);
+}
+
+inline
+void haplotype_segment_double::INIT_SIB(const SiteView& site_view) {
+	INIT_MIS();
+}
+
+inline
+void haplotype_segment_double::RUN_SIB(const SiteView& site_view) {
+	handle_sibling_bookkeeping(site_view);
+}
+
+inline
+void haplotype_segment_double::COLLAPSE_SIB(const SiteView& site_view) {
+	handle_sibling_bookkeeping(site_view);
 }
 
 inline

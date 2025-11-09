@@ -25,6 +25,7 @@
 #include <mutex>
 #include <cstdio>
 #include <string>
+#include <limits>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -561,7 +562,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 				}
 			} else if (is_sibling) {
 				// Sibling at window end: neutral init; do not advance prev_abs_locus
-				INIT_MIS();
+				INIT_SIB(site_view);
 				update_prev_locus = false;
 			} else {
 				if (hmm_mis) {
@@ -591,6 +592,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 				}
 			} else if (is_sibling) {
 				// Sibling within window (backward): no-op propagation
+				RUN_SIB(site_view);
 				update_prev_locus = false;
 			} else {
 				if (hmm_hom) update_prev_locus = RUN_HOM(rare_allele);
@@ -611,6 +613,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 				}
 			} else if (is_sibling) {
 				// Sibling at segment boundary (backward): no-op
+				COLLAPSE_SIB(site_view);
 				update_prev_locus = false;
 			} else {
 				if (hmm_hom) COLLAPSE_HOM();
@@ -688,17 +691,54 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 }
 
 void haplotype_segment_double::SET_FIRST_TRANS(vector < double > & transition_probabilities) {
-	double scale = 1.0f / probSumT, scaleDip = 0.0f;
-	unsigned int n_transitions = G->countDiplotypes(G->Diplotypes[0]);
-	vector < double > cprobs = vector < double > (n_transitions, 0.0);
-	for (unsigned int d = 0, t = 0 ; d < 64 ; ++d) {
-		if (DIP_GET(G->Diplotypes[0], d)) {
-			cprobs[t] = (double)(probSumH[DIP_HAP0(d)]*scale) * (double)(probSumH[DIP_HAP1(d)]*scale);
-			scaleDip += cprobs[t++];
+	const unsigned int n_transitions = G->countDiplotypes(G->Diplotypes[0]);
+	std::vector<double> cprobs(n_transitions, 0.0);
+
+	double lane_probs[HAP_NUMBER];
+	bool use_outer = supersites_enabled_flag && !AlphaSum.empty();
+
+	if (use_outer) {
+		const int rel_seg = 0;
+		const double* alpha_lane = AlphaSum[rel_seg].data();
+		double lane_total = 0.0;
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			double weight = alpha_lane[h] * probSumH[h];
+			lane_probs[h] = weight;
+			lane_total += weight;
+		}
+		if (lane_total <= std::numeric_limits<double>::min()) {
+			use_outer = false;
+		} else {
+			const double inv_total = 1.0 / lane_total;
+			for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] *= inv_total;
 		}
 	}
-	scaleDip = 1.0f / scaleDip;
-	for (unsigned int t = 0 ; t < n_transitions ; t ++) transition_probabilities[t] = cprobs[t] * scaleDip;
+
+	if (!use_outer) {
+		const double lane_total = probSumT;
+		const double inv_total = (lane_total > std::numeric_limits<double>::min()) ? (1.0 / lane_total) : 0.0;
+		for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] = probSumH[h] * inv_total;
+	}
+
+	double scaleDip = 0.0;
+	for (unsigned int d = 0, t = 0; d < 64; ++d) {
+		if (DIP_GET(G->Diplotypes[0], d)) {
+			const int hap0 = DIP_HAP0(d);
+			const int hap1 = DIP_HAP1(d);
+			const double val = lane_probs[hap0] * lane_probs[hap1];
+			cprobs[t++] = val;
+			scaleDip += val;
+		}
+	}
+
+	if (scaleDip <= std::numeric_limits<double>::min()) {
+		const double uniform = 1.0 / static_cast<double>(n_transitions);
+		for (unsigned int t = 0; t < n_transitions; ++t) transition_probabilities[t] = uniform;
+		return;
+	}
+
+	const double inv_scale = 1.0 / scaleDip;
+	for (unsigned int t = 0; t < n_transitions; ++t) transition_probabilities[t] = cprobs[t] * inv_scale;
 }
 
 int haplotype_segment_double::SET_OTHER_TRANS(vector < double > & transition_probabilities) {

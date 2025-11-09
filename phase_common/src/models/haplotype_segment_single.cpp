@@ -1,3 +1,27 @@
+// Sibling bookkeeping: update trace, maintain cursor/index sanity, no DP math
+void haplotype_segment_single::handle_sibling_bookkeeping(const SiteView& site_view) {
+	// Only log ambiguous cursor, do not advance or store AlphaMissing/AlphaSumMissing
+	// This keeps ambiguous/missing indices aligned for anchors, but does not touch DP state
+	trace_ambiguous_cursor(trace_forward_active ? "fwd_post" : "bwd_post", curr_abs_locus, true, 0);
+	// Optionally, add asserts here to ensure ambiguous/missing cursor is in bounds
+	assert(curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last);
+	assert(curr_abs_missing >= missing_first && curr_abs_missing <= missing_last);
+}
+
+void haplotype_segment_single::INIT_SIB(const SiteView& site_view) {
+	handle_sibling_bookkeeping(site_view);
+	// No DP math, no prev_abs_locus advance, no AlphaMissing/AlphaSumMissing store
+}
+
+void haplotype_segment_single::RUN_SIB(const SiteView& site_view) {
+	handle_sibling_bookkeeping(site_view);
+	// No DP math, no prev_abs_locus advance, no AlphaMissing/AlphaSumMissing store
+}
+
+void haplotype_segment_single::COLLAPSE_SIB(const SiteView& site_view) {
+	handle_sibling_bookkeeping(site_view);
+	// No DP math, no prev_abs_locus advance, no AlphaMissing/AlphaSumMissing store
+}
 /*******************************************************************************
  * Copyright (C) 2022-2023 Olivier Delaneau
  *
@@ -25,6 +49,7 @@
 #include <mutex>
 #include <cstdio>
 #include <string>
+#include <limits>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -181,7 +206,6 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	AlphaLocus = vector < int > (segment_last - segment_first + 1, 0);
 	AlphaSum = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER, 0.0f));
 	AlphaLaneSum = vector<LaneMarginal>(segment_last - segment_first + 1, LaneMarginal{});
-	AlphaLaneSum = vector<LaneMarginal>(segment_last - segment_first + 1, LaneMarginal{});
 	AlphaSumSum = aligned_vector32 < float > (segment_last - segment_first + 1, 0.0);
 	if (n_missing > 0) {
 		AlphaMissing = vector < aligned_vector32 < float > > (n_missing, aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f));
@@ -194,6 +218,13 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	curr_rel_locus_offset = Hhap.subset(H, idxH, locus_first, locus_last);
 	Hvar.allocateFast(Hhap.n_cols, Hhap.n_rows);
     Hhap.transpose(Hvar);
+
+	curr_segment_index = segment_first;
+	curr_segment_locus = 0;
+	curr_abs_locus = locus_first;
+	prev_abs_locus = locus_first;
+	curr_abs_ambiguous = ambiguous_first;
+	curr_abs_missing = missing_first;
 
     if (super_sites && locus_to_super_idx && panel_codes && super_site_var_index) {
         ss_cond_codes = aligned_vector32<uint8_t>(n_cond_haps, 0);
@@ -297,8 +328,11 @@ void haplotype_segment_single::forward() {
 		const bool hmm_mis = (emit == EmitKind::Mis);
 		const bool hmm_amb = (emit == EmitKind::Amb);
 		const bool hmm_hom = (emit == EmitKind::Hom);
-		const bool data_mis = hmm_mis && !is_sibling;
-		const bool data_amb = hmm_amb && !is_sibling;
+	// Bookkeeping flags (excluding siblings for DP paths); sibling bookkeeping
+	// is handled explicitly via RUN_SIB/INIT_SIB/COLLAPSE_SIB to avoid altering
+	// transition probabilities.
+	const bool data_mis = hmm_mis && !is_sibling;
+	const bool data_amb = hmm_amb && !is_sibling;
 		yt = (curr_abs_locus == locus_first)?0.0:M.getForwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
 		trace_ambiguous_cursor("fwd_pre", curr_abs_locus, is_sibling, 0);
@@ -306,20 +340,7 @@ void haplotype_segment_single::forward() {
 		if (supersite_trace_enabled()) {
 			const bool dbg_is_anchor = (site_view.kind == SiteKind::SuperAnchor);
 			const bool dbg_is_sibling = (site_view.kind == SiteKind::SuperSibling);
-			const bool dbg_is_anchor = (site_view.kind == SiteKind::SuperAnchor);
-			const bool dbg_is_sibling = (site_view.kind == SiteKind::SuperSibling);
 			std::fprintf(stdout,
-				"FWD locus=%d rel=%d seg_locus=%d kind=%d emit=%d is_anchor=%d is_sibling=%d amb=%d mis=%d sample_cls0=%u sample_cls1=%u amb_mask=0x%02x curr_abs_amb=%d range=[%d,%d]\n",
-				curr_abs_locus, curr_rel_locus, curr_segment_locus,
-				(int)site_view.kind, (int)emit,
-				dbg_is_anchor ? 1 : 0,
-				dbg_is_sibling ? 1 : 0,
-				(int)hmm_amb, (int)hmm_mis,
-				site_view.sample_class0, site_view.sample_class1,
-				site_view.amb_mask,
-				curr_abs_ambiguous,
-				ambiguous_first,
-				ambiguous_last);
 				"FWD locus=%d rel=%d seg_locus=%d kind=%d emit=%d is_anchor=%d is_sibling=%d amb=%d mis=%d sample_cls0=%u sample_cls1=%u amb_mask=0x%02x curr_abs_amb=%d range=[%d,%d]\n",
 				curr_abs_locus, curr_rel_locus, curr_segment_locus,
 				(int)site_view.kind, (int)emit,
@@ -381,10 +402,11 @@ void haplotype_segment_single::forward() {
                             break;
                     }
                 }
-            } else if (is_sibling) {
-                // Sibling within window: true no-op (preserve probability state)
-                update_prev_locus = false;
-            } else {
+			} else if (is_sibling) {
+				// Sibling within window: no-op DP but perform bookkeeping
+				RUN_SIB(site_view);
+				update_prev_locus = false;
+			} else {
 				if (hmm_hom) update_prev_locus = RUN_HOM(rare_allele);
 				else if (hmm_amb) RUN_AMB();
 				else RUN_MIS();
@@ -407,10 +429,11 @@ void haplotype_segment_single::forward() {
                             break;
                     }
                 }
-            } else if (is_sibling) {
-                // Sibling at segment boundary: true no-op (preserve probability state)
-                update_prev_locus = false;
-            } else {
+			} else if (is_sibling) {
+				// Sibling at segment boundary: no-op DP with bookkeeping
+				COLLAPSE_SIB(site_view);
+				update_prev_locus = false;
+			} else {
 				if (hmm_hom) COLLAPSE_HOM();
 				else if (hmm_amb) COLLAPSE_AMB();
 				else  COLLAPSE_MIS();
@@ -420,13 +443,6 @@ void haplotype_segment_single::forward() {
 
 		if (curr_segment_locus == (G->Lengths[curr_segment_index] - 1)) SUMK();
 		if (curr_segment_locus == G->Lengths[curr_segment_index] - 1) {
-			const int rel_seg = curr_segment_index - segment_first;
-			Alpha[rel_seg] = prob;
-			AlphaSum[rel_seg] = probSumH;
-			__m256 lane_vec = _mm256_load_ps(&probSumH[0]);
-			_mm256_store_ps(AlphaLaneSum[rel_seg].lane, lane_vec);
-			AlphaSumSum[rel_seg] = probSumT;
-			AlphaLocus[rel_seg] = prev_abs_locus;
 			const int rel_seg = curr_segment_index - segment_first;
 			Alpha[rel_seg] = prob;
 			AlphaSum[rel_seg] = probSumH;
@@ -449,8 +465,9 @@ void haplotype_segment_single::forward() {
 		curr_segment_locus ++;
 		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
 		const int cursor_before = curr_abs_ambiguous;
-		const bool can_advance_amb = data_amb && has_amb_range && (curr_abs_ambiguous < ambiguous_last);
-		const int expected_delta = can_advance_amb ? 1 : 0;
+	const bool can_advance_amb = data_amb && has_amb_range && (curr_abs_ambiguous < ambiguous_last);
+	const bool sib_advance_amb = is_sibling && hmm_amb && has_amb_range && (curr_abs_ambiguous < ambiguous_last);
+	const int expected_delta = (can_advance_amb || sib_advance_amb) ? 1 : 0;
 		if (supersite_trace_enabled()) {
 			std::fprintf(stdout,
 				"FWD.delta locus=%d cursor_before=%d expected_delta=%d data_amb=%d data_mis=%d is_sibling=%d has_range=%d\n",
@@ -462,42 +479,7 @@ void haplotype_segment_single::forward() {
 				is_sibling ? 1 : 0,
 				has_amb_range ? 1 : 0);
 		}
-		if (can_advance_amb) curr_abs_ambiguous++;
-		trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling, expected_delta);
-		if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last)) {
-			if (supersite_trace_enabled()) {
-				int seg_len = (curr_segment_index >= 0 && curr_segment_index < (int)G->Lengths.size()) ? G->Lengths[curr_segment_index] : -1;
-				std::fprintf(stderr,
-					"[ss-amb-oob][single] stage=fwd_post locus=%d before=%d after=%d expected_delta=%d range=[%d,%d] seg_idx=%d seg_len=%d seg_loc=%d is_sibling=%d\n",
-					curr_abs_locus,
-					cursor_before,
-					curr_abs_ambiguous,
-					expected_delta,
-					ambiguous_first,
-					ambiguous_last,
-					curr_segment_index,
-					seg_len,
-					curr_segment_locus,
-					static_cast<int>(is_sibling));
-				std::fflush(stderr);
-			}
-			assert(false && "forward ambiguous cursor moved out of window bounds");
-		}
-		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
-		const int cursor_before = curr_abs_ambiguous;
-		const int expected_delta = (data_amb && has_amb_range) ? 1 : 0;
-		if (supersite_trace_enabled()) {
-			std::fprintf(stdout,
-				"FWD.delta locus=%d cursor_before=%d expected_delta=%d data_amb=%d data_mis=%d is_sibling=%d has_range=%d\n",
-				curr_abs_locus,
-				cursor_before,
-				expected_delta,
-				data_amb ? 1 : 0,
-				data_mis ? 1 : 0,
-				is_sibling ? 1 : 0,
-				has_amb_range ? 1 : 0);
-		}
-		if (expected_delta) curr_abs_ambiguous++;
+	if (can_advance_amb || sib_advance_amb) curr_abs_ambiguous++;
 		trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling, expected_delta);
 		if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last)) {
 			if (supersite_trace_enabled()) {
@@ -523,6 +505,11 @@ void haplotype_segment_single::forward() {
 			curr_segment_locus = 0;
 		}
 	}
+		if (curr_segment_index > segment_last) {
+			curr_segment_index = segment_last;
+			curr_segment_locus = (segment_last >= segment_first) ? G->Lengths[segment_last] - 1 : 0;
+		}
+		curr_abs_locus = locus_last;
 	trace_forward_active = false;
 }
 
@@ -561,35 +548,37 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		const bool hmm_mis = (emit == EmitKind::Mis);
 		const bool hmm_amb = (emit == EmitKind::Amb);
 		const bool hmm_hom = (emit == EmitKind::Hom);
-		const bool data_mis = hmm_mis && !is_sibling;
-		const bool data_amb = hmm_amb && !is_sibling;
+	// Include siblings in bookkeeping so backward cursor and missing
+	// indices match the forward pass expectations.
+	const bool data_mis = hmm_mis;
+	const bool data_amb = hmm_amb;
 		yt = (curr_abs_locus == locus_last)?0.0:M.getBackwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
 		trace_ambiguous_cursor("bwd_pre", curr_abs_locus, is_sibling, 0);
 
-        if (curr_abs_locus == locus_last) {
-            if (is_anchor) {
-                if (M.ss_anchor_split_emissions) {
-                    supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-                    INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
-                } else {
-				switch (emit) {
-					case EmitKind::Hom:
-						SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
-						break;
-					case EmitKind::Amb:
-						SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
-						break;
-					case EmitKind::Mis:
-						SS_INIT_MIS();
-						break;
-				}
-                }
-                } else if (is_sibling) {
-					// Sibling at window end (backward): neutral init but no prev_locus advance
-					INIT_MIS();
-					update_prev_locus = false;
+		if (curr_abs_locus == locus_last) {
+			if (is_anchor) {
+				if (M.ss_anchor_split_emissions) {
+					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
+					INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
 				} else {
+					switch (emit) {
+						case EmitKind::Hom:
+							SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+							break;
+						case EmitKind::Amb:
+							SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+							break;
+						case EmitKind::Mis:
+							SS_INIT_MIS();
+							break;
+					}
+				}
+			} else if (is_sibling) {
+				// Sibling at window end (backward): neutral init but no prev_locus advance
+				INIT_MIS();
+				update_prev_locus = false;
+			} else {
 				if (hmm_mis) {
 					INIT_MIS();
 				} else {
@@ -597,54 +586,56 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 					INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
 				}
 			}
-        } else if (curr_segment_locus != G->Lengths[curr_segment_index] - 1) {
-            if (is_anchor) {
-                if (M.ss_anchor_split_emissions) {
-                    supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-                    RUN_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
-                } else {
-				switch (emit) {
-					case EmitKind::Hom:
-						update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
-						break;
-					case EmitKind::Amb:
-						update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
-						break;
-					case EmitKind::Mis:
-						update_prev_locus = SS_RUN_MIS();
-						break;
-				}
-                }
-				} else if (is_sibling) {
-					// Sibling within window (backward): true no-op (preserve probability state)
-					update_prev_locus = false;
+		} else if (curr_segment_locus != G->Lengths[curr_segment_index] - 1) {
+			if (is_anchor) {
+				if (M.ss_anchor_split_emissions) {
+					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
+					RUN_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
 				} else {
+					switch (emit) {
+						case EmitKind::Hom:
+							update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+							break;
+						case EmitKind::Amb:
+							update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+							break;
+						case EmitKind::Mis:
+							update_prev_locus = SS_RUN_MIS();
+							break;
+					}
+				}
+			} else if (is_sibling) {
+				// Sibling within window (backward): pure bookkeeping
+				RUN_SIB(site_view);
+				update_prev_locus = false;
+			} else {
 				if (hmm_hom) update_prev_locus = RUN_HOM(rare_allele);
 				else if (hmm_amb) RUN_AMB();
 				else RUN_MIS();
 			}
-        } else {
-            if (is_anchor) {
+		} else {
+			if (is_anchor) {
 				if (M.ss_anchor_split_emissions) {
-                    supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-                    COLLAPSE_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
-                } else {
-				switch (emit) {
-					case EmitKind::Hom:
-						SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
-						break;
-					case EmitKind::Amb:
-						SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
-						break;
-					case EmitKind::Mis:
-						SS_COLLAPSE_MIS();
-						break;
-				}
-                }
-				} else if (is_sibling) {
-					// Sibling at segment boundary (backward): true no-op (preserve probability state)
-					update_prev_locus = false;
+					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
+					COLLAPSE_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
 				} else {
+					switch (emit) {
+						case EmitKind::Hom:
+							SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+							break;
+						case EmitKind::Amb:
+							SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+							break;
+						case EmitKind::Mis:
+							SS_COLLAPSE_MIS();
+							break;
+					}
+				}
+			} else if (is_sibling) {
+				// Sibling at segment boundary (backward): bookkeeping only
+				COLLAPSE_SIB(site_view);
+				update_prev_locus = false;
+			} else {
 				if (hmm_hom) COLLAPSE_HOM();
 				else if (hmm_amb) COLLAPSE_AMB();
 				else COLLAPSE_MIS();
@@ -690,34 +681,11 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 		curr_segment_locus--;
 		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
-		const bool can_retreat_amb = data_amb && has_amb_range && (curr_abs_ambiguous > ambiguous_first);
-		const int expected_delta = can_retreat_amb ? -1 : 0;
+	const bool can_retreat_amb = data_amb && has_amb_range && (curr_abs_ambiguous > ambiguous_first);
+	const bool sib_retreat_amb = is_sibling && hmm_amb && has_amb_range && (curr_abs_ambiguous > ambiguous_first);
+	const int expected_delta = (can_retreat_amb || sib_retreat_amb) ? -1 : 0;
 		const int cursor_before_bwd = curr_abs_ambiguous;
-		if (can_retreat_amb) curr_abs_ambiguous--;
-		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, expected_delta);
-		if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last)) {
-			if (supersite_trace_enabled()) {
-				int seg_len = (curr_segment_index >= 0 && curr_segment_index < (int)G->Lengths.size()) ? G->Lengths[curr_segment_index] : -1;
-				std::fprintf(stderr,
-					"[ss-amb-oob][single] stage=bwd_post locus=%d before=%d after=%d expected_delta=%d range=[%d,%d] seg_idx=%d seg_len=%d seg_loc=%d is_sibling=%d\n",
-					curr_abs_locus,
-					cursor_before_bwd,
-					curr_abs_ambiguous,
-					expected_delta,
-					ambiguous_first,
-					ambiguous_last,
-					curr_segment_index,
-					seg_len,
-					curr_segment_locus,
-					static_cast<int>(is_sibling));
-				std::fflush(stderr);
-			}
-			assert(false && "backward ambiguous cursor moved out of window bounds");
-		}
-		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
-		const int expected_delta = (data_amb && has_amb_range) ? -1 : 0;
-		const int cursor_before_bwd = curr_abs_ambiguous;
-		if (expected_delta) curr_abs_ambiguous--;
+	if (expected_delta) curr_abs_ambiguous--;
 		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, expected_delta);
 		if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last)) {
 			if (supersite_trace_enabled()) {
@@ -743,22 +711,62 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			curr_segment_locus = G->Lengths[curr_segment_index] - 1;
 		}
 	}
+		curr_segment_index = segment_first;
+		curr_segment_locus = 0;
+		curr_abs_locus = locus_first;
 		trace_backward_active = false;
 		return n_underflow_recovered;
 }
 
 void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_probabilities) {
-	double scale = 1.0f / probSumT, scaleDip = 0.0f;
-	unsigned int n_transitions = G->countDiplotypes(G->Diplotypes[0]);
-	vector < double > cprobs = vector < double > (n_transitions, 0.0);
-	for (unsigned int d = 0, t = 0 ; d < 64 ; ++d) {
-		if (DIP_GET(G->Diplotypes[0], d)) {
-			cprobs[t] = (double)(probSumH[DIP_HAP0(d)]*scale) * (double)(probSumH[DIP_HAP1(d)]*scale);
-			scaleDip += cprobs[t++];
+	const unsigned int n_transitions = G->countDiplotypes(G->Diplotypes[0]);
+	std::vector<double> cprobs(n_transitions, 0.0);
+
+	double lane_probs[HAP_NUMBER];
+	bool use_outer = supersites_enabled_flag && !AlphaSum.empty();
+
+	if (use_outer) {
+		const int rel_seg = 0; // first segment in this window
+		const float* alpha_lane = AlphaSum[rel_seg].data();
+		double lane_total = 0.0;
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			double weight = static_cast<double>(alpha_lane[h]) * static_cast<double>(probSumH[h]);
+			lane_probs[h] = weight;
+			lane_total += weight;
+		}
+		if (lane_total <= std::numeric_limits<double>::min()) {
+			use_outer = false;
+		} else {
+			const double inv_total = 1.0 / lane_total;
+			for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] *= inv_total;
 		}
 	}
-	scaleDip = 1.0f / scaleDip;
-	for (unsigned int t = 0 ; t < n_transitions ; t ++) transition_probabilities[t] = cprobs[t] * scaleDip;
+
+	if (!use_outer) {
+		const double lane_total = probSumT;
+		const double inv_total = (lane_total > std::numeric_limits<double>::min()) ? (1.0 / lane_total) : 0.0;
+		for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] = static_cast<double>(probSumH[h]) * inv_total;
+	}
+
+	double scaleDip = 0.0;
+	for (unsigned int d = 0, t = 0; d < 64; ++d) {
+		if (DIP_GET(G->Diplotypes[0], d)) {
+			const int hap0 = DIP_HAP0(d);
+			const int hap1 = DIP_HAP1(d);
+			const double val = lane_probs[hap0] * lane_probs[hap1];
+			cprobs[t++] = val;
+			scaleDip += val;
+		}
+	}
+
+	if (scaleDip <= std::numeric_limits<double>::min()) {
+		const double uniform = 1.0 / static_cast<double>(n_transitions);
+		for (unsigned int t = 0; t < n_transitions; ++t) transition_probabilities[t] = uniform;
+		return;
+	}
+
+	const double inv_scale = 1.0 / scaleDip;
+	for (unsigned int t = 0; t < n_transitions; ++t) transition_probabilities[t] = cprobs[t] * inv_scale;
 }
 
 int haplotype_segment_single::SET_OTHER_TRANS(vector < double > & transition_probabilities) {

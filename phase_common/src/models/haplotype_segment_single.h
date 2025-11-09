@@ -134,6 +134,11 @@ private:
 	void INIT_HOM();
 	void INIT_AMB();
 	void INIT_MIS();
+    // Sibling-specific no-op DP helpers (bookkeeping only)
+    void INIT_SIB(const SiteView& site_view);
+    void RUN_SIB(const SiteView& site_view);
+    void COLLAPSE_SIB(const SiteView& site_view);
+    void handle_sibling_bookkeeping(const SiteView& site_view);
     void INIT_FROM_MASK(const MatchMask& mask, float mismatch_penalty);
     void RUN_FROM_MASK(const MatchMask& mask, float mismatch_penalty) {
         const __m256 match_vec = _mm256_set1_ps(1.0f);
