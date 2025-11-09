@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <iterator>
 #include <vector>
 
 #include "../../common/src/utils/otools.h"
@@ -94,18 +95,18 @@ int main() {
     const double yt_d = 0.2;
 
     // Seed lane marginals (column sums) and totals for previous segment
-    std::fill(HS.AlphaLaneSum[prev_seg].begin(), HS.AlphaLaneSum[prev_seg].end(), 0.0f);
+    std::fill(std::begin(HS.AlphaLaneSum[prev_seg].lane), std::end(HS.AlphaLaneSum[prev_seg].lane), 0.0f);
     std::fill(HS.AlphaSum[prev_seg].begin(), HS.AlphaSum[prev_seg].end(), 0.0f);
-    HS.AlphaLaneSum[prev_seg][0] = 1.5f;
-    HS.AlphaLaneSum[prev_seg][1] = 0.5f;
+    HS.AlphaLaneSum[prev_seg].lane[0] = 1.5f;
+    HS.AlphaLaneSum[prev_seg].lane[1] = 0.5f;
     HS.AlphaSum[prev_seg][0] = 1.5f;
     HS.AlphaSum[prev_seg][1] = 0.5f;
     HS.AlphaSumSum[prev_seg] = prev_total_f;
 
-    std::fill(HD.AlphaLaneSum[prev_seg].begin(), HD.AlphaLaneSum[prev_seg].end(), 0.0);
+    std::fill(std::begin(HD.AlphaLaneSum[prev_seg].lane), std::end(HD.AlphaLaneSum[prev_seg].lane), 0.0);
     std::fill(HD.AlphaSum[prev_seg].begin(), HD.AlphaSum[prev_seg].end(), 0.0);
-    HD.AlphaLaneSum[prev_seg][0] = 1.5;
-    HD.AlphaLaneSum[prev_seg][1] = 0.5;
+    HD.AlphaLaneSum[prev_seg].lane[0] = 1.5;
+    HD.AlphaLaneSum[prev_seg].lane[1] = 0.5;
     HD.AlphaSum[prev_seg][0] = 1.5;
     HD.AlphaSum[prev_seg][1] = 0.5;
     HD.AlphaSumSum[prev_seg] = prev_total_d;

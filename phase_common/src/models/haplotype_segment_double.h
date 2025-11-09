@@ -78,9 +78,13 @@ private:
     aligned_vector32 < double > probSumK;
     // Keep donor (row) and lane (column) marginals to seed next segment via outer product
     aligned_vector32 < double > probSumH;
+    struct alignas(32) LaneMarginal {
+        double lane[HAP_NUMBER];
+        LaneMarginal() : lane{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0} {}
+    };
 	std::vector < aligned_vector32 < double > > Alpha;
 	std::vector < aligned_vector32 < double > > AlphaSum;
-    std::vector < aligned_vector32 < double > > AlphaLaneSum;
+    std::vector<LaneMarginal> AlphaLaneSum;
 	std::vector < int > AlphaLocus;
 	aligned_vector32 < double > AlphaSumSum;
 	std::vector < aligned_vector32 < double > > AlphaMissing;
@@ -1309,8 +1313,8 @@ bool haplotype_segment_double::prepare_outer_product_mix(int rel_prev_segment, _
 	const double prev_total = AlphaSumSum[rel_prev_segment];
 	if (prev_total <= std::numeric_limits<double>::min()) return false;
 
-    const __m256d prev_lo = _mm256_load_pd(&AlphaLaneSum[rel_prev_segment][0]);
-    const __m256d prev_hi = _mm256_load_pd(&AlphaLaneSum[rel_prev_segment][4]);
+    const __m256d prev_lo = _mm256_load_pd(&AlphaLaneSum[rel_prev_segment].lane[0]);
+    const __m256d prev_hi = _mm256_load_pd(&AlphaLaneSum[rel_prev_segment].lane[4]);
 	const __m256d stay = _mm256_set1_pd(nt / prev_total);
 	const __m256d switch_vec = _mm256_set1_pd(yt / static_cast<double>(HAP_NUMBER));
 	col_mix_lo = _mm256_fmadd_pd(prev_lo, stay, switch_vec);

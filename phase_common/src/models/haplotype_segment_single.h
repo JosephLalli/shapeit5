@@ -79,9 +79,13 @@ private:
     aligned_vector32 < float > probSumK;
     // Store both donor (row) and lane (column) marginals for outer-product seeding at segment boundaries
 	aligned_vector32 < float > probSumH;
+    struct alignas(32) LaneMarginal {
+        float lane[HAP_NUMBER];
+        LaneMarginal() : lane{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f} {}
+    };
 	std::vector < aligned_vector32 < float > > Alpha;
 	std::vector < aligned_vector32 < float > > AlphaSum;
-    std::vector < aligned_vector32 < float > > AlphaLaneSum;
+    std::vector<LaneMarginal> AlphaLaneSum;
 	std::vector < int > AlphaLocus;
 	aligned_vector32 < float > AlphaSumSum;
 	std::vector < aligned_vector32 < float > > AlphaMissing;
@@ -781,7 +785,7 @@ bool haplotype_segment_single::prepare_outer_product_mix(int rel_prev_segment, _
 	const float prev_total = AlphaSumSum[rel_prev_segment];
 	if (prev_total <= std::numeric_limits<float>::min()) return false;
 
-    const __m256 prev_cols = _mm256_load_ps(&AlphaLaneSum[rel_prev_segment][0]);
+    const __m256 prev_cols = _mm256_load_ps(AlphaLaneSum[rel_prev_segment].lane);
 	const __m256 stay_factor = _mm256_set1_ps(nt / prev_total);
 	const __m256 switch_vec = _mm256_set1_ps(yt / static_cast<float>(HAP_NUMBER));
 	col_mix = _mm256_fmadd_ps(prev_cols, stay_factor, switch_vec);

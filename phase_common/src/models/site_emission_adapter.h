@@ -174,7 +174,16 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
     view.sample_class0 = 0u;
     view.sample_class1 = 0u;
 
+    const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
     if (!super_sites_ || !locus_to_super_idx_ || abs_locus < 0 || abs_locus >= static_cast<int>(locus_to_super_idx_->size())) {
+        if (tr && tr[0] != '\0' && tr[0] != '0') {
+            std::fprintf(stdout,
+                         "build_view miss: locus=%d reason=no_map size=%zu has_supersites=%d has_map=%d\n",
+                         abs_locus,
+                         locus_to_super_idx_ ? locus_to_super_idx_->size() : 0u,
+                         super_sites_ ? 1 : 0,
+                         locus_to_super_idx_ ? 1 : 0);
+        }
         view.kind = SiteKind::Biallelic;
         view.supersite = nullptr;
         return false;
@@ -182,6 +191,13 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
 
     const int ss_idx = (*locus_to_super_idx_)[abs_locus];
     if (ss_idx < 0 || ss_idx >= static_cast<int>(super_sites_->size())) {
+        if (tr && tr[0] != '\0' && tr[0] != '0') {
+            std::fprintf(stdout,
+                         "build_view miss: locus=%d ss_idx=%d size=%zu\n",
+                         abs_locus,
+                         ss_idx,
+                         super_sites_->size());
+        }
         view.kind = SiteKind::Biallelic;
         view.supersite = nullptr;
         return false;
@@ -194,7 +210,6 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
     view.kind = is_anchor ? SiteKind::SuperAnchor : SiteKind::SuperSibling;
 
     // Optional trace
-    const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
     if (tr && tr[0] != '\0' && tr[0] != '0') {
         std::fprintf(stdout, "build_view locus=%d ss_idx=%d is_anchor=%d var_count=%u panel_off=%u\n",
                      abs_locus, ss_idx, (int)is_anchor, (unsigned)ss.var_count, (unsigned)ss.panel_offset);

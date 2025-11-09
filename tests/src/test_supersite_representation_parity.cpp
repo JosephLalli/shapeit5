@@ -797,7 +797,17 @@ int main() {
     // ---------------------------------------------------------------------
     // Run forward/backward on both datasets
     // ---------------------------------------------------------------------
-    FBResult res_no_ss = run_forward_backward(G_no_ss, H, M_no_ss, W_no, idxH, nullptr);
+    const bool skip_baseline = [](){
+        const char* env = std::getenv("SHAPEIT5_SKIP_BASELINE_PARITY");
+        return env && env[0] != '\0' && env[0] != '0';
+    }();
+
+    FBResult res_no_ss{};
+    if (!skip_baseline) {
+        res_no_ss = run_forward_backward(G_no_ss, H, M_no_ss, W_no, idxH, nullptr);
+    } else if (trace_enabled()) {
+        std::fprintf(stdout, "Parity harness: skipping baseline run (env SHAPEIT5_SKIP_BASELINE_PARITY)\n");
+    }
     FBResult res_with_ss = run_forward_backward(G_with_ss, H, M_with_ss, W_ss, idxH, &ctx);
 
     // Anchor-only forward parity (hard check): window ends at the anchor locus (index 1)

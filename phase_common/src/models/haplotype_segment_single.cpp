@@ -180,7 +180,7 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	Alpha = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f));
 	AlphaLocus = vector < int > (segment_last - segment_first + 1, 0);
 	AlphaSum = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER, 0.0f));
-	AlphaLaneSum = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER, 0.0f));
+	AlphaLaneSum = vector<LaneMarginal>(segment_last - segment_first + 1, LaneMarginal{});
 	AlphaSumSum = aligned_vector32 < float > (segment_last - segment_first + 1, 0.0);
 	if (n_missing > 0) {
 		AlphaMissing = vector < aligned_vector32 < float > > (n_missing, aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f));
@@ -303,10 +303,20 @@ void haplotype_segment_single::forward() {
 		trace_ambiguous_cursor("fwd_pre", curr_abs_locus, is_sibling, 0);
 
 		if (supersite_trace_enabled()) {
+			const bool dbg_is_anchor = (site_view.kind == SiteKind::SuperAnchor);
+			const bool dbg_is_sibling = (site_view.kind == SiteKind::SuperSibling);
 			std::fprintf(stdout,
-					"FWD locus=%d rel=%d seg_locus=%d kind=%d emit=%d amb=%d mis=%d\n",
-					curr_abs_locus, curr_rel_locus, curr_segment_locus,
-					(int)site_view.kind, (int)emit, (int)hmm_amb, (int)hmm_mis);
+				"FWD locus=%d rel=%d seg_locus=%d kind=%d emit=%d is_anchor=%d is_sibling=%d amb=%d mis=%d sample_cls0=%u sample_cls1=%u amb_mask=0x%02x curr_abs_amb=%d range=[%d,%d]\n",
+				curr_abs_locus, curr_rel_locus, curr_segment_locus,
+				(int)site_view.kind, (int)emit,
+				dbg_is_anchor ? 1 : 0,
+				dbg_is_sibling ? 1 : 0,
+				(int)hmm_amb, (int)hmm_mis,
+				site_view.sample_class0, site_view.sample_class1,
+				site_view.amb_mask,
+				curr_abs_ambiguous,
+				ambiguous_first,
+				ambiguous_last);
 		}
 
         if (curr_rel_locus == 0) {
@@ -396,11 +406,13 @@ void haplotype_segment_single::forward() {
 
 		if (curr_segment_locus == (G->Lengths[curr_segment_index] - 1)) SUMK();
 		if (curr_segment_locus == G->Lengths[curr_segment_index] - 1) {
-			Alpha[curr_segment_index - segment_first] = prob;
-			AlphaSum[curr_segment_index - segment_first] = probSumH;
-			AlphaLaneSum[curr_segment_index - segment_first] = probSumH;
-			AlphaSumSum[curr_segment_index - segment_first] = probSumT;
-			AlphaLocus[curr_segment_index - segment_first] = prev_abs_locus;
+			const int rel_seg = curr_segment_index - segment_first;
+			Alpha[rel_seg] = prob;
+			AlphaSum[rel_seg] = probSumH;
+			__m256 lane_vec = _mm256_load_ps(&probSumH[0]);
+			_mm256_store_ps(AlphaLaneSum[rel_seg].lane, lane_vec);
+			AlphaSumSum[rel_seg] = probSumT;
+			AlphaLocus[rel_seg] = prev_abs_locus;
 		}
 		if (data_mis) {
 			AlphaMissing[curr_rel_missing] = prob;
@@ -414,8 +426,41 @@ void haplotype_segment_single::forward() {
 		}
 
 		curr_segment_locus ++;
-		curr_abs_ambiguous += data_amb;
-		trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling, data_amb ? 1 : 0);
+		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
+		const int cursor_before = curr_abs_ambiguous;
+		const int expected_delta = (data_amb && has_amb_range) ? 1 : 0;
+		if (supersite_trace_enabled()) {
+			std::fprintf(stdout,
+				"FWD.delta locus=%d cursor_before=%d expected_delta=%d data_amb=%d data_mis=%d is_sibling=%d has_range=%d\n",
+				curr_abs_locus,
+				cursor_before,
+				expected_delta,
+				data_amb ? 1 : 0,
+				data_mis ? 1 : 0,
+				is_sibling ? 1 : 0,
+				has_amb_range ? 1 : 0);
+		}
+		if (expected_delta) curr_abs_ambiguous++;
+		trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling, expected_delta);
+		if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last)) {
+			if (supersite_trace_enabled()) {
+				int seg_len = (curr_segment_index >= 0 && curr_segment_index < (int)G->Lengths.size()) ? G->Lengths[curr_segment_index] : -1;
+				std::fprintf(stderr,
+					"[ss-amb-oob][single] stage=fwd_post locus=%d before=%d after=%d expected_delta=%d range=[%d,%d] seg_idx=%d seg_len=%d seg_loc=%d is_sibling=%d\n",
+					curr_abs_locus,
+					cursor_before,
+					curr_abs_ambiguous,
+					expected_delta,
+					ambiguous_first,
+					ambiguous_last,
+					curr_segment_index,
+					seg_len,
+					curr_segment_locus,
+					static_cast<int>(is_sibling));
+				std::fflush(stderr);
+			}
+			assert(false && "forward ambiguous cursor moved out of window bounds");
+		}
 		if (curr_segment_locus >= G->Lengths[curr_segment_index]) {
 			curr_segment_index++;
 			curr_segment_locus = 0;
@@ -587,8 +632,30 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 
 		curr_segment_locus--;
-		curr_abs_ambiguous -= data_amb;
-		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, data_amb ? -1 : 0);
+		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
+		const int expected_delta = (data_amb && has_amb_range) ? -1 : 0;
+		const int cursor_before_bwd = curr_abs_ambiguous;
+		if (expected_delta) curr_abs_ambiguous--;
+		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, expected_delta);
+		if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last)) {
+			if (supersite_trace_enabled()) {
+				int seg_len = (curr_segment_index >= 0 && curr_segment_index < (int)G->Lengths.size()) ? G->Lengths[curr_segment_index] : -1;
+				std::fprintf(stderr,
+					"[ss-amb-oob][single] stage=bwd_post locus=%d before=%d after=%d expected_delta=%d range=[%d,%d] seg_idx=%d seg_len=%d seg_loc=%d is_sibling=%d\n",
+					curr_abs_locus,
+					cursor_before_bwd,
+					curr_abs_ambiguous,
+					expected_delta,
+					ambiguous_first,
+					ambiguous_last,
+					curr_segment_index,
+					seg_len,
+					curr_segment_locus,
+					static_cast<int>(is_sibling));
+				std::fflush(stderr);
+			}
+			assert(false && "backward ambiguous cursor moved out of window bounds");
+		}
 		if (curr_segment_locus < 0 && curr_segment_index > 0) {
 			curr_segment_index--;
 			curr_segment_locus = G->Lengths[curr_segment_index] - 1;

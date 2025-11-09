@@ -57,7 +57,8 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_expansion_parity \
     $(bindir)/test_segment_boundary_multiallelic \
     $(bindir)/test_supersite_transition_underflow \
-    $(bindir)/test_empty_segment
+    $(bindir)/test_empty_segment \
+    $(bindir)/test_hmm_indexing_supersite
 #    $(bindir)/test_supersite_expected_codes  # TODO: File missing, commented out for now
 
 # Thread Safety Tests
@@ -65,7 +66,8 @@ THREADING_TEST_BINARIES := \
     $(bindir)/test_phaser_threading_safety \
     $(bindir)/test_conditioning_set_threading \
     $(bindir)/test_supersite_threading_safety \
-    $(bindir)/test_ibd2_threading_safety
+    $(bindir)/test_ibd2_threading_safety \
+    $(bindir)/test_supersite_parity_threading
 
 # Default goal: only build test binaries (do not build bin/tests)
 .DEFAULT_GOAL := test-binaries
@@ -161,6 +163,9 @@ $(bindir)/test_supersite_transition_underflow: $(objdir)/test_supersite_transiti
 $(bindir)/test_empty_segment: $(objdir)/test_empty_segment.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
+$(bindir)/test_hmm_indexing_supersite: $(objdir)/test_hmm_indexing_supersite.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
 $(bindir)/test_supersite_expected_codes: $(objdir)/test_supersite_expected_codes.o
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
@@ -175,6 +180,9 @@ $(bindir)/test_supersite_threading_safety: $(objdir)/test_supersite_threading_sa
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS) -lpthread
 
 $(bindir)/test_ibd2_threading_safety: $(objdir)/test_ibd2_threading_safety.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS) -lpthread
+
+$(bindir)/test_supersite_parity_threading: $(objdir)/test_supersite_parity_threading.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS) -lpthread
 
 # Explicit compile rules for external sources (not under tests/src)
