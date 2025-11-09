@@ -77,7 +77,8 @@ void phaser::declare_options() {
 	bpo::options_description opt_supersites ("Super-site support (experimental)");
 	opt_supersites.add_options()
 		("enable-supersites", "Enable super-site support for multiallelic positions (STRs) with 4-bit encoding")
-		("ss-anchor-split-emissions", "Use biallelic split semantics for supersite anchors (treat other ALT as REF at the anchor split)");
+		("ss-anchor-split-emissions", "Use biallelic split semantics for supersite anchors (treat other ALT as REF at the anchor split)")
+		("no-ss-anchor-split-emissions", "Disable biallelic split semantics for supersite anchors (use strict multivariant classes)");
 
 	descriptions.add(opt_base)
 		.add(opt_input)
@@ -143,10 +144,20 @@ void phaser::check_options() {
 
     parse_iteration_scheme(options["mcmc-iterations"].as < string > ());
 
-    // Initialize super-site support flag
-    enable_supersites = options.count("enable-supersites") > 0;
-    // Configure supersite anchor emission semantics (toggle)
-    M.ss_anchor_split_emissions = options.count("ss-anchor-split-emissions") > 0;
+	// Initialize super-site support flag
+	enable_supersites = options.count("enable-supersites") > 0;
+
+	const bool anchor_split_on = options.count("ss-anchor-split-emissions") > 0;
+	const bool anchor_split_off = options.count("no-ss-anchor-split-emissions") > 0;
+	if (anchor_split_on && anchor_split_off)
+		vrb.error("Options --ss-anchor-split-emissions and --no-ss-anchor-split-emissions cannot be used together");
+
+	if (anchor_split_on) M.ss_anchor_split_emissions = true;
+	else if (anchor_split_off) M.ss_anchor_split_emissions = false;
+	else M.ss_anchor_split_emissions = enable_supersites;
+
+	if (!enable_supersites && (anchor_split_on || anchor_split_off))
+		vrb.warning("Supersite anchor emission flags specified but supersites are disabled; option will be ignored");
 }
 
 void phaser::verbose_files() {
@@ -178,4 +189,10 @@ void phaser::verbose_options() {
 	else vrb.bullet("HMM     : [window = " + stb.str(options["hmm-window"].as < double > ()) + "cM / Ne = " + stb.str(options["hmm-ne"].as < int > ()) + " / Constant recombination rate of 1cM per Mb]");
 	if (options.count("filter-snp") || (!options["filter-maf"].defaulted()))
 		vrb.bullet("FILTERS : [snp only = " + stb.str(options.count("filter-snp")) + " / MAF = " + stb.str(options["filter-maf"].as < double > ()) + "]");
+
+	if (enable_supersites) {
+		vrb.bullet("Supersites : [enabled / anchor emissions = " + string(M.ss_anchor_split_emissions ? "split" : "strict") + "]");
+	} else {
+		vrb.bullet("Supersites : [disabled]");
+	}
 }

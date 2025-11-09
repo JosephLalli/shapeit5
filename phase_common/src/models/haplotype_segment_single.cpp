@@ -88,6 +88,7 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	Alpha = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f));
 	AlphaLocus = vector < int > (segment_last - segment_first + 1, 0);
 	AlphaSum = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER, 0.0f));
+	AlphaLaneSum = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER, 0.0f));
 	AlphaSumSum = aligned_vector32 < float > (segment_last - segment_first + 1, 0.0);
 	if (n_missing > 0) {
 		AlphaMissing = vector < aligned_vector32 < float > > (n_missing, aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f));
@@ -145,6 +146,7 @@ haplotype_segment_single::~haplotype_segment_single() {
 	probSumH.clear();
 	Alpha.clear();
 	AlphaSum.clear();
+	AlphaLaneSum.clear();
 	AlphaSumSum.clear();
 	AlphaMissing.clear();
 	AlphaSumMissing.clear();
@@ -292,6 +294,7 @@ void haplotype_segment_single::forward() {
 		if (curr_segment_locus == G->Lengths[curr_segment_index] - 1) {
 			Alpha[curr_segment_index - segment_first] = prob;
 			AlphaSum[curr_segment_index - segment_first] = probSumH;
+			AlphaLaneSum[curr_segment_index - segment_first] = probSumH;
 			AlphaSumSum[curr_segment_index - segment_first] = probSumT;
 			AlphaLocus[curr_segment_index - segment_first] = prev_abs_locus;
 		}

@@ -1,4 +1,5 @@
 #COMPILER MODE C++17
+
 CXX=g++ -std=c++17
 
 
@@ -7,8 +8,8 @@ dummy_build_folder_bin := $(shell mkdir -p bin)
 dummy_build_folder_obj := $(shell mkdir -p obj)
 
 #COMPILER & LINKER FLAGS
-CXXFLAG=-O0 -mavx2 -mfma
-LDFLAG=-O0
+CXXFLAG=-O3 -mavx2 -mfma
+LDFLAG=-O3
 
 ifeq ($(COVERAGE),1) 
 	CXXFLAG += -O0 -g --coverage 

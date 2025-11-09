@@ -23,11 +23,31 @@
 #ifndef _SUPER_SITE_ACCESSOR_H
 #define _SUPER_SITE_ACCESSOR_H
 
+#include <atomic>
 #include <cstdint>
+#include <cstdlib>
+#include <cstdio>
+#include <cinttypes>
 #include <vector>
 #include <boost/align/aligned_allocator.hpp>
 #include <utils/otools.h>
 #include <objects/genotype/genotype_header.h>
+
+namespace supersite_debug {
+inline bool packing_trace_enabled() {
+	static int flag = -1;
+	if (flag < 0) {
+		const char* env = std::getenv("SHAPEIT5_TRACE_SUPERSITE_PACKING");
+		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+	}
+	return flag == 1;
+}
+
+inline uint64_t next_packing_trace_index() {
+	static std::atomic<uint64_t> counter{0};
+	return counter.fetch_add(1, std::memory_order_relaxed);
+}
+} // namespace supersite_debug
 
 // ============================================================================
 // Constants
@@ -76,12 +96,14 @@ inline uint8_t unpackSuperSiteCode(
 	// Byte index: 2 haplotypes per byte with 4-bit codes
 	uint32_t byte_idx = panel_offset + hap_idx / 2;
 	
-	// Debug logging for buffer overflow diagnosis
-	static int debug_count = 0;
-	debug_count++;
-	if (debug_count <= 20) {
-		fprintf(stderr, "unpackSuperSiteCode #%d: panel_offset=%u hap_idx=%u byte_idx=%u\n", 
-				debug_count, panel_offset, hap_idx, byte_idx);
+	// Debug logging for buffer access diagnostics (opt-in)
+	if (supersite_debug::packing_trace_enabled()) {
+		const uint64_t trace_id = supersite_debug::next_packing_trace_index();
+		if (trace_id < 20 || (trace_id % 1000000ULL) == 0ULL) {
+			std::fprintf(stderr,
+				"unpackSuperSiteCode #%" PRIu64 ": panel_offset=%u hap_idx=%u byte_idx=%u\n",
+				trace_id + 1, panel_offset, hap_idx, byte_idx);
+		}
 	}
 	
 	uint8_t byte_val = packed_buffer[byte_idx];

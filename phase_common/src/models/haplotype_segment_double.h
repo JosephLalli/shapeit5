@@ -73,10 +73,12 @@ private:
 	//DYNAMIC ARRAYS
 	double probSumT;
 	aligned_vector32 < double > prob;
-	aligned_vector32 < double > probSumK;
-	aligned_vector32 < double > probSumH;
+    aligned_vector32 < double > probSumK;
+    // Keep donor (row) and lane (column) marginals to seed next segment via outer product
+    aligned_vector32 < double > probSumH;
 	std::vector < aligned_vector32 < double > > Alpha;
 	std::vector < aligned_vector32 < double > > AlphaSum;
+    std::vector < aligned_vector32 < double > > AlphaLaneSum;
 	std::vector < int > AlphaLocus;
 	aligned_vector32 < double > AlphaSumSum;
 	std::vector < aligned_vector32 < double > > AlphaMissing;
@@ -1057,10 +1059,19 @@ void haplotype_segment_double::COLLAPSE_HOM() {
     __m256d _mismatch = _mm256_set1_pd(M.ed/M.ee);
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
         bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-        __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
-        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+        __m256d _prob0;
+        __m256d _prob1;
+        if (use_outer) {
+            double row_mix = row_stay * probSumK[k] + row_switch;
+            __m256d row_vec = _mm256_set1_pd(row_mix);
+            _prob0 = _mm256_mul_pd(col_mix0, row_vec);
+            _prob1 = _mm256_mul_pd(col_mix1, row_vec);
+        } else {
+            _prob0 = _mm256_set1_pd(probSumK[k]);
+            _prob1 = _mm256_set1_pd(probSumK[k]);
+            _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+            _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+        }
         if (ag!=ah) {
             _prob0 = _mm256_mul_pd(_prob0, _mismatch);
             _prob1 = _mm256_mul_pd(_prob1, _mismatch);
@@ -1219,9 +1230,13 @@ void haplotype_segment_double::COLLAPSE_AMB() {
     }
     __m256d _sum0 = _mm256_set1_pd(0.0f);
     __m256d _sum1 = _mm256_set1_pd(0.0f);
-    __m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
-    __m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
-    __m256d _nt = _mm256_set1_pd(nt / probSumT);
+    __m256d col_mix0, col_mix1;
+    double row_stay = 0.0, row_switch = 0.0;
+    int rel_prev_seg = (curr_segment_index - segment_first) - 1;
+    const bool use_outer = prepare_outer_product_mix(rel_prev_seg, col_mix0, col_mix1, row_stay, row_switch);
+    __m256d _tFreq0 = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(yt / n_cond_haps);
+    __m256d _tFreq1 = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(yt / n_cond_haps);
+    __m256d _nt = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(nt / probSumT);
 	__m256d _emit0[2], _emit1[2];
 	_emit0[0] = _mm256_loadu_pd(&g0[0]);
 	_emit0[1] = _mm256_loadu_pd(&g1[0]);
@@ -1229,10 +1244,19 @@ void haplotype_segment_double::COLLAPSE_AMB() {
 	_emit1[1] = _mm256_loadu_pd(&g1[4]);
 	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
 		bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-        __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
-        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+        __m256d _prob0;
+        __m256d _prob1;
+        if (use_outer) {
+            double row_mix = row_stay * probSumK[k] + row_switch;
+            __m256d row_vec = _mm256_set1_pd(row_mix);
+            _prob0 = _mm256_mul_pd(col_mix0, row_vec);
+            _prob1 = _mm256_mul_pd(col_mix1, row_vec);
+        } else {
+            _prob0 = _mm256_set1_pd(probSumK[k]);
+            _prob1 = _mm256_set1_pd(probSumK[k]);
+            _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+            _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+        }
 		_prob0 = _mm256_mul_pd(_prob0, _emit0[ah]);
 		_prob1 = _mm256_mul_pd(_prob1, _emit1[ah]);
 		_sum0 = _mm256_add_pd(_sum0, _prob0);
@@ -1260,14 +1284,14 @@ inline
 bool haplotype_segment_double::prepare_outer_product_mix(int rel_prev_segment, __m256d& col_mix_lo, __m256d& col_mix_hi, double& row_stay, double& row_switch, bool allow_outer) {
 	if (!allow_outer) return false;
 	if (!supersites_enabled_flag) return false;
-	if (rel_prev_segment < 0 || rel_prev_segment >= static_cast<int>(AlphaSum.size())) return false;
+    if (rel_prev_segment < 0 || rel_prev_segment >= static_cast<int>(AlphaLaneSum.size())) return false;
 	if (!n_cond_haps) return false;
 
 	const double prev_total = AlphaSumSum[rel_prev_segment];
 	if (prev_total <= std::numeric_limits<double>::min()) return false;
 
-	const __m256d prev_lo = _mm256_load_pd(&AlphaSum[rel_prev_segment][0]);
-	const __m256d prev_hi = _mm256_load_pd(&AlphaSum[rel_prev_segment][4]);
+    const __m256d prev_lo = _mm256_load_pd(&AlphaLaneSum[rel_prev_segment][0]);
+    const __m256d prev_hi = _mm256_load_pd(&AlphaLaneSum[rel_prev_segment][4]);
 	const __m256d stay = _mm256_set1_pd(nt / prev_total);
 	const __m256d switch_vec = _mm256_set1_pd(yt / static_cast<double>(HAP_NUMBER));
 	col_mix_lo = _mm256_fmadd_pd(prev_lo, stay, switch_vec);
@@ -1308,24 +1332,38 @@ inline
 void haplotype_segment_double::COLLAPSE_MIS() {
     __m256d _sum0 = _mm256_set1_pd(0.0);
     __m256d _sum1 = _mm256_set1_pd(0.0);
-	__m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
-	__m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
-	__m256d _nt = _mm256_set1_pd(nt / probSumT);
-	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-		debugCheckProbBounds(i, "SS_COLLAPSE_MIS");
-		double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
-        __m256d _prob0 = _mm256_set1_pd(base);
-        __m256d _prob1 = _mm256_set1_pd(base);
-        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
-		_sum0 = _mm256_add_pd(_sum0, _prob0);
-		_sum1 = _mm256_add_pd(_sum1, _prob1);
-		_mm256_store_pd(&prob[i], _prob0);
-		_mm256_store_pd(&prob[i+4], _prob1);
-	}
-	_mm256_store_pd(&probSumH[0], _sum0);
-	_mm256_store_pd(&probSumH[4], _sum1);
-	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    __m256d col_mix0, col_mix1;
+    double row_stay = 0.0, row_switch = 0.0;
+    int rel_prev_seg = (curr_segment_index - segment_first) - 1;
+    const bool use_outer = prepare_outer_product_mix(rel_prev_seg, col_mix0, col_mix1, row_stay, row_switch, true);
+    __m256d _tFreq0 = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(yt / n_cond_haps);
+    __m256d _tFreq1 = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(yt / n_cond_haps);
+    __m256d _nt = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(nt / probSumT);
+    for (int k = 0, i = 0; k != n_cond_haps; ++k, i += HAP_NUMBER) {
+        debugCheckProbBounds(i, "SS_COLLAPSE_MIS");
+        __m256d _prob0;
+        __m256d _prob1;
+        if (use_outer) {
+            double base = (k < (int)probSumK.size()) ? probSumK[k] : 0.0;
+            double row_mix = row_stay * base + row_switch;
+            __m256d row_vec = _mm256_set1_pd(row_mix);
+            _prob0 = _mm256_mul_pd(col_mix0, row_vec);
+            _prob1 = _mm256_mul_pd(col_mix1, row_vec);
+        } else {
+            double base = (k < (int)probSumK.size()) ? probSumK[k] : 0.0;
+            _prob0 = _mm256_set1_pd(base);
+            _prob1 = _mm256_set1_pd(base);
+            _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+            _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+        }
+        _sum0 = _mm256_add_pd(_sum0, _prob0);
+        _sum1 = _mm256_add_pd(_sum1, _prob1);
+        _mm256_store_pd(&prob[i], _prob0);
+        _mm256_store_pd(&prob[i + 4], _prob1);
+    }
+    _mm256_store_pd(&probSumH[0], _sum0);
+    _mm256_store_pd(&probSumH[4], _sum1);
+    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 }
 
 /*******************************************************************************/
@@ -1425,106 +1463,122 @@ bool haplotype_segment_double::TRANS_DIP_ADD() {
 }
 
 inline
-void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilities) {
-    // Supersite-aware imputation: classify cond hap codes as REF(0) vs ALT(>0)
+void haplotype_segment_double::IMPUTE(std::vector<float>& missing_probabilities) {
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
 
-    __m256d _sum0 = _mm256_set1_pd(0.0);
-    __m256d _sum1 = _mm256_set1_pd(0.0);
-
-    __m256d _sumA0[2], _sumA1[2];
-    _sumA0[0] = _mm256_set1_pd(0.0);
-    _sumA0[1] = _mm256_set1_pd(0.0);
-    _sumA1[0] = _mm256_set1_pd(0.0);
-    _sumA1[1] = _mm256_set1_pd(0.0);
-
-    __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][0]);
-    __m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][4]);
+    __m256d _alphaSum_lo = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][0]);
+    __m256d _alphaSum_hi = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][4]);
     __m256d _ones = _mm256_set1_pd(1.0);
-    _alphaSum0 = _mm256_div_pd(_ones, _alphaSum0);
-    _alphaSum1 = _mm256_div_pd(_ones, _alphaSum1);
+    __m256d _alphaInv_lo = _mm256_div_pd(_ones, _alphaSum_lo);
+    __m256d _alphaInv_hi = _mm256_div_pd(_ones, _alphaSum_hi);
 
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
-        // Identify target class for current missing variant within supersite
-        int target_class = 0; // 0 = REF, 1..n_alts = ALT index
+
+        int target_class = 0;
         for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
             if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
-                target_class = (int)ai + 1;
+                target_class = static_cast<int>(ai) + 1;
                 break;
             }
         }
-        // Unpack conditioning hap codes
+
         if (panel_codes != nullptr) {
             for (int k = 0; k < (int)n_cond_haps; ++k) {
                 unsigned int gh = (*cond_idx)[k];
                 ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
             }
         }
-        // Initialize per-class accumulators (up to SUPERSITE_MAX_ALTS+1)
-        __m256d sum_lo_classes[SUPERSITE_MAX_ALTS + 1];
-        __m256d sum_hi_classes[SUPERSITE_MAX_ALTS + 1];
+
+        __m256d sum_lo[SUPERSITE_MAX_ALTS + 1];
+        __m256d sum_hi[SUPERSITE_MAX_ALTS + 1];
         for (int c = 0; c <= (int)ss.var_count; ++c) {
-            sum_lo_classes[c] = _mm256_set1_pd(0.0);
-            sum_hi_classes[c] = _mm256_set1_pd(0.0);
+            sum_lo[c] = _mm256_set1_pd(0.0);
+            sum_hi[c] = _mm256_set1_pd(0.0);
         }
         __m256d denom_lo = _mm256_set1_pd(0.0);
         __m256d denom_hi = _mm256_set1_pd(0.0);
-        // Accumulate per conditioning haplotype into class buckets
+
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            int code = (int)ss_cond_codes[k]; // 0..n_alts
-            if (code > (int)ss.var_count) code = 0; // safety
-            __m256d _prob0 = _mm256_load_pd(&prob[i]);
-            __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
-            __m256d _alpha0 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+0]);
-            __m256d _alpha1 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+4]);
-            _sum0 = _mm256_mul_pd(_mm256_mul_pd(_alpha0, _alphaSum0), _prob0);
-            _sum1 = _mm256_mul_pd(_mm256_mul_pd(_alpha1, _alphaSum1), _prob1);
-            sum_lo_classes[code] = _mm256_add_pd(sum_lo_classes[code], _sum0);
-            sum_hi_classes[code] = _mm256_add_pd(sum_hi_classes[code], _sum1);
-            denom_lo = _mm256_add_pd(denom_lo, _sum0);
-            denom_hi = _mm256_add_pd(denom_hi, _sum1);
+            int code = (int)ss_cond_codes[k];
+            if (code > (int)ss.var_count) code = 0;
+
+            __m256d _prob_lo = _mm256_load_pd(&prob[i]);
+            __m256d _prob_hi = _mm256_load_pd(&prob[i + 4]);
+            __m256d _alpha_lo = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i]);
+            __m256d _alpha_hi = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i + 4]);
+            __m256d term_lo = _mm256_mul_pd(_mm256_mul_pd(_alpha_lo, _alphaInv_lo), _prob_lo);
+            __m256d term_hi = _mm256_mul_pd(_mm256_mul_pd(_alpha_hi, _alphaInv_hi), _prob_hi);
+
+            sum_lo[code] = _mm256_add_pd(sum_lo[code], term_lo);
+            sum_hi[code] = _mm256_add_pd(sum_hi[code], term_hi);
+            denom_lo = _mm256_add_pd(denom_lo, term_lo);
+            denom_hi = _mm256_add_pd(denom_hi, term_hi);
         }
-        // Compute per-lane posterior for target class = ALT for this specific split variant
-        __m256d p_lo = sum_lo_classes[target_class];
-        __m256d p_hi = sum_hi_classes[target_class];
-        // Store results
-        alignas(32) double plo[4], phi[4], dlo[4], dhi[4];
-        _mm256_store_pd(plo, p_lo);
-        _mm256_store_pd(phi, p_hi);
-        _mm256_store_pd(dlo, denom_lo);
-        _mm256_store_pd(dhi, denom_hi);
-        for (int h = 0; h < 4; ++h) {
-            double denom = dlo[h];
-            missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = (float)((denom > 0.0) ? (plo[h] / denom) : 0.0);
+
+        alignas(32) double sum_lo_vals[SUPERSITE_MAX_ALTS + 1][4];
+        alignas(32) double sum_hi_vals[SUPERSITE_MAX_ALTS + 1][4];
+        alignas(32) double denom_lo_vals[4];
+        alignas(32) double denom_hi_vals[4];
+
+        for (int c = 0; c <= (int)ss.var_count; ++c) {
+            _mm256_store_pd(sum_lo_vals[c], sum_lo[c]);
+            _mm256_store_pd(sum_hi_vals[c], sum_hi[c]);
         }
-        for (int h = 0; h < 4; ++h) {
-            double denom = dhi[h];
-            missing_probabilities[curr_abs_missing * HAP_NUMBER + (4 + h)] = (float)((denom > 0.0) ? (phi[h] / denom) : 0.0);
+        _mm256_store_pd(denom_lo_vals, denom_lo);
+        _mm256_store_pd(denom_hi_vals, denom_hi);
+
+        for (int lane = 0; lane < 4; ++lane) {
+            double denom = denom_lo_vals[lane];
+            double numer = sum_lo_vals[target_class][lane];
+            missing_probabilities[curr_abs_missing * HAP_NUMBER + lane] = (float)((denom > 0.0) ? (numer / denom) : 0.0);
         }
-        return;
+        for (int lane = 0; lane < 4; ++lane) {
+            double denom = denom_hi_vals[lane];
+            double numer = sum_hi_vals[target_class][lane];
+            missing_probabilities[curr_abs_missing * HAP_NUMBER + 4 + lane] = (float)((denom > 0.0) ? (numer / denom) : 0.0);
+        }
     } else {
-        // Biallelic path
+        __m256d sum_lo[2];
+        __m256d sum_hi[2];
+        sum_lo[0] = _mm256_set1_pd(0.0);
+        sum_lo[1] = _mm256_set1_pd(0.0);
+        sum_hi[0] = _mm256_set1_pd(0.0);
+        sum_hi[1] = _mm256_set1_pd(0.0);
+
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-            __m256d _prob0 = _mm256_load_pd(&prob[i]);
-            __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
-            __m256d _alpha0 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+0]);
-            __m256d _alpha1 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+4]);
-            _sum0 = _mm256_mul_pd(_mm256_mul_pd(_alpha0, _alphaSum0), _prob0);
-            _sum1 = _mm256_mul_pd(_mm256_mul_pd(_alpha1, _alphaSum1), _prob1);
-            _sumA0[ah] = _mm256_add_pd(_sumA0[ah], _sum0);
-            _sumA1[ah] = _mm256_add_pd(_sumA1[ah], _sum1);
+            bool ah = Hvar.get(curr_rel_locus + curr_rel_locus_offset, k);
+
+            __m256d _prob_lo = _mm256_load_pd(&prob[i]);
+            __m256d _prob_hi = _mm256_load_pd(&prob[i + 4]);
+            __m256d _alpha_lo = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i]);
+            __m256d _alpha_hi = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i + 4]);
+            __m256d term_lo = _mm256_mul_pd(_mm256_mul_pd(_alpha_lo, _alphaInv_lo), _prob_lo);
+            __m256d term_hi = _mm256_mul_pd(_mm256_mul_pd(_alpha_hi, _alphaInv_hi), _prob_hi);
+
+            sum_lo[ah] = _mm256_add_pd(sum_lo[ah], term_lo);
+            sum_hi[ah] = _mm256_add_pd(sum_hi[ah], term_hi);
+        }
+
+        alignas(32) double class_lo[2][4];
+        alignas(32) double class_hi[2][4];
+        _mm256_store_pd(class_lo[0], sum_lo[0]);
+        _mm256_store_pd(class_lo[1], sum_lo[1]);
+        _mm256_store_pd(class_hi[0], sum_hi[0]);
+        _mm256_store_pd(class_hi[1], sum_hi[1]);
+
+        for (int lane = 0; lane < 4; ++lane) {
+            double denom = class_lo[0][lane] + class_lo[1][lane];
+            double numer = class_lo[1][lane];
+            missing_probabilities[curr_abs_missing * HAP_NUMBER + lane] = (float)((denom > 0.0) ? (numer / denom) : 0.0);
+        }
+        for (int lane = 0; lane < 4; ++lane) {
+            double denom = class_hi[0][lane] + class_hi[1][lane];
+            double numer = class_hi[1][lane];
+            missing_probabilities[curr_abs_missing * HAP_NUMBER + 4 + lane] = (float)((denom > 0.0) ? (numer / denom) : 0.0);
         }
     }
-
-    double * prob0 = (double*)&_sumA0[0];
-    double * prob1 = (double*)&_sumA0[1];
-    for (int h = 0 ; h < 4 ; h ++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h]+prob1[h]);
-    prob0 = (double*)&_sumA1[0];
-    prob1 = (double*)&_sumA1[1];
-    for (int h = 4 ; h < HAP_NUMBER ; h ++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h]+prob1[h]);
 }
 
 // Phase 3: Multivariant imputation for supersites
@@ -1532,11 +1586,8 @@ void haplotype_segment_double::IMPUTE(std::vector < float > & missing_probabilit
 // Writes to SC buffer at ss.class_prob_offset
 inline
 void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx, int rel_missing_index, const std::vector<uint32_t>* supersite_sc_offset) {
-    fprintf(stderr, "IMPUTE_SUPERSITE_MULTIVARIATE called: panel_codes=%p ss_idx=%d SC.size()=%zu\n", 
-            (void*)panel_codes, ss_idx, SC.size());
     // Return early if panel codes not available (no supersites built)
     if (panel_codes == nullptr) {
-        fprintf(stderr, "IMPUTE_SUPERSITE_MULTIVARIATE: early return, panel_codes is nullptr\n");
         return;
     }
     

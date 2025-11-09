@@ -35,17 +35,19 @@ if [[ 'x' == 'y' ]]; then
   --output $scaffold_bcf_prefix.main_algo.bcf \
   --thread 64 &
 fi
+# SHAPEIT5_TEST_TRACE=1 SHAPEIT5_DEBUG_UNDERFLOW=1 \
 /usr/bin/time ../phase_common/bin/phase_common \
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.supersites.split_emissions.bcf \
-  --thread 64 \
-  --enable-supersites
-
+  --enable-supersites \
+  --thread 64 
+#  --enable-supersites
+#fi
 wait
-exit 0
+#exit 0
 ../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
   --estimation "$scaffold_bcf_prefix.og.bcf" \
@@ -82,7 +84,7 @@ extract_switch_error() {
 
 og_error=$(extract_switch_error "$scaffold_bcf_prefix.og.log")
 main_algo_error=$(extract_switch_error "$scaffold_bcf_prefix.main_algo.log")
-supersites_error=$(extract_switch_error "$scaffold_bcf_prefix.supersites.log")
+supersites_error=$(extract_switch_error "$scaffold_bcf_prefix.supersites.split_emissions.log")
 
 echo "Original algorithm switch error rate: $og_error"
 echo "Main algorithm switch error rate: $main_algo_error"
