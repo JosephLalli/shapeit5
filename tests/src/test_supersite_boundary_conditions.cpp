@@ -93,7 +93,7 @@ int main() {
     W_init.start_transition = 0; W_init.stop_transition = -1;
 
     haplotype_segment_single HS_init(&G, H.H_opt_hap, idxH, W_init, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
     HS_init.forward();
     // Expect neutral (uniform) init to prevent underflow
     assert(std::fabs(HS_init.probSumT - 1.0f) < 1e-6f);
@@ -107,7 +107,7 @@ int main() {
     W_anchor.start_transition = 0; W_anchor.stop_transition = -1;
 
     haplotype_segment_single HS_anchor(&G, H.H_opt_hap, idxH, W_anchor, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
     HS_anchor.forward();
 
     window W_both;
@@ -118,7 +118,7 @@ int main() {
     W_both.start_transition = 0; W_both.stop_transition = -1;
 
     haplotype_segment_single HS_both(&G, H.H_opt_hap, idxH, W_both, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
     HS_both.forward();
 
     // Sibling at end is a no-op → identical state

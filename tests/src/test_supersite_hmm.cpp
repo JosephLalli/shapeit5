@@ -125,8 +125,9 @@ int main() {
         &super_sites,
         &is_super_site,
         &locus_to_super_idx,
-        packed_codes.data(),
-        &super_site_var_index
+    packed_codes.data(),
+    packed_codes.size(),
+    &super_site_var_index
     );
 
     HS.forward();
@@ -148,8 +149,9 @@ int main() {
         &super_sites,
         &is_super_site,
         &locus_to_super_idx,
-        packed_codes.data(),
-        &super_site_var_index
+    packed_codes.data(),
+    packed_codes.size(),
+    &super_site_var_index
     );
 
     HD.forward();

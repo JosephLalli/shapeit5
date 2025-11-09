@@ -53,21 +53,21 @@ wait
   --estimation "$scaffold_bcf_prefix.og.bcf" \
   --region $comparison_region \
   --output "$scaffold_bcf_prefix.og" \
-  --log "$scaffold_bcf_prefix.og.log"
+  --log "$scaffold_bcf_prefix.og.log" >/dev/null
 
 ../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
   --estimation "$scaffold_bcf_prefix.main_algo.bcf" \
   --region $comparison_region \
   --output "$scaffold_bcf_prefix.main_algo" \
-  --log "$scaffold_bcf_prefix.main_algo.log"
+  --log "$scaffold_bcf_prefix.main_algo.log" >/dev/null
 
 ../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
   --estimation "$scaffold_bcf_prefix.supersites.split_emissions.bcf" \
   --region $comparison_region \
   --output "$scaffold_bcf_prefix.supersites.split_emissions" \
-  --log "$scaffold_bcf_prefix.supersites.split_emissions.log"
+  --log "$scaffold_bcf_prefix.supersites.split_emissions.log" >/dev/null
 
 # Integration testing: Extract and compare switch error rates
 echo "=== Integration Test Results ==="

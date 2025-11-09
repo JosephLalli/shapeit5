@@ -74,9 +74,9 @@ int main() {
     std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
 
     haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
     haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
 
     HS.forward();
     HD.forward();

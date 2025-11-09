@@ -30,7 +30,10 @@
 #include <objects/hmm_parameters.h>
 #include <models/site_emission_types.h>
 #include <models/super_site_macros.h>
+#include <cmath>
+#include <cstdio>
 #include <limits>
+#include <cstdlib>
 
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
@@ -96,6 +99,7 @@ private:
 	const std::vector<bool>* is_super_site;
 	const std::vector<int>* locus_to_super_idx;
 	const uint8_t* panel_codes;
+    size_t panel_codes_size;
 	const std::vector<int>* super_site_var_index;
 	const std::vector<unsigned int>* cond_idx;
 	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets (set during backward)
@@ -111,6 +115,7 @@ private:
 	// EMISSION HELPERS
 	MatchMask init_match_mask;
 	bool prepare_outer_product_mix(int rel_prev_segment, __m256& col_mix, float& row_stay, float& row_switch, bool allow_outer = true);
+    void trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling) const;
 
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
@@ -227,8 +232,9 @@ public:
 		const std::vector<SuperSite>* _super_sites = nullptr,
 		const std::vector<bool>* _is_super_site = nullptr,
 		const std::vector<int>* _locus_to_super_idx = nullptr,
-		const uint8_t* _panel_codes = nullptr,
-		const std::vector<int>* _super_site_var_index = nullptr);
+        const uint8_t* _panel_codes = nullptr,
+        size_t _panel_codes_size = 0,
+        const std::vector<int>* _super_site_var_index = nullptr);
 	~haplotype_segment_single();
 
 	//void fetch();
@@ -298,11 +304,18 @@ void haplotype_segment_single::ss_load_cond_codes(const SuperSite& ss, int ss_id
 	
 	// Return if panel codes not available (no supersites built)
 	if (panel_codes == nullptr) return;
+
+    if (!supersite_debug::validate_panel_span(ss, panel_codes_size, ss_idx, "haplotype_segment_single::ss_load_cond_codes")) {
+        std::abort();
+    }
 	
 	// Unpack and cache all donor codes for this supersite
 	ss_cond_codes.resize(n_cond_haps);
 	for (int k = 0; k < (int)n_cond_haps; ++k) {
 		unsigned int gh = (*cond_idx)[k];
+        if (!supersite_debug::validate_panel_byte(ss, gh, ss_idx, "haplotype_segment_single::ss_load_cond_codes")) {
+            std::abort();
+        }
 		ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
 	}
 	
@@ -1257,13 +1270,7 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
         for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
             if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { target_class = (int)ai + 1; break; }
         }
-        // Unpack cond hap codes
-        if (panel_codes != nullptr) {
-            for (int k = 0; k < (int)n_cond_haps; ++k) {
-                unsigned int gh = (*cond_idx)[k];
-                ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-            }
-        }
+        ss_load_cond_codes(ss, ss_idx);
         // Prepare accumulators per class
         __m256 sum_classes[SUPERSITE_MAX_ALTS + 1];
         for (int c = 0; c <= (int)ss.var_count; ++c) sum_classes[c] = _mm256_set1_ps(0.0f);
@@ -1313,12 +1320,7 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
     // Return early if panel codes not available (no supersites built)
     if (panel_codes == nullptr) return;
     
-    // Unpack conditioning haplotype allele codes for this supersite
-    // (same as in forward: 0=REF, 1..n_alts=ALT1..ALTn)
-    for (int k = 0; k < (int)n_cond_haps; ++k) {
-        unsigned int gh = (*cond_idx)[k];
-        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-    }
+    ss_load_cond_codes(ss, ss_idx);
     
     int C = (int)ss.n_classes;  // 1 + n_alts
     
@@ -1328,11 +1330,47 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
         offset = (*supersite_sc_offset)[ss_idx];  // Use thread-local offset to prevent race conditions
     } else {
         // Fallback for tests: assume simple layout with supersite index * (lanes * classes)
-        offset = static_cast<uint32_t>(ss_idx) * HAP_NUMBER * C;
+        const bool has_guard = (SC.size() >= 2 && std::isnan(SC[0]) && std::isnan(SC[SC.size() - 1]));
+        offset = static_cast<uint32_t>(ss_idx) * HAP_NUMBER * C + (has_guard ? 1u : 0u);
     }
-    
-    // Bounds check: ensure we don't write beyond SC buffer
-    assert(offset + HAP_NUMBER * C <= SC.size());
+
+    const size_t required = static_cast<size_t>(offset) + static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>(C);
+    const bool guard_sentinels_present = supersite_debug::guard_checks_enabled() &&
+                                         SC.size() >= 2 &&
+                                         std::isnan(SC.front()) &&
+                                         std::isnan(SC.back());
+    const bool guard_applicable = guard_sentinels_present && offset >= 1u;
+    if (guard_applicable) {
+        const size_t usable = SC.size() - 1;  // trailing guard slot excluded
+        if (required > usable) {
+            std::fprintf(stderr,
+                "[supersite-guard] IMPUTE_SUPERSITE_MULTIVARIATE: offset=%u C=%d size=%zu required=%zu sample=%s ss_idx=%d\n",
+                offset, C, SC.size(), required, G ? G->name.c_str() : "?", ss_idx);
+            assert(required <= usable);
+            return;
+        }
+        const size_t guard_hi = SC.size() - 1;
+        const float pre_guard = SC[offset - 1];
+        const float post_guard = SC[guard_hi];
+        if (!std::isnan(pre_guard) || !std::isnan(post_guard)) {
+            std::fprintf(stderr,
+                "[supersite-guard] Guard corrupt before write offset=%u sample=%s ss_idx=%d pre=%g post=%g\n",
+                offset, G ? G->name.c_str() : "?", ss_idx, pre_guard, post_guard);
+            assert(std::isnan(pre_guard));
+            assert(std::isnan(post_guard));
+            return;
+        }
+    } else if (supersite_debug::guard_checks_enabled()) {
+        // Either guard sentinels are absent or offset points to the very first element.
+        // Fall back to simple bounds validation without assuming sentinel padding.
+        if (required > SC.size()) {
+            std::fprintf(stderr,
+                "[supersite-guard] IMPUTE_SUPERSITE_MULTIVARIATE (unguarded buffer): offset=%u C=%d size=%zu required=%zu sample=%s ss_idx=%d\n",
+                offset, C, SC.size(), required, G ? G->name.c_str() : "?", ss_idx);
+            assert(required <= SC.size());
+            return;
+        }
+    }
     
     // Initialize per-class accumulators (8 lanes = 8 samples)
     // sum[c] = Σ_k [Alpha_k × Beta_k × 1{donor_k carries class_c}]
@@ -1342,10 +1380,39 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
     }
     __m256 denom = _mm256_set1_ps(0.0f);
     
+    if (rel_missing_index < 0 || rel_missing_index >= (int)AlphaSumMissing.size()) {
+        std::fprintf(stderr,
+            "[supersite-guard] AlphaSumMissing OOB sample=%s ss_idx=%d rel_missing_index=%d size=%zu\n",
+            G ? G->name.c_str() : "?", ss_idx, rel_missing_index, AlphaSumMissing.size());
+        assert(rel_missing_index >= 0 && rel_missing_index < (int)AlphaSumMissing.size());
+        return;
+    }
+    if (rel_missing_index >= (int)AlphaMissing.size()) {
+        std::fprintf(stderr,
+            "[supersite-guard] AlphaMissing OOB sample=%s ss_idx=%d rel_missing_index=%d size=%zu\n",
+            G ? G->name.c_str() : "?", ss_idx, rel_missing_index, AlphaMissing.size());
+        assert(rel_missing_index < (int)AlphaMissing.size());
+        return;
+    }
+    if (AlphaSumMissing[rel_missing_index].size() < HAP_NUMBER ||
+        AlphaMissing[rel_missing_index].size() < HAP_NUMBER) {
+        std::fprintf(stderr,
+            "[supersite-guard] Missing arrays under-sized sample=%s ss_idx=%d rel_missing_index=%d AlphaSumMissing_size=%zu AlphaMissing_size=%zu\n",
+            G ? G->name.c_str() : "?", ss_idx, rel_missing_index,
+            AlphaSumMissing[rel_missing_index].size(), AlphaMissing[rel_missing_index].size());
+        assert(AlphaSumMissing[rel_missing_index].size() >= HAP_NUMBER);
+        assert(AlphaMissing[rel_missing_index].size() >= HAP_NUMBER);
+        return;
+    }
+
+    std::fprintf(stderr, "[supersite-debug] entering IMPUTE_SUPERSITE_MULTIVARIATE ss_idx=%d offset=%u C=%d rel_missing_index=%d n_cond_haps=%u\n",
+        ss_idx, offset, C, rel_missing_index, (unsigned)n_cond_haps);
+
     // Load AlphaSumInv for normalization
     __m256 _alphaSum = _mm256_load_ps(&AlphaSumMissing[rel_missing_index][0]);
     __m256 _ones = _mm256_set1_ps(1.0f);
     __m256 _alphaSum_inv = _mm256_div_ps(_ones, _alphaSum);
+    std::fprintf(stderr, "[supersite-debug] after alphaSum load\n");
     
     // Accumulate: for each conditioning donor haplotype k
     for (int k = 0, i = 0; k < (int)n_cond_haps; ++k, i += HAP_NUMBER) {
@@ -1361,6 +1428,7 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
         sum[code] = _mm256_add_ps(sum[code], term);
         denom = _mm256_add_ps(denom, term);
     }
+    std::fprintf(stderr, "[supersite-debug] after accumulation\n");
     
     // Normalize: SC[offset + h*C + c] = sum[c][h] / denom[h]
     // Extract 8 lanes and write to SC buffer
@@ -1371,6 +1439,7 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
         _mm256_storeu_ps(sum_lanes[c], sum[c]);
     }
     _mm256_storeu_ps(denom_lanes, denom);
+    std::fprintf(stderr, "[supersite-debug] after store lanes\n");
     
     // Write normalized posteriors to SC
     for (int h = 0; h < HAP_NUMBER; ++h) {
@@ -1384,6 +1453,50 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
             float uniform = 1.0f / (float)C;
             for (int c = 0; c < C; ++c) {
                 SC[offset + h * C + c] = uniform;
+            }
+        }
+    }
+    std::fprintf(stderr, "[supersite-debug] after write\n");
+
+    if (supersite_debug::guard_checks_enabled()) {
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            float row_sum = 0.0f;
+            for (int c = 0; c < C; ++c) {
+                float value = SC[offset + h * C + c];
+                if (!std::isfinite(value)) {
+                    std::fprintf(stderr,
+                        "[supersite-guard] Non-finite SC entry sample=%s ss_idx=%d lane=%d class=%d value=%g\n",
+                        G ? G->name.c_str() : "?", ss_idx, h, c, value);
+                    assert(std::isfinite(value));
+                    return;
+                }
+                if (value < -1e-6f) {
+                    std::fprintf(stderr,
+                        "[supersite-guard] Negative SC entry sample=%s ss_idx=%d lane=%d class=%d value=%g\n",
+                        G ? G->name.c_str() : "?", ss_idx, h, c, value);
+                    assert(value >= -1e-6f);
+                    return;
+                }
+                row_sum += value;
+            }
+            if (std::fabs(row_sum - 1.0f) > 1e-3f) {
+                std::fprintf(stderr,
+                    "[supersite-guard] Row sum drift sample=%s ss_idx=%d lane=%d sum=%g\n",
+                    G ? G->name.c_str() : "?", ss_idx, h, row_sum);
+                assert(std::fabs(row_sum - 1.0f) <= 1e-3f);
+                return;
+            }
+        }
+        const size_t guard_hi = SC.size() ? SC.size() - 1 : 0;
+        if (guard_hi > 0 && offset >= 1u) {
+            const float pre_guard = SC[offset - 1];
+            const float post_guard = SC[guard_hi];
+            if (!std::isnan(pre_guard) || !std::isnan(post_guard)) {
+                std::fprintf(stderr,
+                    "[supersite-guard] Guard corrupt after write sample=%s ss_idx=%d pre=%g post=%g\n",
+                    G ? G->name.c_str() : "?", ss_idx, pre_guard, post_guard);
+                assert(std::isnan(pre_guard));
+                assert(std::isnan(post_guard));
             }
         }
     }

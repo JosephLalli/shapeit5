@@ -80,7 +80,7 @@ int main() {
 
     // Float path
     haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
     HS.forward();
     // Pre-size transition probabilities as required by SET_FIRST_TRANS/SET_OTHER_TRANS
     std::vector<double> T_f(G.countTransitions(), 0.0);
@@ -90,7 +90,7 @@ int main() {
 
     // Double path
     haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
     HD.forward();
     std::vector<double> T_d(G.countTransitions(), 0.0);
     std::vector<float> Mprob_d;

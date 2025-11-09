@@ -10,6 +10,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <iostream>
 #include <vector>
 
@@ -103,14 +104,16 @@ int main() {
     SuperSite& ss = super_sites[0];
     ss.n_classes = 1 + ss.n_alts; // 3
     // class_prob_offset moved to thread-local storage (no longer part of SuperSite)
-    std::vector<float> SC(HAP_NUMBER * ss.n_classes, -1.0f);
+    std::vector<float> SC(HAP_NUMBER * ss.n_classes + 2, -1.0f);
+    SC.front() = std::numeric_limits<float>::quiet_NaN();
+    SC.back() = std::numeric_limits<float>::quiet_NaN();
     std::vector<bool> anchor_has_missing(1, true);
-    std::vector<uint32_t> supersite_sc_offset(1, 0);  // Thread-local offset vector for test
+    std::vector<uint32_t> supersite_sc_offset(1, 1);  // Thread-local offset vector for test (+1 guard)
 
     // Run forward/backward
     haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
         &super_sites, &is_super_site, &locus_to_super_idx,
-        packed_codes.data(), &super_site_var_index);
+           packed_codes.data(), packed_codes.size(), &super_site_var_index);
     // Allocate forward buffers and then override minimal required state
     HS.forward();
 
@@ -132,9 +135,10 @@ int main() {
 
     // Verify per-haplotype normalization: sum_c SC[h*C+c] ≈ 1.0
     int C = ss.n_classes;
+    uint32_t offset = supersite_sc_offset[0];
     for (int h = 0; h < HAP_NUMBER; ++h) {
         double sum = 0.0;
-        for (int c = 0; c < C; ++c) sum += SC[h * C + c];
+        for (int c = 0; c < C; ++c) sum += SC[offset + h * C + c];
         double diff = std::fabs(sum - 1.0);
         if (diff > 1e-5) {
             std::cerr << "Normalization failed for hap " << h << ": sum=" << sum << std::endl;

@@ -6,6 +6,7 @@
 #include <vector>
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 
 #include <containers/bitmatrix.h>
 #include <models/site_emission_types.h>
@@ -39,13 +40,15 @@ public:
                               const std::vector<int>* locus_to_super_idx,
                               const std::vector<int>* super_site_var_index,
                               const uint8_t* panel_codes,
-                              const std::vector<unsigned int>* cond_idx)
+                                                            const std::vector<unsigned int>* cond_idx,
+                                                            size_t panel_codes_size = 0)
         : G_(G),
           super_sites_(super_sites),
           locus_to_super_idx_(locus_to_super_idx),
           super_site_var_index_(super_site_var_index),
-          panel_codes_(panel_codes),
-          cond_idx_(cond_idx) {}
+                    panel_codes_(panel_codes),
+                    cond_idx_(cond_idx),
+                    panel_codes_size_(panel_codes_size) {}
 
     bool build_view(int abs_locus,
                     int curr_abs_ambiguous,
@@ -63,6 +66,7 @@ private:
     const std::vector<int>* super_site_var_index_{nullptr};
     const uint8_t* panel_codes_{nullptr};
     const std::vector<unsigned int>* cond_idx_{nullptr};
+    size_t panel_codes_size_{0};
 };
 
 // =============================
@@ -281,6 +285,9 @@ inline void SupersiteEmissionAdapter::build_match_mask(const SiteView& view,
         assert(panel_codes_ != nullptr && "panel_codes must be set when using anchor-split semantics");
         assert(cond_idx_ != nullptr && "cond_idx must be set when using anchor-split semantics");
     }
+    if (!supersite_debug::validate_panel_span(ss, panel_codes_size_, view.supersite_index, "SupersiteEmissionAdapter::build_match_mask")) {
+        std::abort();
+    }
     std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMismatch);
     std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), false);
 
@@ -296,6 +303,9 @@ inline void SupersiteEmissionAdapter::build_match_mask(const SiteView& view,
 
     for (unsigned int k = 0; k < n_cond_haps; ++k) {
         const unsigned int hap_idx = (*cond_idx_)[k];
+        if (!supersite_debug::validate_panel_byte(ss, hap_idx, view.supersite_index, "SupersiteEmissionAdapter::build_match_mask")) {
+            std::abort();
+        }
         const uint8_t donor_code = unpackSuperSiteCode(panel_codes_, ss.panel_offset, hap_idx);
         const std::size_t base = static_cast<std::size_t>(k) * HAP_NUMBER;
         if (tr && tr[0] != '\0' && tr[0] != '0') {

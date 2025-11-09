@@ -880,6 +880,7 @@ __m256 _prob = _emit[ah];  // Use g0 if donor has REF (ah=0), g1 if donor has AL
 **Known Implementation Debt:**
 - Window starts may land on supersite siblings; ideally adjust to anchors or non-member loci when `--enable-supersites` is set
 - Consider adding assertion to prevent window starts on siblings in debug builds
+- **Nov 9 2025 Hypothesis:** K inflation with supersites enabled may come from `curr_abs_ambiguous` (and companions like `curr_rel_ambiguous`) drifting when sibling loci skip DP. Once those counters underflow, AMB paths read garbage masks, breaking heterozygote skew and causing PBWT to pull extra donors. Investigate counter synchronization around supersite anchor/sibling transitions.
 
 ---
 

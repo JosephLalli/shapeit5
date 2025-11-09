@@ -17,6 +17,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <iostream>
 #include <vector>
 
@@ -95,7 +96,7 @@ int main() {
 
     std::vector<unsigned int> idxH = {0u,1u,2u,3u};
     haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
 
     // Run forward to allocate buffers
     HS.forward();
@@ -103,9 +104,11 @@ int main() {
     // Prepare SC buffer and flags for the supersite; compute per-hap class posteriors
     ss.n_classes = 1 + ss.n_alts; // 3
     // class_prob_offset moved to thread-local storage (no longer part of SuperSite)
-    std::vector<float> SC(HAP_NUMBER * ss.n_classes, 0.0f);
+    std::vector<float> SC(HAP_NUMBER * ss.n_classes + 2, 0.0f);
+    SC.front() = std::numeric_limits<float>::quiet_NaN();
+    SC.back() = std::numeric_limits<float>::quiet_NaN();
     std::vector<bool> anchor_has_missing(1, true);
-    std::vector<uint32_t> supersite_sc_offset(1, 0);  // Thread-local offset vector for test
+    std::vector<uint32_t> supersite_sc_offset(1, 1);  // Thread-local offset vector for test (+1 guard)
     // Use relative missing index 0 (first missing slot)
     HS.curr_rel_missing = 0;
     HS.IMPUTE_SUPERSITE_MULTIVARIATE(SC, ss, /*ss_idx=*/0, /*rel_missing_index=*/0, &supersite_sc_offset);

@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <iostream>
 #include <vector>
 
@@ -63,8 +64,10 @@ int main() {
 
     // Prepare SC: C = 1 + n_alts = 3; offset=0; prefer ALT1 for hap0, ALT2 for hap1
     ss.n_classes = 1 + ss.n_alts; // 3
-    uint32_t offset = 0;  // Local offset for test (class_prob_offset moved to thread-local storage)
-    std::vector<float> SC(HAP_NUMBER * ss.n_classes, 0.0f);
+    uint32_t offset = 1;  // Local offset for test (+1 guard)
+    std::vector<float> SC(HAP_NUMBER * ss.n_classes + 2, 0.0f);
+    SC.front() = std::numeric_limits<float>::quiet_NaN();
+    SC.back() = std::numeric_limits<float>::quiet_NaN();
     std::vector<uint32_t> supersite_sc_offset(1, offset);  // Thread-local offset vector for test
     auto set_row = [&](int hap, float p_ref, float p_alt1, float p_alt2) {
         SC[offset + hap*ss.n_classes + 0] = p_ref;

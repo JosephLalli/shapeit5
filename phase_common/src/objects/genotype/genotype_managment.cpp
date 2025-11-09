@@ -22,6 +22,7 @@
 
 #include <objects/genotype/genotype_header.h>
 #include <models/super_site_accessor.h>
+#include <string>
 
 #if !defined(__OPTIMIZE__)
 #include <cstdlib>
@@ -194,6 +195,29 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 							VAR_SET_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
 						} else {
 							VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+						}
+					}
+					if (supersite_debug::guard_checks_enabled()) {
+						int alt_count_h0 = 0;
+						int alt_count_h1 = 0;
+						for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+							unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
+							unsigned char vbyte = Variants[DIV2(split_vabs)];
+							alt_count_h0 += VAR_GET_HAP0(MOD2(split_vabs), vbyte) ? 1 : 0;
+							alt_count_h1 += VAR_GET_HAP1(MOD2(split_vabs), vbyte) ? 1 : 0;
+						}
+						if (alt_count_h0 > 1 || alt_count_h1 > 1 || (class0 > 0 && alt_count_h0 == 0) || (class1 > 0 && alt_count_h1 == 0)) {
+							std::string msg = "projection mismatch sample=" + name +
+								" ss_idx=" + std::to_string(ss_idx) +
+								" class0=" + std::to_string(class0) +
+								" class1=" + std::to_string(class1) +
+								" alt_h0=" + std::to_string(alt_count_h0) +
+								" alt_h1=" + std::to_string(alt_count_h1);
+							supersite_debug::report_guard_violation("genotype::make", msg.c_str());
+							assert(alt_count_h0 <= 1);
+							assert(alt_count_h1 <= 1);
+							assert(class0 == 0 || alt_count_h0 > 0);
+							assert(class1 == 0 || alt_count_h1 > 0);
 						}
 					}
 					

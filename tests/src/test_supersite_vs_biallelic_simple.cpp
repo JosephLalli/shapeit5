@@ -101,6 +101,7 @@ int main() {
     std::cout << "    ✓ Multiallelic variants (8-9) mapped to same supersite" << std::endl;
     
     // Verify: Exactly 1 supersite created
+    std::cout << "    super_sites.size() = " << super_sites.size() << std::endl;
     assert(super_sites.size() == 1);
     std::cout << "    ✓ Exactly 1 supersite created" << std::endl;
     

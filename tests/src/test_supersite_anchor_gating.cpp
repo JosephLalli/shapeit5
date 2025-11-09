@@ -108,7 +108,7 @@ int main() {
     haplotype_segment_single HS_anchor(
         &G, H.H_opt_hap, idxH, W_anchor, M,
         &super_sites, &is_super_site, &locus_to_super_idx,
-        packed_codes.data(), &super_site_var_index);
+        packed_codes.data(), packed_codes.size(), &super_site_var_index);
     HS_anchor.forward();
 
     // Capture state after anchor-only
@@ -127,7 +127,7 @@ int main() {
     haplotype_segment_single HS_both(
         &G, H.H_opt_hap, idxH, W_both, M,
         &super_sites, &is_super_site, &locus_to_super_idx,
-        packed_codes.data(), &super_site_var_index);
+        packed_codes.data(), packed_codes.size(), &super_site_var_index);
     HS_both.forward();
 
     // Assert sibling is a true no-op (identical state as anchor-only forward)

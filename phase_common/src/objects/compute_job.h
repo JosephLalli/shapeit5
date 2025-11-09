@@ -24,6 +24,8 @@
 #define _COMPUTE_THREAD_H
 
 #include <utils/otools.h>
+#include <cmath>
+#include <limits>
 
 #include <containers/conditioning_set/conditioning_set_header.h>
 #include <containers/genotype_set.h>
@@ -52,6 +54,8 @@ public:
 	std::vector < float > SC;  // CurrentSuperClassPosteriors: layout [ss0: HAP_NUMBER*C, ss1: HAP_NUMBER*C, ...]
 	std::vector < bool > anchor_has_missing;  // Per-supersite flag: true if all members missing for this sample
 	std::vector < uint32_t > supersite_sc_offset;  // Thread-local SC offsets parallel to anchor_has_missing
+	float sc_guard_value;
+	bool sc_guard_active;
 
 	//Windows
 	window_set Windows;
@@ -73,6 +77,8 @@ public:
 	void free();
 	void make(unsigned int, double);
 	unsigned int size();
+	bool verify_sc_guards() const;
+	bool sc_buffer_active() const;
 };
 
 inline

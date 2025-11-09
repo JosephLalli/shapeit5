@@ -82,6 +82,7 @@ int main() {
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes, 
                     locus_to_super_idx, super_site_var_index, unused_sample_codes);
     
+    std::cout << "  super_sites.size() = " << super_sites.size() << std::endl;
     assert(super_sites.size() == 1);
     assert(super_sites[0].var_count == 3);
     assert(super_sites[0].n_alts == 3);

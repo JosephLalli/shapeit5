@@ -94,7 +94,7 @@ int main() {
     // Measure supersite-enabled
     auto t1 = clock::now();
     for (int r = 0; r < 10; ++r) {
-        haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
         HS.forward();
     }
     auto t2 = clock::now();
@@ -103,7 +103,7 @@ int main() {
     // Measure biallelic-only (no supersite pointers)
     t1 = clock::now();
     for (int r = 0; r < 10; ++r) {
-        haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, nullptr, nullptr, nullptr, nullptr, nullptr);
+        haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, nullptr, nullptr, nullptr, nullptr, 0, nullptr);
         HS.forward();
     }
     t2 = clock::now();

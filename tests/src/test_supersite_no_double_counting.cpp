@@ -116,12 +116,12 @@ int main() {
     std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
 
     haplotype_segment_single HS_with(&G, H.H_opt_hap, idxH, W_with_sib, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
     HS_with.forward();
 
     // For without-sibling comparison, reuse same marking (sibling already a no-op)
     haplotype_segment_single HS_without(&G, H.H_opt_hap, idxH, W_no_sib, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
     HS_without.forward();
 
     // Expect identical DP states when sibling is present or absent

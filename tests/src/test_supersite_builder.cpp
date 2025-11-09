@@ -55,6 +55,7 @@ int main() {
                     locus_to_super_idx, super_site_var_index, unused_sample_codes);
     
     // Verify results
+    std::cout << "  super_sites.size() = " << super_sites.size() << std::endl;
     assert(super_sites.size() == 1);  // One supersite
     assert(super_sites[0].var_count == 2);  // Two split records
     assert(super_sites[0].n_alts == 2);  // Two alternates

@@ -112,7 +112,7 @@ int main() {
     W.start_transition = 0; W.stop_transition = 0; // single transition slot
 
     haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
 
     // Forward pass to populate Alpha/AlphaSum/AlphaSumSum
     HS.forward();
@@ -138,7 +138,7 @@ int main() {
 
     // Now retry with double precision (simulating what phaser_algorithm does)
     haplotype_segment_double HS_double(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
     HS_double.forward();
     HS_double.AlphaSumSum[0] = 0.0;  // Force same zero condition
     int outcome_double = HS_double.backward(trans_probs, miss_probs);

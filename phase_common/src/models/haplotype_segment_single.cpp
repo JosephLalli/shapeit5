@@ -58,14 +58,34 @@ static bool supersite_trace_enabled() {
 
 } // namespace
 
+void haplotype_segment_single::trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling) const {
+	if (!supersite_trace_enabled()) return;
+	if (ambiguous_first > ambiguous_last) return;
+	const int lower = ambiguous_first;
+	const int upper = ambiguous_last;
+	if (curr_abs_ambiguous < lower || curr_abs_ambiguous > upper) {
+		std::fprintf(stdout,
+					 "[ss-amb-drift][single] stage=%s locus=%d curr_abs_ambiguous=%d range=[%d,%d] rel=%d seg_idx=%d is_sibling=%d\n",
+					 stage,
+					 locus,
+					 curr_abs_ambiguous,
+					 lower,
+					 upper,
+					 curr_abs_ambiguous - lower,
+					 curr_segment_index,
+					 static_cast<int>(is_sibling));
+	}
+}
+
 haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M,
     const std::vector<SuperSite>* _super_sites,
     const std::vector<bool>* _is_super_site,
     const std::vector<int>* _locus_to_super_idx,
-    const uint8_t* _panel_codes,
-    const std::vector<int>* _super_site_var_index) :
-    G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site),
-    locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), super_site_var_index(_super_site_var_index), cond_idx(&idxH),
+	const uint8_t* _panel_codes,
+	size_t _panel_codes_size,
+	const std::vector<int>* _super_site_var_index) :
+	G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site),
+	locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), panel_codes_size(_panel_codes_size), super_site_var_index(_super_site_var_index), cond_idx(&idxH),
     supersite_sc_offset(nullptr),
     supersites_enabled_flag(_super_sites && _locus_to_super_idx && _super_site_var_index && _panel_codes) {
 	segment_first = W.start_segment;
@@ -163,7 +183,7 @@ void haplotype_segment_single::forward() {
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
-	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx);
+	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
     if (supersite_trace_enabled()) std::fprintf(stderr, "FWD2 after adapters\n");
 
     if (supersite_trace_enabled()) {
@@ -197,6 +217,7 @@ void haplotype_segment_single::forward() {
 		const bool data_amb = hmm_amb;
 		yt = (curr_abs_locus == locus_first)?0.0:M.getForwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
+		trace_ambiguous_cursor("fwd_pre", curr_abs_locus, is_sibling);
 
 		if (supersite_trace_enabled()) {
 			std::fprintf(stdout,
@@ -311,6 +332,7 @@ void haplotype_segment_single::forward() {
 
 		curr_segment_locus ++;
 		curr_abs_ambiguous += data_amb;
+		trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling);
 		if (curr_segment_locus >= G->Lengths[curr_segment_index]) {
 			curr_segment_index++;
 			curr_segment_locus = 0;
@@ -332,7 +354,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
-	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx);
+	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
 
 	for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
 		curr_rel_locus = curr_abs_locus - locus_first;
@@ -355,6 +377,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		const bool data_amb = hmm_amb;
 		yt = (curr_abs_locus == locus_last)?0.0:M.getBackwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
+		trace_ambiguous_cursor("bwd_pre", curr_abs_locus, is_sibling);
 
         if (curr_abs_locus == locus_last) {
             if (is_anchor) {
@@ -479,6 +502,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 		curr_segment_locus--;
 		curr_abs_ambiguous -= data_amb;
+		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling);
 		if (curr_segment_locus < 0 && curr_segment_index > 0) {
 			curr_segment_index--;
 			curr_segment_locus = G->Lengths[curr_segment_index] - 1;

@@ -251,7 +251,7 @@ bool test_single_multiallelic_per_segment() {
     // Create HMM segment with supersite support
     haplotype_segment_single HS(&G, H, idxH, W, M,
                                 &super_sites, nullptr, &locus_to_super_idx,
-                                packed_codes.data(), &super_site_var_index);
+                                packed_codes.data(), packed_codes.size(), &super_site_var_index);
     
     // Run forward pass
     HS.forward();
@@ -519,7 +519,7 @@ bool test_segment_transition_multiallelic() {
     
     haplotype_segment_single HS(&G, H, idxH, W, M,
                                 &super_sites, nullptr, &locus_to_super_idx,
-                                packed_codes.data(), &super_site_var_index);
+                                packed_codes.data(), packed_codes.size(), &super_site_var_index);
     
     // Run forward and backward
     HS.forward();

@@ -27,6 +27,7 @@
 #include <cassert>
 #include <cstdio>
 #include <limits>
+#include <cstdlib>
 #include <utils/otools.h>
 #include <objects/compute_job.h>
 #include <objects/hmm_parameters.h>
@@ -97,6 +98,7 @@ private:
 	const std::vector<bool>* is_super_site;
 	const std::vector<int>* locus_to_super_idx;
 	const uint8_t* panel_codes;
+    size_t panel_codes_size;
 	const std::vector<int>* super_site_var_index;
 	const std::vector<unsigned int>* cond_idx;
 	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets (set during backward)
@@ -112,6 +114,7 @@ private:
 	// EMISSION HELPERS
 	MatchMask init_match_mask;
 	bool prepare_outer_product_mix(int rel_prev_segment, __m256d& col_mix_lo, __m256d& col_mix_hi, double& row_stay, double& row_switch, bool allow_outer = true);
+    void trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling) const;
 
 	inline bool debugTraceEnabled() const {
 		const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
@@ -332,8 +335,9 @@ public:
 		const std::vector<SuperSite>* _super_sites = nullptr,
 		const std::vector<bool>* _is_super_site = nullptr,
 		const std::vector<int>* _locus_to_super_idx = nullptr,
-		const uint8_t* _panel_codes = nullptr,
-		const std::vector<int>* _super_site_var_index = nullptr);
+        const uint8_t* _panel_codes = nullptr,
+        size_t _panel_codes_size = 0,
+        const std::vector<int>* _super_site_var_index = nullptr);
 	~haplotype_segment_double();
 
 	//void fetch();
@@ -395,21 +399,28 @@ public:
 // Phase 3: Caching helper to load conditioning haplotype codes once per supersite
 inline
 void haplotype_segment_double::ss_load_cond_codes(const SuperSite& ss, int ss_idx) {
-    // Return if already cached
-    if (ss_cached[ss_idx]) return;
-    
-    // Return if panel codes not available (no supersites built)
+    if (ss_idx >= 0 && ss_idx < (int)ss_cached.size() && ss_cached[ss_idx]) {
+        return;
+    }
+
     if (panel_codes == nullptr) return;
-    
-    // Unpack and cache conditioning haplotype codes
+
+    if (!supersite_debug::validate_panel_span(ss, panel_codes_size, ss_idx, "haplotype_segment_double::ss_load_cond_codes")) {
+        std::abort();
+    }
+
     ss_cond_codes.resize(n_cond_haps);
     for (int k = 0; k < (int)n_cond_haps; ++k) {
         unsigned int gh = (*cond_idx)[k];
+        if (!supersite_debug::validate_panel_byte(ss, gh, ss_idx, "haplotype_segment_double::ss_load_cond_codes")) {
+            std::abort();
+        }
         ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
     }
-    
-    // Mark as cached
-    ss_cached[ss_idx] = true;
+
+    if (ss_idx >= 0 && ss_idx < (int)ss_cached.size()) {
+        ss_cached[ss_idx] = true;
+    }
 }
 
 // Note: pack_expected_codes_pd() helper removed - was causing half-lane split antipattern
@@ -1158,7 +1169,6 @@ void haplotype_segment_double::RUN_AMB() {
         }
     }
     // Biallelic path
-    fprintf(stderr, "RUN_AMB biallelic path: curr_abs_ambiguous=%d, G->Ambiguous.size()=%zu\n", curr_abs_ambiguous, G->Ambiguous.size());
     if (curr_abs_ambiguous < 0 || curr_abs_ambiguous >= (int)G->Ambiguous.size()) {
         fprintf(stderr, "RUN_AMB: Invalid curr_abs_ambiguous index %d, returning\n", curr_abs_ambiguous);
         return;
@@ -1484,12 +1494,7 @@ void haplotype_segment_double::IMPUTE(std::vector<float>& missing_probabilities)
             }
         }
 
-        if (panel_codes != nullptr) {
-            for (int k = 0; k < (int)n_cond_haps; ++k) {
-                unsigned int gh = (*cond_idx)[k];
-                ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-            }
-        }
+        ss_load_cond_codes(ss, ss_idx);
 
         __m256d sum_lo[SUPERSITE_MAX_ALTS + 1];
         __m256d sum_hi[SUPERSITE_MAX_ALTS + 1];
@@ -1590,12 +1595,8 @@ void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float
     if (panel_codes == nullptr) {
         return;
     }
-    
-    // Unpack conditioning haplotype codes once
-    for (int k = 0; k < (int)n_cond_haps; ++k) {
-        unsigned int gh = (*cond_idx)[k];
-        ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-    }
+
+    ss_load_cond_codes(ss, ss_idx);
     
     const int C = ss.n_classes;  // 1 + n_alts
     
@@ -1608,8 +1609,43 @@ void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float
         offset = static_cast<uint32_t>(ss_idx) * HAP_NUMBER * C;
     }
     
-    // Bounds check: ensure we don't write beyond SC buffer
-    assert(offset + HAP_NUMBER * C <= SC.size());
+    const size_t required = static_cast<size_t>(offset) + static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>(C);
+    const bool guard_sentinels_present = supersite_debug::guard_checks_enabled() &&
+                                         SC.size() >= 2 &&
+                                         std::isnan(SC.front()) &&
+                                         std::isnan(SC.back());
+    const bool guard_applicable = guard_sentinels_present && offset >= 1u;
+    if (guard_applicable) {
+        const size_t usable = SC.size() - 1;
+        if (required > usable) {
+            std::fprintf(stderr,
+                "[supersite-guard] IMPUTE_SUPERSITE_MULTIVARIATE (double): offset=%u C=%d size=%zu required=%zu sample=%s ss_idx=%d\n",
+                offset, C, SC.size(), required, G ? G->name.c_str() : "?", ss_idx);
+            assert(required <= usable);
+            return;
+        }
+        const size_t guard_hi = SC.size() - 1;
+        const float pre_guard = SC[offset - 1];
+        const float post_guard = SC[guard_hi];
+        if (!std::isnan(pre_guard) || !std::isnan(post_guard)) {
+            std::fprintf(stderr,
+                "[supersite-guard] Guard corrupt before write (double) offset=%u sample=%s ss_idx=%d pre=%g post=%g\n",
+                offset, G ? G->name.c_str() : "?", ss_idx, pre_guard, post_guard);
+            assert(std::isnan(pre_guard));
+            assert(std::isnan(post_guard));
+            return;
+        }
+    } else if (supersite_debug::guard_checks_enabled()) {
+        if (required > SC.size()) {
+            std::fprintf(stderr,
+                "[supersite-guard] IMPUTE_SUPERSITE_MULTIVARIATE (double, unguarded buffer): offset=%u C=%d size=%zu required=%zu sample=%s ss_idx=%d\n",
+                offset, C, SC.size(), required, G ? G->name.c_str() : "?", ss_idx);
+            assert(required <= SC.size());
+            return;
+        }
+    } else {
+        assert(required <= SC.size());
+    }
     
     // Compute 1 / AlphaSum for normalization
     __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[rel_missing_index][0]);

@@ -47,6 +47,20 @@ inline uint64_t next_packing_trace_index() {
 	static std::atomic<uint64_t> counter{0};
 	return counter.fetch_add(1, std::memory_order_relaxed);
 }
+
+inline bool guard_checks_enabled() {
+	static int flag = -1;
+	if (flag < 0) {
+		const char* env = std::getenv("SHAPEIT5_SUPERSITE_GUARDS");
+		if (!env || env[0] == '\0') flag = 1;  // default: enabled
+		else flag = (env[0] == '0') ? 0 : 1;
+	}
+	return flag == 1;
+}
+
+inline void report_guard_violation(const char* scope, const char* message) {
+	std::fprintf(stderr, "[supersite-guard] %s: %s\n", scope, message);
+}
 } // namespace supersite_debug
 
 // ============================================================================
@@ -67,6 +81,7 @@ struct SuperSite {
 	uint32_t bp;
 	uint8_t n_alts;            // Number of ALTs (1-15, since code 0 is REF)
 	uint32_t panel_offset;     // Byte offset in packed_allele_codes buffer
+	uint32_t panel_span_bytes; // Number of bytes reserved in packed buffer for this supersite
 	// Member variants span in super_site_var_index (start offset and count)
 	uint32_t var_start;        // Start index into flattened super_site_var_index
 	uint16_t var_count;        // Number of constituent variant indices
@@ -76,6 +91,54 @@ struct SuperSite {
 	// NOTE: class_prob_offset moved to thread-local storage to fix race condition
 	uint8_t n_classes;          // C = 1 + n_alts (REF + ALT1..ALTn), cached for convenience
 };
+
+namespace supersite_debug {
+inline bool validate_panel_span(const SuperSite& ss,
+								size_t buffer_size,
+								int ss_idx,
+								const char* scope) {
+	if (!guard_checks_enabled()) return true;
+	if (buffer_size == 0 || ss.panel_span_bytes == 0) return true;
+	const uint64_t start = static_cast<uint64_t>(ss.panel_offset);
+	const uint64_t span = static_cast<uint64_t>(ss.panel_span_bytes);
+	const uint64_t end = start + span;
+	if (end > buffer_size || end < start) {
+		char buf[256];
+		std::snprintf(buf, sizeof(buf),
+					  "ss_idx=%d offset=%u span=%u buffer=%zu",
+					  ss_idx,
+					  static_cast<unsigned>(ss.panel_offset),
+					  static_cast<unsigned>(ss.panel_span_bytes),
+					  buffer_size);
+		report_guard_violation(scope, buf);
+		return false;
+	}
+	return true;
+}
+
+inline bool validate_panel_byte(const SuperSite& ss,
+								unsigned int hap_idx,
+								int ss_idx,
+								const char* scope) {
+	if (!guard_checks_enabled()) return true;
+	if (ss.panel_span_bytes == 0) return true;
+	const uint64_t start = static_cast<uint64_t>(ss.panel_offset);
+	const uint64_t span_end = start + ss.panel_span_bytes;
+	const uint64_t byte_index = start + (hap_idx / 2);
+	if (byte_index >= span_end || byte_index < start) {
+		char buf[256];
+		std::snprintf(buf, sizeof(buf),
+					  "ss_idx=%d hap=%u byte=%" PRIu64 " span_end=%" PRIu64,
+					  ss_idx,
+					  hap_idx,
+					  byte_index,
+					  span_end);
+		report_guard_violation(scope, buf);
+		return false;
+	}
+	return true;
+}
+} // namespace supersite_debug
 
 // ============================================================================
 // Unpacking Functions (Scalar)

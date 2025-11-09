@@ -102,10 +102,7 @@ void buildSuperSites(
 
             // Pack codes: 2 per byte (4 bits each)
             uint32_t n_bytes = static_cast<uint32_t>((H.n_hap + 1) / 2);
-            
-            // Debug logging for buffer allocation
-            fprintf(stderr, "buildSuperSites: supersite %zu at bp=%u, H.n_hap=%lu, n_bytes=%u, panel_offset=%u, buffer_size_before=%zu\n",
-                    super_sites_out.size(), ss.bp, H.n_hap, n_bytes, current_panel_offset, packed_allele_codes_out.size());
+            ss.panel_span_bytes = n_bytes;
             
             for (uint32_t byte_idx = 0; byte_idx < n_bytes; ++byte_idx) {
                 uint8_t packed = 0;
@@ -116,9 +113,6 @@ void buildSuperSites(
                 packed_allele_codes_out.push_back(packed);
             }
             current_panel_offset += n_bytes;
-            
-            fprintf(stderr, "buildSuperSites: supersite %zu completed, buffer_size_after=%zu\n",
-                    super_sites_out.size(), packed_allele_codes_out.size());
 
             super_sites_out.push_back(ss);
         }
@@ -131,8 +125,8 @@ void buildSuperSites(
                      (size_t)V.size(), H.n_hap, super_sites_out.size(), packed_allele_codes_out.size());
         for (size_t i = 0; i < super_sites_out.size(); ++i) {
             const SuperSite& s = super_sites_out[i];
-            std::fprintf(stdout, "  ss[%zu]: anchor=%u var_count=%u panel_off=%u\n",
-                         i, s.global_site_id, (unsigned)s.var_count, (unsigned)s.panel_offset);
+            std::fprintf(stdout, "  ss[%zu]: anchor=%u var_count=%u panel_off=%u span_bytes=%u\n",
+                         i, s.global_site_id, (unsigned)s.var_count, (unsigned)s.panel_offset, (unsigned)s.panel_span_bytes);
         }
     }
 }

@@ -170,7 +170,7 @@ void test_all_biallelic() {
     std::vector<unsigned int> idxH = {0, 1};
     
     // Run forward pass
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, nullptr, nullptr, nullptr, nullptr, nullptr);
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, nullptr, nullptr, nullptr, nullptr, 0, nullptr);
     
     std::cout << "Forward pass:" << std::endl;
     HS.forward();
@@ -307,7 +307,7 @@ void test_one_multiallelic() {
     haplotype_segment_single HS(
         &G, H.H_opt_hap, idxH, W, M,
         &super_sites, &is_super_site, &locus_to_super_idx,
-        packed_codes.data(), &super_site_var_index
+        packed_codes.data(), packed_codes.size(), &super_site_var_index
     );
     
     std::cout << "Forward pass with supersite support:" << std::endl;
@@ -431,7 +431,7 @@ void test_missing_biallelic() {
     std::vector<unsigned int> idxH = {0, 1};
     
     // Run forward pass
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, nullptr, nullptr, nullptr, nullptr, nullptr);
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, nullptr, nullptr, nullptr, nullptr, 0, nullptr);
     
     std::cout << "Forward pass:" << std::endl;
     HS.forward();
@@ -557,7 +557,7 @@ void test_missing_multiallelic() {
     haplotype_segment_single HS(
         &G, H.H_opt_hap, idxH, W, M,
         &super_sites, &is_super_site, &locus_to_super_idx,
-        packed_codes.data(), &super_site_var_index
+        packed_codes.data(), packed_codes.size(), &super_site_var_index
     );
     
     std::cout << "Forward pass with missing multiallelic data:" << std::endl;

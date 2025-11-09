@@ -102,7 +102,7 @@ int main() {
     std::cout << "STEP 7: constructing HS" << std::endl;
 
     haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
 
     // Run forward locus by locus to compare states
     std::cout << "STEP 8: running forward()" << std::endl;
@@ -117,7 +117,7 @@ int main() {
         Wloc.start_missing = 0; Wloc.stop_missing = -1;
         Wloc.start_transition = 0; Wloc.stop_transition = -1;
         haplotype_segment_single HSx(&G, H.H_opt_hap, idxH, Wloc, M,
-            &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), &super_site_var_index);
+            &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
         HSx.forward();
         out_prob = HSx.prob; out_sumH = HSx.probSumH; out_sumT = HSx.probSumT;
     };
