@@ -489,7 +489,10 @@ void haplotype_segment_single::forward() {
 		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
 		const int cursor_before = curr_abs_ambiguous;
 		const bool can_advance_amb = data_amb && has_amb_range && (curr_abs_ambiguous < ambiguous_last);
-		// Sibling variants do not have entries in the Ambiguous array, so curr_abs_ambiguous should not advance for them.
+		// CRITICAL FIX: Siblings do not advance the ambiguous cursor
+		// Sibling variants do not have entries in the Ambiguous array (only anchors do).
+		// If siblings advanced curr_abs_ambiguous, it would cause out-of-bounds access and indexing errors.
+		// This fix prevents cursor drift and maintains proper alignment with the Ambiguous data structure.
 		const bool sib_advance_amb = false; //is_sibling && hmm_amb && has_amb_range && (curr_abs_ambiguous < ambiguous_last);
 		const int expected_delta = (can_advance_amb) ? 1 : 0;
 

@@ -20,3 +20,6 @@ tests/logs/*
 tests/out/*
 
 tests/out/**
+
+.gemini/
+gha-creds-*.json

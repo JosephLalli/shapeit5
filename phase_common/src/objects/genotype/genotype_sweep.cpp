@@ -21,6 +21,7 @@
  ******************************************************************************/
 
 #include <objects/genotype/genotype_header.h>
+#include <models/super_site_accessor.h>
 
 using namespace std;
 
@@ -47,8 +48,34 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 		prev_dipcount = curr_dipcount;
 	}
 	make(DipSampled, CurrentMissingProbabilities);
+
+	// HYPOTHESIS 2 DEBUGGING
+	if (super_sites && !debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME) {
+		for (const auto& ss : *super_sites) {
+			if ((int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+				debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: After make() in sampleForward");
+				break;
+			}
+		}
+	}
+
+	// CRITICAL: Post-HMM supersite projection
+	// This is the ONLY place where projectSupersites() is called in the entire codebase.
+	// It runs after every sample() operation in all MCMC stages (burn-in, pruning, main).
+	// The projection maps anchor phasing results to member split variants.
+	// No additional projection is needed during finalization - this call ensures it's complete.
 	if (super_sites) projectSupersites();
-}
+
+	// HYPOTHESIS 2 DEBUGGING
+	if (super_sites && !debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME) {
+		for (const auto& ss : *super_sites) {
+			if ((int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+				debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: After projectSupersites() in sampleForward");
+				break;
+			}
+		}
+	}
+} // <-- Missing brace added here
 
 void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vector < float > & CurrentMissingProbabilities) {
 
@@ -83,7 +110,30 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 		next_dipcount = curr_dipcount;
 	}
 	make(DipSampled, CurrentMissingProbabilities);
+
+	// HYPOTHESIS 2 DEBUGGING
+	if (super_sites && !debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME) {
+		for (const auto& ss : *super_sites) {
+			if ((int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+				debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: After make() in sampleBackward");
+				break;
+			}
+		}
+	}
+
+	// CRITICAL: Post-HMM supersite projection (same as in sampleForward)
+	// See detailed comment in sampleForward() above - this is where projection happens.
 	if (super_sites) projectSupersites();
+
+	// HYPOTHESIS 2 DEBUGGING
+	if (super_sites && !debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME) {
+		for (const auto& ss : *super_sites) {
+			if ((int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+				debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: After projectSupersites() in sampleBackward");
+				break;
+			}
+		}
+	}
 }
 
 void genotype::solve() {

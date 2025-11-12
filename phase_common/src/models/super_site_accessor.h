@@ -70,6 +70,7 @@ inline void report_guard_violation(const char* scope, const char* message) {
 #define SUPERSITE_MAX_ALTS 15
 #define SUPERSITE_CODE_REF 0
 #define SUPERSITE_CODE_MISSING 255
+#define SUPERSITE_CODE_CONFLICT 254
 
 // ============================================================================
 // Data Structures

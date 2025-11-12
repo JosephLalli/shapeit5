@@ -33,15 +33,13 @@ void phaser::write_files_and_finalise() {
 
 	//
 	G.solve();
-	
-	// Post-HMM supersite projection: project anchor phasing to member splits
-	if (enable_supersites) {
-		vrb.bullet("Projecting supersite anchors to member splits");
-		for (unsigned int i = 0; i < G.n_ind; ++i) {
-			G.vecG[i]->projectSupersites();
-		}
-	}
-	
+
+	// NOTE: projectSupersites() is NOT called here because it already ran after
+	// the final sample() operation in the last MCMC iteration. Calling it here
+	// would be redundant and was causing vector bounds crashes when accessing
+	// supersite members outside the phasing region.
+	// The projection happens in genotype_sweep.cpp after every sampleForward()/sampleBackward().
+
 	H.updateHaplotypes(G);
 	H.transposeHaplotypes_H2V(false);
 

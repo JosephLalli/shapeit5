@@ -29,6 +29,12 @@
 #include "../../phase_common/src/containers/variant_map.h"
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 #include "../../phase_common/src/objects/genotype/genotype_header.h"
+#include "../../phase_common/src/objects/hmm_parameters.h"
+#include "../../phase_common/src/containers/window_set.h"
+#include "../../phase_common/src/models/super_site_accessor.h"
+#include "../../phase_common/src/objects/hmm_parameters.h"
+#include "../../phase_common/src/containers/window_set.h"
+#include "../../phase_common/src/models/super_site_accessor.h"
 
 static variant* make_var(std::string chr, int bp, std::string id, std::string ref, std::string alt, int idx) {
     return new variant(chr, bp, id, ref, alt, idx);
@@ -132,27 +138,82 @@ int main() {
     assert(code_hap1 == SUPERSITE_CODE_MISSING);
     
     std::cout << "  Missing code detection: OK" << std::endl;
-    
-    // Test 4: Verify that setSuperSiteContext works
-    std::vector<bool> anchor_has_missing(1, true);
-    
-    // Set up genotype context (but don't call make yet - that requires full HMM setup)
-    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, 
-                         &super_site_var_index, nullptr, &anchor_has_missing);
-    
-    // Verify context was set
-    assert(G.super_sites == &super_sites);
-    assert(G.locus_to_super_idx == &locus_to_super_idx);
-    assert(G.super_site_var_index == &super_site_var_index);
-    assert(G.anchor_has_missing == &anchor_has_missing);
-    
-    std::cout << "  Supersite context setting: OK" << std::endl;
-    
-    // Test 5: Verify basic structure of supersite
-    // The actual multivariant sampling requires proper HMM forward/backward pass
-    // which is tested in the integration tests
-    std::cout << "  NOTE: Full multivariant sampling requires HMM forward/backward" << std::endl;
-    std::cout << "  This test validates structure, not end-to-end imputation" << std::endl;
+
+    // Test 4: Run HMM and impute the missing site
+    hmm_parameters M;
+    M.initialise(V, 15000, 0);
+    M.ed = 0.0001; M.ee = 0.9999;
+
+    // Define a window covering all variants
+    window W;
+    W.start_locus = 0;
+    W.stop_locus = V.size() - 1;
+    W.start_segment = 0;
+    W.stop_segment = 0;
+    W.start_ambiguous = 0;
+    W.stop_ambiguous = -1;
+    W.start_missing = 0;
+    W.stop_missing = 0;
+
+
+    // Setup conditioning data for HMM
+    std::vector<unsigned int> cond_idx;
+    for (int i=0; i<3*2; ++i) cond_idx.push_back(i);
+
+    // Instantiate HMM object
+    haplotype_segment_single hs(&G, H.H_opt_hap, cond_idx, W, M,
+                                &super_sites, &is_super_site, &locus_to_super_idx,
+                                packed_codes.data(), packed_codes.size(), &super_site_var_index);
+
+    // Run forward pass
+    hs.forward();
+
+    // Setup for backward pass
+    std::vector<double> transition_probabilities;
+    std::vector<float> missing_probabilities;
+    std::vector<float> SC(ss.n_classes * HAP_NUMBER, 0.0f);
+    std::vector<bool> anchor_has_missing(super_sites.size(), false);
+    G.build(); // Sets the supersite flags like all_missing
+    for(size_t i=0; i<super_sites.size(); ++i) {
+        if (G.getSuperSiteContext(super_sites[i].global_site_id).all_missing) {
+            anchor_has_missing[i] = true;
+        }
+    }
+
+    // Set genotype context for imputation
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, &SC, &anchor_has_missing);
+
+    // Run backward pass to calculate imputation posteriors (SC)
+    hs.backward(transition_probabilities, missing_probabilities, &SC, &anchor_has_missing);
+    std::cout << "  HMM Forward/Backward executed" << std::endl;
+
+    // Test 5: Call make() to perform imputation
+    std::vector<unsigned char> DipSampled(G.n_segments, 0); // Dummy: sample lanes 0 and 1
+    DipSampled[0] = (0 << 3) | 1;
+    G.make(DipSampled, missing_probabilities);
+    std::cout << "  Imputation via make() called" << std::endl;
+
+    // Test 6: Verify imputation results
+    // Site should no longer be missing
+    assert(!VAR_GET_MIS(MOD2(ss.global_site_id), G.Variants[DIV2(ss.global_site_id)]));
+
+    // Get imputed allele classes
+    uint8_t imputed_c0 = getSampleSuperSiteAlleleCode(&G, ss, super_site_var_index, 0);
+    uint8_t imputed_c1 = getSampleSuperSiteAlleleCode(&G, ss, super_site_var_index, 1);
+
+    std::cout << "  Imputed classes: c0=" << (int)imputed_c0 << ", c1=" << (int)imputed_c1 << std::endl;
+
+    // Check for conflicts
+    assert(imputed_c0 != SUPERSITE_CODE_CONFLICT);
+    assert(imputed_c1 != SUPERSITE_CODE_CONFLICT);
+    assert(imputed_c0 != SUPERSITE_CODE_MISSING);
+    assert(imputed_c1 != SUPERSITE_CODE_MISSING);
+
+    // Check that imputed classes are valid (0=REF, 1=ALT1, 2=ALT2, 3=ALT3)
+    assert(imputed_c0 <= 3);
+    assert(imputed_c1 <= 3);
+
+    std::cout << "  Imputation validity checks: OK" << std::endl;
     
     std::cout << "All tests passed!" << std::endl;
     return 0;

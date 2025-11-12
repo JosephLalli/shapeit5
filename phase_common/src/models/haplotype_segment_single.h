@@ -489,6 +489,15 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
 			expected_class[h] = use_c1 ? c1 : c0;
 		}
 	}
+
+    // HYPOTHESIS 1 DEBUGGING
+    if (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+        std::cout << "[SUPERDEBUG] H1: ENTER SS_RUN_AMB" << std::endl;
+        std::cout << "[SUPERDEBUG] H1: Sample=" << G->name << " Pos=" << ss.global_site_id << " c0=" << (int)c0 << " c1=" << (int)c1 << " amb_mask=" << (int)amb_mask << std::endl;
+        std::string expected_str = "  Expected classes: ";
+        for (int h=0; h<HAP_NUMBER; ++h) expected_str += std::to_string(expected_class[h]) + " ";
+        std::cout << expected_str << std::endl;
+    }
 	
 	// DEBUG: Print emission setup
 	if (trace_enabled) {
@@ -540,6 +549,14 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
             }
             __m256 emit = _mm256_load_ps(emit_arr);
 
+            // HYPOTHESIS 1 DEBUGGING
+            if (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP && k < 5) { // Log first 5 donors
+                std::cout << "[SUPERDEBUG] H1: k=" << k << " donor_code=" << (int)ss_cond_codes[k] << " donor_is_alt=" << donor_is_alt << std::endl;
+                std::string emit_str = "  Emissions: ";
+                for (int h=0; h<HAP_NUMBER; ++h) emit_str += std::to_string(emit_arr[h]) + " ";
+                std::cout << emit_str << std::endl;
+            }
+
             _prob = _mm256_mul_ps(_prob, emit);
             _sum = _mm256_add_ps(_sum, _prob);
             _mm256_store_ps(&prob[i], _prob);
@@ -560,6 +577,14 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
                 emit_arr[h] = donor_allele ? g1_val : g0_val;
             }
             __m256 emit = _mm256_load_ps(emit_arr);
+
+            // HYPOTHESIS 1 DEBUGGING
+            if (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP && k < 5) { // Log first 5 donors
+                std::cout << "[SUPERDEBUG] H1: k=" << k << " donor_code=" << (int)ss_cond_codes[k] << " donor_is_alt=" << donor_allele << std::endl;
+                std::string emit_str = "  Emissions: ";
+                for (int h=0; h<HAP_NUMBER; ++h) emit_str += std::to_string(emit_arr[h]) + " ";
+                std::cout << emit_str << std::endl;
+            }
 
             // DEBUG: Log detailed emission calculations for first few donors
             if (trace_enabled && k < 4) {

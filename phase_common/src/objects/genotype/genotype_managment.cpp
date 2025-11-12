@@ -23,6 +23,47 @@
 #include <objects/genotype/genotype_header.h>
 #include <models/super_site_accessor.h>
 #include <string>
+#include <iostream>
+#include <cstdlib>
+#include <iomanip>
+
+// K-inflation debug instrumentation
+namespace debug {
+std::string SUPERDEBUG_SAMPLENAME = "";
+int SUPERDEBUG_BP = 0;
+
+void load_debug_settings() {
+    const char* sample_env = std::getenv("SHAPEIT5_SUPERDEBUG_SAMPLENAME");
+    if (sample_env) {
+        SUPERDEBUG_SAMPLENAME = std::string(sample_env);
+    }
+    const char* bp_env = std::getenv("SHAPEIT5_SUPERDEBUG_BP");
+    if (bp_env) {
+        SUPERDEBUG_BP = std::atoi(bp_env);
+    }
+}
+
+void print_supersite_state(const genotype* G, const SuperSite& ss, const std::vector<int>& super_site_var_index, const std::string& context) {
+    if (G->name != SUPERDEBUG_SAMPLENAME || (int)ss.global_site_id != SUPERDEBUG_BP) return;
+
+    std::cout << std::fixed << std::setprecision(4);
+    std::cout << "[SUPERDEBUG] Sample=" << G->name << " Pos=" << ss.global_site_id << " Context='" << context << "'" << std::endl;
+
+    std::string hap0_str = "  HAP0: ";
+    std::string hap1_str = "  HAP1: ";
+
+    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+        unsigned int split_locus = super_site_var_index[ss.var_start + ai];
+        unsigned char v_byte = G->Variants[DIV2(split_locus)];
+        hap0_str += std::to_string(VAR_GET_HAP0(MOD2(split_locus), v_byte)) + " ";
+        hap1_str += std::to_string(VAR_GET_HAP1(MOD2(split_locus), v_byte)) + " ";
+    }
+    std::cout << hap0_str << std::endl;
+    std::cout << hap1_str << std::endl;
+    std::cout.unsetf(std::ios_base::floatfield);
+}
+} // namespace debug
+// End K-inflation debug
 
 #if !defined(__OPTIMIZE__)
 #include <cstdlib>
@@ -55,6 +96,7 @@ inline void supersite_debug_check_var_count(uint16_t var_count, const char* func
 using namespace std;
 
 genotype::genotype(unsigned int _index) {
+	if (debug::SUPERDEBUG_BP == 0) debug::load_debug_settings();
 	index = _index;
 	n_segments = 0;
 	n_variants = 0;
@@ -153,6 +195,21 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					// Sample one class per haplotype from multivariant
 					// SC[offset + hap*C + c] = P(class_c | hap)
 					uint8_t class0 = 0, class1 = 0;
+
+                    // HYPOTHESIS 3 DEBUGGING
+                    if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+                        debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo3: Enter missing anchor");
+                        std::cout << "[SUPERDEBUG] H3: Imputing missing data at Pos=" << ss.global_site_id << " for sample " << this->name << std::endl;
+                        std::cout << "[SUPERDEBUG] H3: SC offset=" << offset << " hap0_idx=" << hap0 << " hap1_idx=" << hap1 << " n_classes=" << C << std::endl;
+                        std::string sc_probs0 = "  SC[hap0]: ";
+                        std::string sc_probs1 = "  SC[hap1]: ";
+                        for (int c = 0; c < C; ++c) {
+                            sc_probs0 += std::to_string((*SC)[offset + hap0 * C + c]) + " ";
+                            sc_probs1 += std::to_string((*SC)[offset + hap1 * C + c]) + " ";
+                        }
+                        std::cout << sc_probs0 << std::endl;
+                        std::cout << sc_probs1 << std::endl;
+                    }
 					
                     // Sample class for hap0
                     float r0 = rng.getDouble();
@@ -181,6 +238,12 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                     if (cumsum1 < r1) {
                         class1 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
                     }
+
+                    // HYPOTHESIS 3 DEBUGGING
+                    if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+                        std::cout << "[SUPERDEBUG] H3: r0=" << r0 << " -> sampled_class0=" << (int)class0 << std::endl;
+                        std::cout << "[SUPERDEBUG] H3: r1=" << r1 << " -> sampled_class1=" << (int)class1 << std::endl;
+                    }
 					
 					// Project to splits: class 0=REF, 1..n_alts=ALT1..ALTn
 					// Iterate over all member variants and set based on sampled class
@@ -202,6 +265,11 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 							VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
 						}
 					}
+
+                    // HYPOTHESIS 3 DEBUGGING
+                    if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+                        debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo3: After projection in missing");
+                    }
 					if (supersite_debug::guard_checks_enabled()) {
 						int alt_count_h0 = 0;
 						int alt_count_h1 = 0;
@@ -269,6 +337,11 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						// This is a heterozygous supersite anchor
 						// Determine which allele class each sampled lane represents
 						
+                        // HYPOTHESIS 2 DEBUGGING
+                        if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+                            debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: Enter AMB block");
+                        }
+
 						// Get the current allele codes from the Variants data
 						uint8_t current_c0 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 0);
 						uint8_t current_c1 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 1);
@@ -282,6 +355,14 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						// If HAP_GET(amb_code, hap) == 1, this lane gets c1's allele
 						uint8_t class0 = HAP_GET(amb_code, hap0) ? current_c1 : current_c0;
 						uint8_t class1 = HAP_GET(amb_code, hap1) ? current_c1 : current_c0;
+
+                        // HYPOTHESIS 2 DEBUGGING
+                        if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+                            std::cout << "[SUPERDEBUG] H2: Resolving het at Pos=" << ss.global_site_id << " for sample " << this->name << std::endl;
+                            std::cout << "[SUPERDEBUG] H2: current_c0=" << (int)current_c0 << " current_c1=" << (int)current_c1 << " amb_code=" << (int)amb_code << std::endl;
+                            std::cout << "[SUPERDEBUG] H2: hap0_lane=" << (int)hap0 << " hap1_lane=" << (int)hap1 << std::endl;
+                            std::cout << "[SUPERDEBUG] H2: sampled_class0=" << (int)class0 << " sampled_class1=" << (int)class1 << std::endl;
+                        }
 						
 						// Project to all splits based on sampled classes
 						for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
@@ -302,6 +383,11 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 								VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
 							}
 						}
+
+                        // HYPOTHESIS 2 DEBUGGING
+                        if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+                            debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: After projection in AMB");
+                        }
 						
 						// Skip siblings: advance vabs to last member and advance vrel to account for consumed variants
 						unsigned int last_member_vabs = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
