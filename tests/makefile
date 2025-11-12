@@ -17,6 +17,7 @@ PHASE_COMMON_OBJS := \
 	$(objdir)/phase_genotype_set.o \
 	$(objdir)/phase_haplotype_set.o \
 	$(objdir)/phase_conditioning_set_managment.o \
+	$(objdir)/phase_conditioning_set_selection.o \
 	$(objdir)/phase_super_site_builder.o \
 	$(objdir)/phase_ibd2_tracks.o \
 	$(objdir)/haplotype_segment_single.o \
@@ -59,7 +60,13 @@ TEST_BINARIES := \
     $(bindir)/test_segment_boundary_invariants \
     $(bindir)/test_supersite_transition_underflow \
     $(bindir)/test_empty_segment \
-    $(bindir)/test_hmm_indexing_supersite
+    $(bindir)/test_empty_segment_underflow \
+	$(bindir)/test_hmm_indexing_supersite \
+	$(bindir)/test_supersite_cursor_parity \
+	$(bindir)/test_k_inflation_measurement \
+	$(bindir)/test_hmm_state_inflation \
+	$(bindir)/test_emission_pattern_validation \
+	$(bindir)/test_phase_decision_accuracy
 #    $(bindir)/test_supersite_expected_codes  # TODO: File missing, commented out for now
 
 # Thread Safety Tests
@@ -167,7 +174,34 @@ $(bindir)/test_supersite_transition_underflow: $(objdir)/test_supersite_transiti
 $(bindir)/test_empty_segment: $(objdir)/test_empty_segment.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
+$(bindir)/test_empty_segment_underflow: $(objdir)/test_empty_segment_underflow.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_cursor_drift_investigation: $(objdir)/test_cursor_drift_investigation.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_k_inflation_measurement: $(objdir)/test_k_inflation_measurement.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_hmm_state_inflation: $(objdir)/test_hmm_state_inflation.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_emission_pattern_validation: $(objdir)/test_emission_pattern_validation.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_phase_decision_accuracy: $(objdir)/test_phase_decision_accuracy.o
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_emission_logic_differences: $(objdir)/test_emission_logic_differences.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_pbwt_conditioning_parity: $(objdir)/test_pbwt_conditioning_parity.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
 $(bindir)/test_hmm_indexing_supersite: $(objdir)/test_hmm_indexing_supersite.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_supersite_cursor_parity: $(objdir)/test_supersite_cursor_parity.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_supersite_expected_codes: $(objdir)/test_supersite_expected_codes.o
@@ -213,6 +247,9 @@ $(objdir)/phase_haplotype_set.o: ../phase_common/src/containers/haplotype_set.cp
 
 
 $(objdir)/phase_conditioning_set_managment.o: ../phase_common/src/containers/conditioning_set/conditioning_set_managment.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+$(objdir)/phase_conditioning_set_selection.o: ../phase_common/src/containers/conditioning_set/conditioning_set_selection.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_super_site_builder.o: ../phase_common/src/objects/super_site_builder.cpp
@@ -263,6 +300,13 @@ test-run: test-binaries
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_vs_biallelic_simple
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_forward_backward_comprehensive
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_packing_format_diagnostic
+
+# Regression check: ensure backward IMPUTE guard is present (prevents AlphaMissing OOB regressions)
+	@echo "Running regression check: backward IMPUTE guard script"
+	./scripts/check_backward_impute_guard.sh || (echo "ERROR: backward IMPUTE guard regression failed" && exit 1)
+	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_expansion_parity
+	# Strict unit test: verify ambiguous-cursor parity PASS diagnostics for both precisions
+	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_cursor_parity || (echo "ERROR: test_supersite_cursor_parity failed" && exit 1)
 
 # Run threading safety tests
 test-threading-run: threading-tests

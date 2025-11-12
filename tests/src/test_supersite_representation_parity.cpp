@@ -292,8 +292,8 @@ static hmm_parameters make_hmm_params(size_t n_variants, unsigned int Nhap) {
     hmm_parameters M;
     M.ed = 0.01;
     M.ee = 1.0;
-    // Use binary presentation at anchors for parity against biallelic split
-    M.ss_anchor_split_emissions = true;
+    // Use standard supersite emissions for debugging donor codes
+    M.ss_anchor_split_emissions = false;
     M.cm = std::vector<float>(n_variants, 0.001f);
     // simple increasing map with supersite splits sharing the same position
     if (n_variants >= 5) {
@@ -818,14 +818,45 @@ int main() {
         FBState fa_ss = run_forward_only(G_with_ss, H, M_with_ss, Wa_ss, idxH, &ctx);
         const double tol = 1e-9;
         // Compare normalized α (per lane across donors)
+        std::printf("=== ANCHOR-ONLY PARITY DETAILED COMPARISON ===\n");
+        std::printf("Biallelic sumH: [");
+        for (int h = 0; h < HAP_NUMBER; ++h) std::printf("%.6f%s", fa_no.sumH[h], h < HAP_NUMBER-1 ? ", " : "]\n");
+        std::printf("Supersite sumH: [");
+        for (int h = 0; h < HAP_NUMBER; ++h) std::printf("%.6f%s", fa_ss.sumH[h], h < HAP_NUMBER-1 ? ", " : "]\n");
+        
+        // Check for cyclic permutation pattern
+        std::printf("PATTERN ANALYSIS:\n");
+        for (int shift = 0; shift < HAP_NUMBER; ++shift) {
+            bool matches = true;
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                int shifted_idx = (h + shift) % HAP_NUMBER;
+                if (std::fabs(fa_no.sumH[h] - fa_ss.sumH[shifted_idx]) > 1e-8) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                std::printf("  Supersite sumH is biallelic shifted by %d positions\n", shift);
+                break;
+            }
+        }
+        
         for (unsigned int k = 0, idx = 0; k < H.n_hap; ++k, idx += HAP_NUMBER) {
+            std::printf("Donor %u:\n", k);
+            std::printf("  Biallelic prob: [");
+            for (int h = 0; h < HAP_NUMBER; ++h) std::printf("%.8f%s", fa_no.prob[idx + h], h < HAP_NUMBER-1 ? ", " : "]\n");
+            std::printf("  Supersite prob: [");
+            for (int h = 0; h < HAP_NUMBER; ++h) std::printf("%.8f%s", fa_ss.prob[idx + h], h < HAP_NUMBER-1 ? ", " : "]\n");
+            
             for (int h = 0; h < HAP_NUMBER; ++h) {
                 double d0 = fa_no.sumH[h], d1 = fa_ss.sumH[h];
                 if (d0 > 0 && d1 > 0) {
                     double p0 = fa_no.prob[idx + h] / d0;
                     double p1 = fa_ss.prob[idx + h] / d1;
-                    if (std::fabs(p0 - p1) > tol) {
-                        std::cerr << "Anchor-only parity failed at donor=" << k << " lane=" << h << " diff=" << (p0 - p1) << std::endl;
+                    double diff = p0 - p1;
+                    std::printf("  Lane %d: p0=%.8f p1=%.8f diff=%.8f\n", h, p0, p1, diff);
+                    if (std::fabs(diff) > tol) {
+                        std::cerr << "Anchor-only parity failed at donor=" << k << " lane=" << h << " diff=" << diff << std::endl;
                         assert(false);
                     }
                 }

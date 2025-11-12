@@ -66,7 +66,6 @@ unsigned char bitmatrix::get(unsigned int row, unsigned int col) {
 	unsigned long targetAddr = ((unsigned long)row) * (n_cols>>3) +  (col>>3);
 	return (this->bytes[targetAddr] >> (7 - (col%8))) & 1;
 }
-
 inline
 unsigned char bitmatrix::getByte(unsigned int row, unsigned int col) {
 	return bytes[((unsigned long)row) * (n_cols>>3) +  (col>>3)];

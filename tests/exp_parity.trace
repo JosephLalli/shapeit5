@@ -1,0 +1,223 @@
+======================================================================
+Testing 5-variant vs 10-variant supersite expansion parity...
+======================================================================
+
+Creating 5-variant reference dataset...
+  Built 5-variant dataset with 1 supersite
+Creating 10-variant expanded dataset...
+  Built 10-variant dataset with 5 supersites
+  5-variant dataset: 0 supersites detected
+  10-variant dataset: 5 supersites detected
+  Debugging 10-variant supersites:
+    Supersite 0: bp=500 var_count=2 global_site_id=0
+    Supersite 1: bp=1000 var_count=2 global_site_id=2
+    Supersite 2: bp=1500 var_count=2 global_site_id=4
+    Supersite 3: bp=2000 var_count=2 global_site_id=6
+    Supersite 4: bp=2500 var_count=2 global_site_id=8
+  Locus to supersite mapping:
+    Locus 0 -> supersite 0
+    Locus 1 -> supersite 0
+    Locus 2 -> supersite 1
+    Locus 3 -> supersite 1
+    Locus 4 -> supersite 2
+    Locus 5 -> supersite 2
+    Locus 6 -> supersite 3
+    Locus 7 -> supersite 3
+    Locus 8 -> supersite 4
+    Locus 9 -> supersite 4
+
+Running forward/backward on both datasets...
+  5-variant final probSumT: 5.0500000000e-01
+  10-variant final probSumT: 5.0500000000e-01
+
+Checking anchor-only forward parity across windows (normalized posteriors)...
+  Anchor 0: max_norm_post_diff=0.0000000000e+00 max_abs_prob_diff=0.0000000000e+00 max_abs_sumH_diff=0.0000000000e+00
+    amb_idx parity: 5-var=0 10-var=0
+    Ambiguous bytes: amb5=170 amb10=170
+    Bial lane exp (0/1): 0 1 0 1 0 1 0 1
+    SS emit_kind=1
+    SS anchor_class=1 lane exp_is_anchor (0/1): 1 0 1 0 1 0 1 0
+    SS amb_mask bits: 0 1 0 1 0 1 0 1
+    SS hom_expected (split semantics) = 1 (sample_class0=1)
+    Donor flags (bial ALT at 5-var vs SS anchor-ALT at 10-var):
+      k  bialALT  ssALT
+      0      1       1
+      1      0       0
+      2      0       0
+      3      1       1
+      4      0       0
+      5      0       0
+      6      1       1
+      7      0       0
+    Mask parity: OK
+    Donor 0 per-lane: flag5 flag10  alpha5 alpha10
+      lane 0    0     0   1.0000000000e-02  1.0000000000e-02
+      lane 1    255     255   1.0000000000e+00  1.0000000000e+00
+      lane 2    0     0   1.0000000000e-02  1.0000000000e-02
+      lane 3    255     255   1.0000000000e+00  1.0000000000e+00
+      lane 4    0     0   1.0000000000e-02  1.0000000000e-02
+      lane 5    255     255   1.0000000000e+00  1.0000000000e+00
+      lane 6    0     0   1.0000000000e-02  1.0000000000e-02
+      lane 7    255     255   1.0000000000e+00  1.0000000000e+00
+    Donor×lane mask grid (showing first 4)
+      donor 0: 0 255 0 255 0 255 0 255    |     0 255 0 255 0 255 0 255
+      donor 1: 255 0 255 0 255 0 255 0    |     255 0 255 0 255 0 255 0
+      donor 2: 255 0 255 0 255 0 255 0    |     255 0 255 0 255 0 255 0
+      donor 3: 0 255 0 255 0 255 0 255    |     0 255 0 255 0 255 0 255
+    Stepwise parity to anchor 0...
+      Stepwise parity holds through anchor
+  Anchor 1: max_norm_post_diff=0.0000000000e+00 max_abs_prob_diff=0.0000000000e+00 max_abs_sumH_diff=0.0000000000e+00
+    amb_idx parity: 5-var=1 10-var=1
+    Ambiguous bytes: amb5=204 amb10=204
+    Bial lane exp (0/1): 0 0 1 1 0 0 1 1
+    SS emit_kind=1
+    SS anchor_class=1 lane exp_is_anchor (0/1): 1 1 0 0 1 1 0 0
+    SS amb_mask bits: 0 0 1 1 0 0 1 1
+    SS hom_expected (split semantics) = 1 (sample_class0=1)
+    Donor flags (bial ALT at 5-var vs SS anchor-ALT at 10-var):
+      k  bialALT  ssALT
+      0      0       0
+      1      1       1
+      2      0       0
+      3      0       0
+      4      0       0
+      5      0       0
+      6      0       0
+      7      1       1
+    Mask parity: OK
+    Donor 0 per-lane: flag5 flag10  alpha5 alpha10
+      lane 0    255     255   4.5441526592e-03  4.5441526592e-03
+      lane 1    255     255   2.6705847341e-02  2.6705847341e-02
+      lane 2    0     0   4.5441526592e-05  4.5441526592e-05
+      lane 3    0     0   2.6705847341e-04  2.6705847341e-04
+      lane 4    255     255   4.5441526592e-03  4.5441526592e-03
+      lane 5    255     255   2.6705847341e-02  2.6705847341e-02
+      lane 6    0     0   4.5441526592e-05  4.5441526592e-05
+      lane 7    0     0   2.6705847341e-04  2.6705847341e-04
+    Donor×lane mask grid (showing first 4)
+      donor 0: 255 255 0 0 255 255 0 0    |     255 255 0 0 255 255 0 0
+      donor 1: 0 0 255 255 0 0 255 255    |     0 0 255 255 0 0 255 255
+      donor 2: 255 255 0 0 255 255 0 0    |     255 255 0 0 255 255 0 0
+      donor 3: 255 255 0 0 255 255 0 0    |     255 255 0 0 255 255 0 0
+    Stepwise parity to anchor 1...
+      Stepwise parity holds through anchor
+  Anchor 2: max_norm_post_diff=0.0000000000e+00 max_abs_prob_diff=0.0000000000e+00 max_abs_sumH_diff=0.0000000000e+00
+    amb_idx parity: 5-var=2 10-var=2
+    Ambiguous bytes: amb5=0 amb10=0
+    Bial lane exp (0/1): 0 0 0 0 0 0 0 0
+    SS emit_kind=0
+    SS anchor_class=1 lane exp_is_anchor (0/1): 0 0 0 0 0 0 0 0
+    SS amb_mask bits: 0 0 0 0 0 0 0 0
+    SS hom_expected (split semantics) = 0 (sample_class0=0)
+    Donor flags (bial ALT at 5-var vs SS anchor-ALT at 10-var):
+      k  bialALT  ssALT
+      0      0       0
+      1      0       0
+      2      1       1
+      3      0       0
+      4      1       1
+      5      1       1
+      6      0       0
+      7      0       0
+    Mask parity: OK
+    Donor 0 per-lane: flag5 flag10  alpha5 alpha10
+      lane 0    255     255   1.2450260111e-02  1.2450260111e-02
+      lane 1    255     255   4.6043130633e-02  4.6043130633e-02
+      lane 2    255     255   3.2340933497e-03  3.2340933497e-03
+      lane 3    255     255   7.7251590641e-04  7.7251590641e-04
+      lane 4    255     255   1.2450260111e-02  1.2450260111e-02
+      lane 5    255     255   4.6043130633e-02  4.6043130633e-02
+      lane 6    255     255   3.2340933497e-03  3.2340933497e-03
+      lane 7    255     255   7.7251590641e-04  7.7251590641e-04
+    Donor×lane mask grid (showing first 4)
+      donor 0: 255 255 255 255 255 255 255 255    |     255 255 255 255 255 255 255 255
+      donor 1: 255 255 255 255 255 255 255 255    |     255 255 255 255 255 255 255 255
+      donor 2: 0 0 0 0 0 0 0 0    |     0 0 0 0 0 0 0 0
+      donor 3: 255 255 255 255 255 255 255 255    |     255 255 255 255 255 255 255 255
+    Stepwise parity to anchor 2...
+      Stepwise parity holds through anchor
+  Anchor 3: max_norm_post_diff=0.0000000000e+00 max_abs_prob_diff=0.0000000000e+00 max_abs_sumH_diff=0.0000000000e+00
+    amb_idx parity: 5-var=2 10-var=2
+    Ambiguous bytes: amb5=0 amb10=0
+    Bial lane exp (0/1): 0 0 0 0 0 0 0 0
+    SS emit_kind=0
+    SS anchor_class=1 lane exp_is_anchor (0/1): 0 0 0 0 0 0 0 0
+    SS amb_mask bits: 0 0 0 0 0 0 0 0
+    SS hom_expected (split semantics) = 0 (sample_class0=0)
+    Donor flags (bial ALT at 5-var vs SS anchor-ALT at 10-var):
+      k  bialALT  ssALT
+      0      1       1
+      1      0       0
+      2      0       0
+      3      0       0
+      4      1       1
+      5      1       1
+      6      0       0
+      7      0       0
+    Mask parity: OK
+    Donor 0 per-lane: flag5 flag10  alpha5 alpha10
+      lane 0    0     0   1.7646192382e-04  1.7646192382e-04
+      lane 1    0     0   6.3549007699e-04  6.3549007699e-04
+      lane 2    0     0   8.5676861402e-05  8.5676861402e-05
+      lane 3    0     0   1.4776497261e-05  1.4776497261e-05
+      lane 4    0     0   1.7646192382e-04  1.7646192382e-04
+      lane 5    0     0   6.3549007699e-04  6.3549007699e-04
+      lane 6    0     0   8.5676861402e-05  8.5676861402e-05
+      lane 7    0     0   1.4776497261e-05  1.4776497261e-05
+    Donor×lane mask grid (showing first 4)
+      donor 0: 0 0 0 0 0 0 0 0    |     0 0 0 0 0 0 0 0
+      donor 1: 255 255 255 255 255 255 255 255    |     255 255 255 255 255 255 255 255
+      donor 2: 255 255 255 255 255 255 255 255    |     255 255 255 255 255 255 255 255
+      donor 3: 255 255 255 255 255 255 255 255    |     255 255 255 255 255 255 255 255
+    Stepwise parity to anchor 3...
+      Stepwise parity holds through anchor
+  Anchor 4: max_norm_post_diff=0.0000000000e+00 max_abs_prob_diff=0.0000000000e+00 max_abs_sumH_diff=0.0000000000e+00
+    amb_idx parity: 5-var=2 10-var=2
+    Ambiguous bytes: amb5=0 amb10=0
+    Bial lane exp (0/1): 1 1 1 1 1 1 1 1
+    SS emit_kind=0
+    SS anchor_class=1 lane exp_is_anchor (0/1): 1 1 1 1 1 1 1 1
+    SS amb_mask bits: 0 0 0 0 0 0 0 0
+    SS hom_expected (split semantics) = 1 (sample_class0=1)
+    Donor flags (bial ALT at 5-var vs SS anchor-ALT at 10-var):
+      k  bialALT  ssALT
+      0      1       1
+      1      1       1
+      2      1       1
+      3      1       1
+      4      0       0
+      5      0       0
+      6      1       1
+      7      1       1
+    Mask parity: OK
+    Donor 0 per-lane: flag5 flag10  alpha5 alpha10
+      lane 0    255     255   2.2637194921e-03  2.2637194921e-03
+      lane 1    255     255   6.4475126651e-03  6.4475126651e-03
+      lane 2    255     255   5.4387682502e-03  5.4387682502e-03
+      lane 3    255     255   6.0804861623e-04  6.0804861623e-04
+      lane 4    255     255   2.2637194921e-03  2.2637194921e-03
+      lane 5    255     255   6.4475126651e-03  6.4475126651e-03
+      lane 6    255     255   5.4387682502e-03  5.4387682502e-03
+      lane 7    255     255   6.0804861623e-04  6.0804861623e-04
+    Donor×lane mask grid (showing first 4)
+      donor 0: 255 255 255 255 255 255 255 255    |     255 255 255 255 255 255 255 255
+      donor 1: 255 255 255 255 255 255 255 255    |     255 255 255 255 255 255 255 255
+      donor 2: 255 255 255 255 255 255 255 255    |     255 255 255 255 255 255 255 255
+      donor 3: 255 255 255 255 255 255 255 255    |     255 255 255 255 255 255 255 255
+    Stepwise parity to anchor 4...
+      Stepwise parity holds through anchor
+
+Validating supersite expansion behavior...
+  probSumT difference: 0.0000000000e+00
+
+✓ SUCCESS: Supersite expansion test passed!
+✓ 5-variant reference dataset: 0 supersite
+✓ 10-variant expanded dataset: 5 supersites
+✓ Forward/backward passes completed successfully for both datasets
+✓ Anchor-only forward parity holds across windows
+✓ Likelihood values are reasonable (5-var: 0.5050, 10-var: 0.5050)
+✓ Supersite representation handles dummy variants correctly
+
+======================================================================
+Test completed successfully!
+======================================================================

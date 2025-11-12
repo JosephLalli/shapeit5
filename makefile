@@ -5,7 +5,7 @@ projects = phase_common phase_rare switch ligate simulate xcftools tests
 all: $(projects)
 
 $(projects):
-	$(MAKE) -C $@
+	$(MAKE) -j24 -C $@
 
 clean:
 	for dir in $(projects); do \
@@ -20,11 +20,11 @@ coverage: $(addsuffix .cov,$(projects))
 
 # each of these is an independent job; -j 24 will run many at once
 %.cov:
-	$(MAKE) -C $* COVERAGE=1
+	$(MAKE) -j24 -C $* COVERAGE=1
 
 
 static_exe:
 	for dir in $(projects); do \
-	$(MAKE) $@ -C $$dir; \
+	$(MAKE) -j24 $@ -C $$dir; \
 	done
 

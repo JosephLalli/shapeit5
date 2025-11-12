@@ -164,6 +164,7 @@ public:
 	void performMerges(std::vector < double > &, std::vector < bool > &);
 	void store(std::vector < double > &, std::vector < float > &);
 	void solve();
+	void projectSupersites();
 	void scaffoldTrio(genotype *, genotype *, std::vector < unsigned int > &);
 	void scaffoldDuoFather(genotype *, std::vector < unsigned int > &);
 	void scaffoldDuoMother(genotype *, std::vector < unsigned int > &);

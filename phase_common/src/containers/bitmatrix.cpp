@@ -39,27 +39,52 @@ bitmatrix::~bitmatrix() {
 }
 
 int bitmatrix::subset(bitmatrix & BM, vector < unsigned int > rows, unsigned int col_from, unsigned int col_to) {
-	//n_rows = rows.size() + ((rows.size()%8)?(8-(rows.size()%8)):0);
-	n_rows = ROUND8(rows.size());
-	//std::cout << n_rows << " " << rows.size() << " " << col_from << " " << col_to << std::endl;
-	//exit(1);
-	unsigned long row_start = col_from/8;
-	unsigned long row_end = col_to/8;
-	unsigned long n_bytes_per_row = row_end - row_start + 1;
+    //n_rows = rows.size() + ((rows.size()%8)?(8-(rows.size()%8)):0);
+    n_rows = ROUND8(rows.size());
+    //std::cout << n_rows << " " << rows.size() << " " << col_from << " " << col_to << std::endl;
+    //exit(1);
+    unsigned long row_start_bm = col_from/8;
+    unsigned long row_end_bm = col_to/8;
+    unsigned long n_bytes_per_row_bm = row_end_bm - row_start_bm + 1;
 
-	//std::cout << rows.size() << " " << n_bytes_per_row << endl;
+    //std::cout << rows.size() << " " << n_bytes_per_row << endl;
 
-	n_cols = n_bytes_per_row * 8;
-	n_bytes = n_bytes_per_row * n_rows;
-	//bytes = (unsigned char*)malloc(n_bytes*sizeof(unsigned char));
-	bytes = (unsigned char*)calloc(n_bytes, sizeof(unsigned char));
-	unsigned long offset_addr = 0;
-	for (int r = 0 ; r < rows.size() ; r ++) {
-		row_start = ((unsigned long)rows[r]) * (BM.n_cols/8) + col_from/8;
-		row_end = ((unsigned long)rows[r]) * (BM.n_cols/8) + col_to/8;
-		memcpy(&bytes[offset_addr], &BM.bytes[row_start], n_bytes_per_row);
-		offset_addr += n_bytes_per_row;
-	}
+    n_cols = n_bytes_per_row_bm * 8;
+    n_bytes = n_bytes_per_row_bm * n_rows;
+    //bytes = (unsigned char*)malloc(n_bytes*sizeof(unsigned char));
+    bytes = (unsigned char*)calloc(n_bytes, sizeof(unsigned char));
+    unsigned long offset_addr = 0;
+    
+    const char* tr_d = std::getenv("SHAPEIT5_TEST_TRACE");
+    if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+        std::fprintf(stdout, "D.bitmatrix::subset: this(dest) n_rows=%lu, n_cols=%lu, n_bytes=%lu, bytes=%p\n",
+                     this->n_rows, this->n_cols, this->n_bytes, (void*)this->bytes);
+        std::fprintf(stdout, "D.bitmatrix::subset: BM(src) n_rows=%lu, n_cols=%lu, n_bytes=%lu, bytes=%p\n",
+                     BM.n_rows, BM.n_cols, BM.n_bytes, (void*)BM.bytes);
+        std::fprintf(stdout, "D.bitmatrix::subset: col_from=%u, col_to=%u, n_bytes_per_row_bm=%lu\n",
+                     col_from, col_to, n_bytes_per_row_bm);
+    }
+
+    for (int r = 0 ; r < rows.size() ; r ++) {
+        unsigned long src_row_idx = rows[r];
+        unsigned long src_offset = src_row_idx * (BM.n_cols/8) + col_from/8;
+        unsigned long dest_offset = offset_addr;
+
+        if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+            std::fprintf(stdout, "D.bitmatrix::subset: row=%d, src_row_idx=%lu, src_offset=%lu, dest_offset=%lu, n_bytes_per_row_bm=%lu\n",
+                         r, src_row_idx, src_offset, dest_offset, n_bytes_per_row_bm);
+            if (src_offset + n_bytes_per_row_bm > BM.n_bytes) {
+                std::fprintf(stderr, "!!! D.bitmatrix::subset: SOURCE OOB: src_offset=%lu, n_bytes_per_row_bm=%lu, BM.n_bytes=%lu !!!\n",
+                             src_offset, n_bytes_per_row_bm, BM.n_bytes);
+            }
+            if (dest_offset + n_bytes_per_row_bm > this->n_bytes) {
+                std::fprintf(stderr, "!!! D.bitmatrix::subset: DEST OOB: dest_offset=%lu, n_bytes_per_row_bm=%lu, this->n_bytes=%lu !!!\n",
+                             dest_offset, n_bytes_per_row_bm, this->n_bytes);
+            }
+        }
+        memcpy(&bytes[offset_addr], &BM.bytes[src_offset], n_bytes_per_row_bm);
+        offset_addr += n_bytes_per_row_bm;
+    }
 
 	//for (int r = 0 ; r < n_rows ; r ++) {
 	/*

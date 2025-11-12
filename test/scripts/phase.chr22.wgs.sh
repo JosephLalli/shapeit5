@@ -11,8 +11,10 @@ source "$SCRIPT_DIR/lib/test_utils.sh"
 tmp_dir=$TEST_DIR/tmp
 mkdir -p tmp
 
-scaffold_region=chr22:18000000-25000000
-comparison_region=chr22:19000000-24000000
+#scaffold_region=chr22:18000000-25000000
+#comparison_region=chr22:19000000-24000000
+scaffold_region=chr22:19000000-20000000
+comparison_region=chr22:19000000-20000000
 
 in_bcf="${TEST_DIR}/wgs/1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.unphased.native_maps.biallelic.18000000-25000000.bcf"
 scaffold_bcf_prefix="$tmp_dir/chr22.1KGP.18-25mb.phase_common"
@@ -23,7 +25,7 @@ if [[ 'x' == 'y' ]]; then
   --filter-maf 0.001 \
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
-  --output $scaffold_bcf_prefix.og.bcf \
+  --output $scaffold_bcf_prefix.og.small.bcf \
   --thread 64 &
 #fi
 
@@ -32,39 +34,39 @@ if [[ 'x' == 'y' ]]; then
   --filter-maf 0.001 \
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
-  --output $scaffold_bcf_prefix.main_algo.bcf \
+  --output $scaffold_bcf_prefix.main_algo.small.bcf \
   --thread 64 &
 fi
-# SHAPEIT5_TEST_TRACE=1 SHAPEIT5_DEBUG_UNDERFLOW=1 \
+#SHAPEIT5_TEST_TRACE=1 SHAPEIT5_DEBUG_UNDERFLOW=1 \
 /usr/bin/time ../phase_common/bin/phase_common \
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
-  --output $scaffold_bcf_prefix.supersites.split_emissions.bcf \
+  --output $scaffold_bcf_prefix.supersites.split_emissions.small.bcf \
   --enable-supersites \
-  --thread 64 
-#  --enable-supersites
+  --thread 64
+
 #fi
 wait
 #exit 0
 ../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
-  --estimation "$scaffold_bcf_prefix.og.bcf" \
+  --estimation "$scaffold_bcf_prefix.og.small.bcf" \
   --region $comparison_region \
   --output "$scaffold_bcf_prefix.og" \
   --log "$scaffold_bcf_prefix.og.log" >/dev/null
 
 ../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
-  --estimation "$scaffold_bcf_prefix.main_algo.bcf" \
+  --estimation "$scaffold_bcf_prefix.main_algo.small.bcf" \
   --region $comparison_region \
   --output "$scaffold_bcf_prefix.main_algo" \
   --log "$scaffold_bcf_prefix.main_algo.log" >/dev/null
 
 ../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
-  --estimation "$scaffold_bcf_prefix.supersites.split_emissions.bcf" \
+  --estimation "$scaffold_bcf_prefix.supersites.split_emissions.small.bcf" \
   --region $comparison_region \
   --output "$scaffold_bcf_prefix.supersites.split_emissions" \
   --log "$scaffold_bcf_prefix.supersites.split_emissions.log" >/dev/null

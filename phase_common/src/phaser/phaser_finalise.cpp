@@ -33,6 +33,15 @@ void phaser::write_files_and_finalise() {
 
 	//
 	G.solve();
+	
+	// Post-HMM supersite projection: project anchor phasing to member splits
+	if (enable_supersites) {
+		vrb.bullet("Projecting supersite anchors to member splits");
+		for (unsigned int i = 0; i < G.n_ind; ++i) {
+			G.vecG[i]->projectSupersites();
+		}
+	}
+	
 	H.updateHaplotypes(G);
 	H.transposeHaplotypes_H2V(false);
 

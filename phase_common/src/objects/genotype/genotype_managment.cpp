@@ -127,7 +127,12 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				if (anchor_has_missing) {
 					supersite_debug_require(anchor_has_missing, static_cast<size_t>(ss_idx) + 1, "anchor_has_missing", dbg_func);
 				}
-				if (SC) {
+				if (SC && anchor_has_missing && (*anchor_has_missing)[ss_idx]) {
+					std::cout << "[supersite debug] " << dbg_func << ": checking SC for ss_idx=" << ss_idx 
+					          << " n_classes=" << (*super_sites)[ss_idx].n_classes 
+					          << " anchor_has_missing=" << (*anchor_has_missing)[ss_idx] 
+					          << " SC.size()=" << SC->size() << std::endl;
+					std::cout.flush();
 					supersite_debug_require(supersite_sc_offset, static_cast<size_t>(ss_idx) + 1, "supersite_sc_offset", dbg_func);
 					const size_t offset_debug = (*supersite_sc_offset)[ss_idx];
 					const size_t required_debug = offset_debug + static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>((*super_sites)[ss_idx].n_classes);
@@ -372,4 +377,50 @@ super_site_var_index = _super_site_var_index;
 SC = _SC;
 anchor_has_missing = _anchor_has_missing;
 supersite_sc_offset = _supersite_sc_offset;
+}
+
+void genotype::projectSupersites() {
+	if (!super_sites || !locus_to_super_idx || !super_site_var_index) {
+		return; // No supersite data available
+	}
+
+	// Iterate through all supersites to perform post-HMM projection
+	for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
+		const SuperSite& ss = (*super_sites)[ss_idx];
+		int anchor_locus = static_cast<int>(ss.global_site_id);
+
+		// Get anchor phasing result
+		unsigned char anchor_variant = Variants[DIV2(anchor_locus)];
+		bool anchor_hap0_alt = VAR_GET_HAP0(MOD2(anchor_locus), anchor_variant);
+		bool anchor_hap1_alt = VAR_GET_HAP1(MOD2(anchor_locus), anchor_variant);
+
+		// Handle missing anchor data
+		if (VAR_GET_MIS(MOD2(anchor_locus), anchor_variant)) {
+			continue; // Skip projection for missing anchors
+		}
+
+		// Project anchor phasing to all member splits
+		for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+			unsigned int split_locus = (*super_site_var_index)[ss.var_start + ai];
+			uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
+
+			// Determine split genotype based on anchor phasing
+			// If anchor is REF/REF (class 0), all splits are REF
+			// If anchor is ALT_i/REF or ALT_i/ALT_i, corresponding split is ALT
+			
+			// Set hap0 for this split
+			if (anchor_hap0_alt && (alt_class == 1)) { // For now, assume only ALT1 mapping
+				VAR_SET_HAP0(MOD2(split_locus), Variants[DIV2(split_locus)]);
+			} else {
+				VAR_CLR_HAP0(MOD2(split_locus), Variants[DIV2(split_locus)]);
+			}
+
+			// Set hap1 for this split  
+			if (anchor_hap1_alt && (alt_class == 1)) { // For now, assume only ALT1 mapping
+				VAR_SET_HAP1(MOD2(split_locus), Variants[DIV2(split_locus)]);
+			} else {
+				VAR_CLR_HAP1(MOD2(split_locus), Variants[DIV2(split_locus)]);
+			}
+		}
+	}
 }

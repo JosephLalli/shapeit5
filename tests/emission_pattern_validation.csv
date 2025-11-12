@@ -1,0 +1,7 @@
+locus,scenario,patterns_identical,jaccard_similarity,mismatched_donors,mismatched_lanes
+1,HOM_REF,true,1.000,0,0
+2,HOM_ALT,true,1.000,0,0
+3,HET_standard,true,1.000,0,0
+4,HET_anchor_split,false,0.250,24,6
+5,AMB_anchor_split,false,0.250,24,6
+6,MISSING,true,1.000,0,0

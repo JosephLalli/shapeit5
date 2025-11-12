@@ -515,45 +515,59 @@ void haplotype_segment_double::SS_INIT_AMB() {
     }
 
     if (M.ss_anchor_split_emissions) {
-        // Split semantics: define expected ALT directly from Ambiguous mask (biallelic semantics)
-        alignas(32) int exp_is_alt[HAP_NUMBER];
-        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = ((amb_mask >> h) & 1U) ? 1 : 0;
-        
+        // Split semantics: use g0/g1 pattern like biallelic
 	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
 		debugCheckProbBounds(i, "SS_INIT_AMB");
 		int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
-		
-		// Create per-lane emissions (process as two 4-lane halves for double precision)
-		alignas(32) double E8[HAP_NUMBER];
-		for (int h = 0; h < HAP_NUMBER; ++h) {
-                E8[h] = (donor_is_alt == exp_is_alt[h]) ? 1.0 : (M.ed/M.ee);
+
+            // Build g0/g1 like biallelic, then select using binary allele
+            alignas(32) double g0[HAP_NUMBER], g1[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                bool amb_bit = ((amb_mask >> h) & 1U);
+                g0[h] = amb_bit ? (M.ed/M.ee) : 1.0;
+                g1[h] = amb_bit ? 1.0 : (M.ed/M.ee);
             }
-            
+
+            // Create per-lane emissions (process as two 4-lane halves for double precision)
+            alignas(32) double E8[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                E8[h] = donor_is_alt ? g1[h] : g0[h];
+            }
+
             // Load as two 256-bit double vectors
             __m256d emit_lo = _mm256_load_pd(&E8[0]);
             __m256d emit_hi = _mm256_load_pd(&E8[4]);
-            
+
             _sum0 = _mm256_add_pd(_sum0, emit_lo);
             _sum1 = _mm256_add_pd(_sum1, emit_hi);
             _mm256_store_pd(&prob[i+0], emit_lo);
             _mm256_store_pd(&prob[i+4], emit_hi);
         }
     } else {
-        // Strict 4-bit equality semantics: per-lane comparison
+        // Strict 4-bit equality semantics: use g0/g1 pattern like biallelic
 	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
 		debugCheckProbBounds(i, "SS_INIT_AMB");
 		int dc = (int)ss_cond_codes[k];
-		
-		// Create per-lane emissions (process as two 4-lane halves for double precision)
-		alignas(32) double E8[HAP_NUMBER];
+
+            // Build g0/g1 like biallelic, then select using binary allele
+            alignas(32) double g0[HAP_NUMBER], g1[HAP_NUMBER];
             for (int h = 0; h < HAP_NUMBER; ++h) {
-                E8[h] = (dc == (int)expected_class[h]) ? 1.0 : (M.ed/M.ee);
+                bool amb_bit = ((amb_mask >> h) & 1U);
+                g0[h] = amb_bit ? (M.ed/M.ee) : 1.0;
+                g1[h] = amb_bit ? 1.0 : (M.ed/M.ee);
             }
-            
+            int donor_allele = (dc == anchor_code) ? 1 : 0;
+
+            // Create per-lane emissions (process as two 4-lane halves for double precision)
+            alignas(32) double E8[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                E8[h] = donor_allele ? g1[h] : g0[h];
+            }
+
             // Load as two 256-bit double vectors
             __m256d emit_lo = _mm256_load_pd(&E8[0]);
             __m256d emit_hi = _mm256_load_pd(&E8[4]);
-            
+
             _sum0 = _mm256_add_pd(_sum0, emit_lo);
             _sum1 = _mm256_add_pd(_sum1, emit_hi);
             _mm256_store_pd(&prob[i+0], emit_lo);
@@ -657,29 +671,34 @@ void haplotype_segment_double::SS_RUN_AMB() {
     }
 
 	if (M.ss_anchor_split_emissions) {
-		// Split semantics: per-lane expected ALT at anchor vs donor carries anchor ALT
-		alignas(32) int exp_is_alt[HAP_NUMBER];
-		for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
-		
+		// Split semantics: use g0/g1 pattern like biallelic
 		for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
 			debugCheckProbBounds(i, "SS_RUN_AMB");
 			__m256d _prob0 = _mm256_load_pd(&prob[i]);
 			__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
             _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
             _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
-            
+
             int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
-            
+
+            // Build g0/g1 like biallelic, then select using binary allele
+            alignas(32) double g0[HAP_NUMBER], g1[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                bool amb_bit = ((amb_mask >> h) & 1U);
+                g0[h] = amb_bit ? (M.ed/M.ee) : 1.0;
+                g1[h] = amb_bit ? 1.0 : (M.ed/M.ee);
+            }
+
             // Create per-lane emissions (process as two 4-lane halves for double precision)
             alignas(32) double E8[HAP_NUMBER];
             for (int h = 0; h < HAP_NUMBER; ++h) {
-                E8[h] = (donor_is_alt == exp_is_alt[h]) ? 1.0 : (M.ed/M.ee);
+                E8[h] = donor_is_alt ? g1[h] : g0[h];
             }
-            
+
             // Load as two 256-bit double vectors
             __m256d emit_lo = _mm256_load_pd(&E8[0]);
             __m256d emit_hi = _mm256_load_pd(&E8[4]);
-            
+
             _prob0 = _mm256_mul_pd(_prob0, emit_lo);
             _prob1 = _mm256_mul_pd(_prob1, emit_hi);
             _sum0 = _mm256_add_pd(_sum0, _prob0);
@@ -688,7 +707,7 @@ void haplotype_segment_double::SS_RUN_AMB() {
             _mm256_store_pd(&prob[i+4], _prob1);
         }
 	} else {
-		// Strict 4-bit equality semantics: per-lane comparison
+		// Strict 4-bit equality semantics: use g0/g1 pattern like biallelic
 		for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
 			debugCheckProbBounds(i, "SS_RUN_AMB");
 			__m256d _prob0 = _mm256_load_pd(&prob[i]);
@@ -697,13 +716,22 @@ void haplotype_segment_double::SS_RUN_AMB() {
             _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
 
             int dc = (int)ss_cond_codes[k];
-            
+
+            // Build g0/g1 like biallelic, then select using binary allele
+            alignas(32) double g0[HAP_NUMBER], g1[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                bool amb_bit = ((amb_mask >> h) & 1U);
+                g0[h] = amb_bit ? (M.ed/M.ee) : 1.0;
+                g1[h] = amb_bit ? 1.0 : (M.ed/M.ee);
+            }
+            int donor_allele = (dc == anchor_code) ? 1 : 0;
+
             // Create per-lane emissions (process as two 4-lane halves for double precision)
             alignas(32) double E8[HAP_NUMBER];
             for (int h = 0; h < HAP_NUMBER; ++h) {
-                E8[h] = (dc == (int)expected_class[h]) ? 1.0 : (M.ed/M.ee);
+                E8[h] = donor_allele ? g1[h] : g0[h];
             }
-            
+
             // Load as two 256-bit double vectors
             __m256d emit_lo = _mm256_load_pd(&E8[0]);
             __m256d emit_hi = _mm256_load_pd(&E8[4]);
@@ -867,28 +895,41 @@ void haplotype_segment_double::SS_COLLAPSE_AMB() {
         }
         debugCheckProbBounds(i, "SS_COLLAPSE_AMB");
 
-        // Emission: compute donor code based on mode, then compare to expected per lane
-        // BUG #6 DOCUMENTED: Supersite uses per-lane array computation (required for double precision)
-        // vs. biallelic inline conditional (optimized for binary alleles)
-        // Both implement: emit[h] = (donor_matches_expected[h]) ? 1.0 : (M.ed/M.ee)
-        int donor_code;
+        // Emission: use g0/g1 pattern like biallelic
+        int donor_allele;
         if (M.ss_anchor_split_emissions) {
-            int anchor_code = 0; 
+            int anchor_code = 0;
             for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-                if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { 
-                    anchor_code = (int)ai + 1; 
-                    break; 
+                if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
+                    anchor_code = (int)ai + 1;
+                    break;
                 }
             }
-            donor_code = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+            donor_allele = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
         } else {
-            donor_code = (int)ss_cond_codes[k];
+            int dc = (int)ss_cond_codes[k];
+            int anchor_code = 0;
+            for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+                if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
+                    anchor_code = (int)ai + 1;
+                    break;
+                }
+            }
+            donor_allele = (dc == anchor_code) ? 1 : 0;
         }
-        
+
+        // Build g0/g1 like biallelic, then select using binary allele
+        alignas(32) double g0[HAP_NUMBER], g1[HAP_NUMBER];
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            bool amb_bit = ((amb_mask >> h) & 1U);
+            g0[h] = amb_bit ? (M.ed/M.ee) : 1.0;
+            g1[h] = amb_bit ? 1.0 : (M.ed/M.ee);
+        }
+
         // Build per-lane emissions (process as two 4-lane halves for double precision)
         alignas(32) double E8[HAP_NUMBER];
         for (int h = 0; h < HAP_NUMBER; ++h) {
-            E8[h] = (donor_code == exp_arr[h]) ? 1.0 : (M.ed/M.ee);
+            E8[h] = donor_allele ? g1[h] : g0[h];
         }
         
         // Load as two 256-bit double vectors and apply

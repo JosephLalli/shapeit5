@@ -114,6 +114,7 @@ void haplotype_segment_double::trace_ambiguous_cursor(const char* stage, int loc
 				 actual_delta,
 				 curr_segment_index,
 				 static_cast<int>(is_sibling));
+		std::fflush(stdout);
 		assert(actual_delta == expected_delta && "ambiguous cursor delta mismatch");
 	}
 
@@ -249,6 +250,10 @@ void haplotype_segment_double::forward() {
 	prev_abs_locus = locus_first;
 	trace_forward_active = true;
 	trace_backward_active = false;
+
+	// Diagnostics: track ambiguous-site bookkeeping counts to verify cursor correctness
+	int diag_expected_amb_sites = 0; // number of data_amb sites (excluding siblings) encountered
+	int diag_advanced_amb = 0;      // number of times we actually advanced the ambiguous cursor
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
@@ -465,7 +470,11 @@ void haplotype_segment_double::forward() {
 	curr_segment_locus ++;
 	const bool has_amb_range = (ambiguous_first <= ambiguous_last);
 	const int cursor_before = curr_abs_ambiguous;
-	const int expected_delta = (data_amb && has_amb_range) ? 1 : 0;
+	const int expected_delta = (data_amb && has_amb_range && curr_abs_ambiguous < ambiguous_last) ? 1 : 0;
+
+	// Diagnostic accounting: count data_amb sites and actual advances
+	if (expected_delta) diag_expected_amb_sites++;
+
 	if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
 		std::fprintf(stdout,
 			"D.delta locus=%d cursor_before=%d expected_delta=%d data_amb=%d data_mis=%d is_sibling=%d has_range=%d\n",
@@ -477,7 +486,10 @@ void haplotype_segment_double::forward() {
 			is_sibling ? 1 : 0,
 			has_amb_range ? 1 : 0);
 	}
-	if (expected_delta) curr_abs_ambiguous++;
+	if (expected_delta && (curr_abs_ambiguous < ambiguous_last)) {
+		curr_abs_ambiguous++;
+		diag_advanced_amb++;
+	}
 	trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling, expected_delta);
 	if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last)) {
 		if (supersite_trace_enabled_d()) {
@@ -501,6 +513,30 @@ void haplotype_segment_double::forward() {
 		if (curr_segment_locus >= G->Lengths[curr_segment_index]) {
 			curr_segment_index++;
 			curr_segment_locus = 0;
+		}
+
+		// End-of-window diagnostic: verify ambiguous-site bookkeeping parity
+		if (supersite_trace_enabled_d()) {
+			const bool has_amb_range = (ambiguous_first <= ambiguous_last);
+			int slots = has_amb_range ? (ambiguous_last - ambiguous_first + 1) : 0;
+			if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
+				std::fprintf(stdout, "D.diag-check locus=%d diag_expected=%d diag_advanced=%d slots=%d\n",
+					curr_abs_locus, diag_expected_amb_sites, diag_advanced_amb, slots);
+			}
+			if (diag_expected_amb_sites > slots) {
+				std::fprintf(stderr, "[ss-amb-diag][double] expected_amb_sites=%d slots=%d\n", diag_expected_amb_sites, slots);
+				assert(false && "more ambiguous data sites than available slots");
+			}
+			if (diag_expected_amb_sites != diag_advanced_amb) {
+				std::fprintf(stderr, "[ss-amb-diag][double] expected_amb_sites=%d advanced_amb=%d slots=%d\n",
+					 diag_expected_amb_sites, diag_advanced_amb, slots);
+				assert(false && "ambiguous cursor advanced count mismatch");
+			}
+			else {
+				std::fprintf(stdout, "[ss-amb-diag-PASS][double] expected_amb_sites=%d advanced_amb=%d slots=%d\n",
+					 diag_expected_amb_sites, diag_advanced_amb, slots);
+				std::fflush(stdout);
+			}
 		}
 	}
 	trace_forward_active = false;
@@ -658,9 +694,9 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 
 		curr_segment_locus--;
 		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
-		const int expected_delta = (data_amb && has_amb_range) ? -1 : 0;
+		const int expected_delta = (data_amb && has_amb_range && curr_abs_ambiguous > ambiguous_first) ? -1 : 0;
 		const int cursor_before_bwd = curr_abs_ambiguous;
-		if (expected_delta) curr_abs_ambiguous--;
+		if (expected_delta && (curr_abs_ambiguous > ambiguous_first)) curr_abs_ambiguous--;
 		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, expected_delta);
 		if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last)) {
 			if (supersite_trace_enabled_d()) {

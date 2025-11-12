@@ -391,30 +391,39 @@ void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint
 
     __m256 _sum = _mm256_set1_ps(0.0f);
     if (M.ss_anchor_split_emissions) {
-        // Split semantics: per-lane expected ALT at anchor vs donor carries anchor ALT
-        alignas(32) int exp_is_alt[HAP_NUMBER];
-        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
-        __m256i exp_vec = _mm256_load_si256((__m256i*)exp_is_alt);
+        // Split semantics: use g0/g1 pattern like biallelic
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
             int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
-            __m256i dc_vec = _mm256_set1_epi32(donor_is_alt);
-            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
-            __m256  m_ps   = _mm256_castsi256_ps(eq);
-            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+
+            // Build g0/g1 like biallelic, then select using binary allele
+            alignas(32) float emit_arr[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                bool amb_bit = ((amb_mask >> h) & 1U);
+                float g0_val = amb_bit ? (float)(M.ed/M.ee) : 1.0f;
+                float g1_val = amb_bit ? 1.0f : (float)(M.ed/M.ee);
+                emit_arr[h] = donor_is_alt ? g1_val : g0_val;
+            }
+            __m256 emit = _mm256_load_ps(emit_arr);
+
             _sum = _mm256_add_ps(_sum, emit);
             _mm256_store_ps(&prob[i], emit);
         }
     } else {
-        // Strict 4-bit equality semantics
-        alignas(32) int expv[HAP_NUMBER];
-        for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
-        __m256i exp_vec = _mm256_load_si256((__m256i*)expv);
+        // Strict 4-bit equality semantics: use g0/g1 pattern like biallelic
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
             int dc = (int)ss_cond_codes[k];
-            __m256i dc_vec = _mm256_set1_epi32(dc);
-            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
-            __m256  m_ps   = _mm256_castsi256_ps(eq);
-            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+            int donor_allele = (dc == anchor_code) ? 1 : 0;
+
+            // Build g0/g1 like biallelic, then select using binary allele
+            alignas(32) float emit_arr[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                bool amb_bit = ((amb_mask >> h) & 1U);
+                float g0_val = amb_bit ? (float)(M.ed/M.ee) : 1.0f;
+                float g1_val = amb_bit ? 1.0f : (float)(M.ed/M.ee);
+                emit_arr[h] = donor_allele ? g1_val : g0_val;
+            }
+            __m256 emit = _mm256_load_ps(emit_arr);
+
             _sum = _mm256_add_ps(_sum, emit);
             _mm256_store_ps(&prob[i], emit);
         }
@@ -516,17 +525,21 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
     }
 
     if (M.ss_anchor_split_emissions) {
-        alignas(32) int exp_is_alt[HAP_NUMBER];
-        for (int h = 0; h < HAP_NUMBER; ++h) exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
-        __m256i exp_vec_isalt = _mm256_load_si256((__m256i*)exp_is_alt);
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
             __m256 _prob = _mm256_load_ps(&prob[i]);
             _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
             int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
-            __m256i dc_vec = _mm256_set1_epi32(donor_is_alt);
-            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec_isalt);
-            __m256  m_ps   = _mm256_castsi256_ps(eq);
-            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+
+            // Build g0/g1 like biallelic, then select using binary allele
+            alignas(32) float emit_arr[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                bool amb_bit = ((amb_mask >> h) & 1U);
+                float g0_val = amb_bit ? (float)(M.ed/M.ee) : 1.0f;
+                float g1_val = amb_bit ? 1.0f : (float)(M.ed/M.ee);
+                emit_arr[h] = donor_is_alt ? g1_val : g0_val;
+            }
+            __m256 emit = _mm256_load_ps(emit_arr);
+
             _prob = _mm256_mul_ps(_prob, emit);
             _sum = _mm256_add_ps(_sum, _prob);
             _mm256_store_ps(&prob[i], _prob);
@@ -536,10 +549,27 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
             __m256 _prob = _mm256_load_ps(&prob[i]);
             _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
             int dc = (int)ss_cond_codes[k];
-            __m256i dc_vec = _mm256_set1_epi32(dc);
-            __m256i eq     = _mm256_cmpeq_epi32(dc_vec, exp_vec);
-            __m256  m_ps   = _mm256_castsi256_ps(eq);
-            __m256  emit   = _mm256_blendv_ps(mis_f, match_f, m_ps);
+
+            // Build g0/g1 like biallelic, then select using binary allele
+            int donor_allele = (dc == anchor_code) ? 1 : 0;
+            alignas(32) float emit_arr[HAP_NUMBER];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                bool amb_bit = ((amb_mask >> h) & 1U);
+                float g0_val = amb_bit ? (float)(M.ed/M.ee) : 1.0f;
+                float g1_val = amb_bit ? 1.0f : (float)(M.ed/M.ee);
+                emit_arr[h] = donor_allele ? g1_val : g0_val;
+            }
+            __m256 emit = _mm256_load_ps(emit_arr);
+
+            // DEBUG: Log detailed emission calculations for first few donors
+            if (trace_enabled && k < 4) {
+                std::fprintf(stdout, "    SS_donor_%d dc=%d per-lane emit:", k, dc);
+                for (int h = 0; h < HAP_NUMBER; ++h) {
+                    std::fprintf(stdout, " %.6f", emit_arr[h]);
+                }
+                std::fprintf(stdout, "\n");
+            }
+
             _prob = _mm256_mul_ps(_prob, emit);
             _sum = _mm256_add_ps(_sum, _prob);
             _mm256_store_ps(&prob[i], _prob);
@@ -685,36 +715,46 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
             _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
         }
 
-        // Emission: compute donor code based on mode, then compare to expected
-        // BUG #6 DOCUMENTED: Supersite uses vector blend (required for per-lane semantics)
-        // vs. biallelic inline conditional (optimized for binary alleles)
-		// Both implement: emit[h] = (donor_matches_expected[h]) ? 1.0 : (ed/ee)
-		int donor_code;
+        // Emission: use g0/g1 pattern like biallelic
+		int donor_allele;
 		if (M.ss_anchor_split_emissions) {
 			// Split mode: donor code is binary (is anchor ALT?)
-			int anchor_code = 0; 
+			int anchor_code = 0;
 			for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-				if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { 
-					anchor_code = (int)ai + 1; 
-					break; 
+				if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
+					anchor_code = (int)ai + 1;
+					break;
 				}
 			}
-			donor_code = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
+			donor_allele = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
 		} else {
 			// Standard mode: donor code is full 4-bit class
-			donor_code = (int)ss_cond_codes[k];
+			int dc = (int)ss_cond_codes[k];
+			int anchor_code = 0;
+			for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+				if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
+					anchor_code = (int)ai + 1;
+					break;
+				}
+			}
+			donor_allele = (dc == anchor_code) ? 1 : 0;
 		}
-		
+
 		// DEBUG: Print donor info
 		if (trace_enabled) {
-			std::fprintf(stdout, "  Donor %d: raw_code=%u donor_code=%d\n", 
-			             k, (unsigned)ss_cond_codes[k], donor_code);
+			std::fprintf(stdout, "  Donor %d: raw_code=%u donor_allele=%d\n",
+			             k, (unsigned)ss_cond_codes[k], donor_allele);
 		}
-		
-		__m256i dc_vec = _mm256_set1_epi32(donor_code);
-		__m256i eq = _mm256_cmpeq_epi32(dc_vec, exp_vec);
-		__m256 m_ps = _mm256_castsi256_ps(eq);
-		__m256 emit = _mm256_blendv_ps(mis_f, match_f, m_ps);
+
+		// Build g0/g1 like biallelic, then select using binary allele
+		alignas(32) float emit_arr[HAP_NUMBER];
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			bool amb_bit = ((amb_mask >> h) & 1U);
+			float g0_val = amb_bit ? (float)(M.ed/M.ee) : 1.0f;
+			float g1_val = amb_bit ? 1.0f : (float)(M.ed/M.ee);
+			emit_arr[h] = donor_allele ? g1_val : g0_val;
+		}
+		__m256 emit = _mm256_load_ps(emit_arr);
 		
 		// Apply emission, accumulate, store
 		_prob = _mm256_mul_ps(_prob, emit);
@@ -990,6 +1030,10 @@ void haplotype_segment_single::INIT_AMB() {
 
 inline
 void haplotype_segment_single::RUN_AMB() {
+    // DEBUG: Check if we're in trace mode
+    const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+    bool trace_enabled = (tr && tr[0] != '\0' && tr[0] != '0');
+    
     // Supersite dispatcher
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
@@ -998,12 +1042,19 @@ void haplotype_segment_single::RUN_AMB() {
         // Anchor gate: only run DP at global_site_id
         if (curr_abs_locus != (int)ss.global_site_id) {
             // Sibling: true no-op (preserve probability state, no DP)
+            if (trace_enabled) {
+                std::fprintf(stdout, "BIAL_RUN_AMB: locus=%d SIBLING (no-op)\n", curr_abs_locus);
+            }
             return;
         }
 
         // Classify and dispatch to supersite logic
         uint8_t c0, c1;
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        if (trace_enabled) {
+            std::fprintf(stdout, "BIAL_RUN_AMB: locus=%d SUPERSITE DISPATCH c0=%u c1=%u cls=%d\n", 
+                         curr_abs_locus, (unsigned)c0, (unsigned)c1, (int)cls);
+        }
         switch (cls) {
             case SSClass::MIS: RUN_MIS(); return;  // BUG FIX #1: Use biallelic MIS
             case SSClass::HOM: SS_RUN_HOM(ss, ss_idx, c0); return;
@@ -1013,9 +1064,24 @@ void haplotype_segment_single::RUN_AMB() {
     
     // Biallelic path
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
+    if (trace_enabled) {
+        std::fprintf(stdout, "BIAL_RUN_AMB: locus=%d BIALLELIC PATH amb_code=0x%02x\n", 
+                     curr_abs_locus, (unsigned)amb_code);
+    }
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
         g0[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0f;
         g1[h] = HAP_GET(amb_code,h)?1.0f:M.ed/M.ee;
+    }
+    if (trace_enabled) {
+        std::fprintf(stdout, "  Biallelic emission g0:");
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            std::fprintf(stdout, " %.6f", g0[h]);
+        }
+        std::fprintf(stdout, "\n  Biallelic emission g1:");
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            std::fprintf(stdout, " %.6f", g1[h]);
+        }
+        std::fprintf(stdout, "\n");
     }
 	__m256 _sum = _mm256_set1_ps(0.0f);
 	__m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
@@ -1028,6 +1094,18 @@ void haplotype_segment_single::RUN_AMB() {
 		__m256 _prob = _mm256_load_ps(&prob[i]);
 		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
 		_prob = _mm256_mul_ps(_prob, _emit[ah]);
+		
+		// DEBUG: Log detailed emission calculations for first few donors
+		if (trace_enabled && k < 4) {
+		    alignas(32) float emit_vals[HAP_NUMBER];
+		    _mm256_store_ps(emit_vals, _emit[ah]);
+		    std::fprintf(stdout, "    Bial_donor_%d ah=%d per-lane emit:", k, (int)ah);
+		    for (int h = 0; h < HAP_NUMBER; ++h) {
+		        std::fprintf(stdout, " %.6f", emit_vals[h]);
+		    }
+		    std::fprintf(stdout, "\n");
+		}
+		
 		_sum = _mm256_add_ps(_sum, _prob);
 		_mm256_store_ps(&prob[i], _prob);
 	}

@@ -154,7 +154,7 @@ void phaser::check_options() {
 
 	if (anchor_split_on) M.ss_anchor_split_emissions = true;
 	else if (anchor_split_off) M.ss_anchor_split_emissions = false;
-	else M.ss_anchor_split_emissions = enable_supersites;
+	else M.ss_anchor_split_emissions = false;  // Default to strict 4-bit equality semantics
 
 	if (!enable_supersites && (anchor_split_on || anchor_split_off))
 		vrb.warning("Supersite anchor emission flags specified but supersites are disabled; option will be ignored");

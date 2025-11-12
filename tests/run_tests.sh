@@ -187,7 +187,7 @@ parse_test_output() {
         fi
 
         # Check for passed tests
-        if $is_test_line && [[ "$lc_line" == *"✓"* || "$lc_line" == *"passed"* || "$lc_line" == *"[pass]"* || "$lc_line" == *" ok"* ]]; then
+        if $is_test_line && [[ "$lc_line" == *"✓"* || "$lc_line" == *"passed"* || "$lc_line" == *"[pass]"* || "$lc_line" == *" ok"* || "$lc_line" == *"pass:"* ]]; then
             found_individual_tests=true
             ((individual_tests_in_binary++))
             ((passed_in_binary++))

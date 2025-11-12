@@ -73,6 +73,7 @@ void genotype::build() {
 	} else {
 		supersite_flags.clear();
 	}
+	// First loop: Count segments while preventing empty segments from supersite siblings
 	for (unsigned int v = 0 ; v < n_variants ;) {
 		unsigned char var_code = Variants[DIV2(v)];
 		bool f_sca = VAR_GET_SCA(MOD2(v), var_code);
@@ -81,7 +82,7 @@ void genotype::build() {
 		SuperSiteContext ctx = getSuperSiteContext(v);
 		int ss_idx = ctx.ss_idx;
 		bool is_anchor = ctx.is_member && ctx.is_anchor;
-		
+
 		// Determine how many variants to process (1 for normal, var_count for supersite anchor)
 		if (is_anchor) {
 			var_len = (*super_sites)[ss_idx].var_count;
@@ -91,8 +92,21 @@ void genotype::build() {
 		} else {
 			var_len = 1;
 		}
-		
-		unsigned int predicted_unfold = n_rel_unf + f_het + (n_rel_sca||f_sca);
+
+		bool is_sibling = ctx.is_member && !ctx.is_anchor; // Identify sibling variants
+		bool f_het_for_boundary = f_het;
+		bool f_sca_for_boundary = f_sca;
+		if (is_sibling) {
+			// CRITICAL FIX: Exclude siblings from boundary calculation to prevent empty segments
+			// Siblings represent alternate alleles at the same genomic position as their anchor.
+			// They do not add to n_rel_var independently (anchor processes all var_count variants).
+			// If siblings contributed to predicted_unfold, a boundary could be triggered with n_rel_var=0,
+			// creating an empty segment that causes AlphaSumSum underflow in backward pass TRANS_HAP().
+			f_het_for_boundary = false; // Treat sibling as non-het for boundary decision
+			f_sca_for_boundary = false; // Treat sibling as non-sca for boundary decision
+		}
+
+		unsigned int predicted_unfold = n_rel_unf + f_het_for_boundary + (n_rel_sca||f_sca_for_boundary);
 		if (predicted_unfold == 4 || (n_rel_var >= (std::numeric_limits<unsigned short>::max() - var_len + 1)) || (n_rel_amb == MAX_AMB)) {
 			// Segment boundary
 			n_rel_unf = 0;
@@ -114,10 +128,10 @@ void genotype::build() {
 	n_ambiguous = n_abs_amb;
 	n_missing = n_abs_mis;
 
-	//2. Build Segments
+	//2. Build Segments (same logic as loop 1, with same sibling boundary fix)
 	n_rel_unf = 0; n_rel_var = 0; n_rel_sca = 0; n_abs_seg = 0; n_abs_amb = 0; n_rel_amb = 0; n_abs_mis = 0;
 	Lengths = vector < unsigned short > (n_segments, 0U);
-	
+
 	for (unsigned int v = 0 ; v < n_variants ;) {
 		unsigned char var_code = Variants[DIV2(v)];
 		bool f_sca = VAR_GET_SCA(MOD2(v), var_code);
@@ -137,10 +151,32 @@ void genotype::build() {
 			var_len = 1;
 		}
 
-		unsigned int predicted_unfold = n_rel_unf + f_het + (n_rel_sca||f_sca);
+		bool is_sibling = ctx.is_member && !ctx.is_anchor; // Identify sibling variants
+		bool f_het_for_boundary = f_het;
+		bool f_sca_for_boundary = f_sca;
+		if (is_sibling) {
+			// CRITICAL FIX: Exclude siblings from boundary calculation (same as loop 1)
+			// See detailed comment in loop 1 above for full explanation.
+			f_het_for_boundary = false; // Treat sibling as non-het for boundary decision
+			f_sca_for_boundary = false; // Treat sibling as non-sca for boundary decision
+		}
+
+		unsigned int predicted_unfold = n_rel_unf + f_het_for_boundary + (n_rel_sca||f_sca_for_boundary);
 		if (predicted_unfold == 4 || (n_rel_var >= (std::numeric_limits<unsigned short>::max() - var_len + 1)) || (n_rel_amb == MAX_AMB)) {
 			// Segment boundary
 			Lengths[n_abs_seg] = n_rel_var;
+			// ASSERTION: Detect empty segment creation that would cause underflow
+			if (n_rel_var == 0 && n_abs_seg > 0) {
+				std::fprintf(stderr, "[EMPTY_SEGMENT_ERROR] Sample=%s: Created empty segment %u at variant v=%u\n",
+				             name.c_str(), n_abs_seg, v);
+				std::fprintf(stderr, "  Boundary triggered by: predicted_unfold=%u n_rel_var=%u n_rel_amb=%u\n",
+				             predicted_unfold, n_rel_var, n_rel_amb);
+				std::fprintf(stderr, "  This causes AlphaSumSum underflow in backward pass\n");
+				std::fprintf(stderr, "  Previous segment: Lengths[%u]=%u\n",
+				             n_abs_seg > 0 ? n_abs_seg - 1 : 0,
+				             n_abs_seg > 0 ? Lengths[n_abs_seg - 1] : 0);
+				assert(false && "Empty segment created - will cause underflow in TRANS_HAP()");
+			}
 			n_rel_unf = 0;
 			n_rel_sca = 0;
 			n_rel_var = 0;
@@ -157,6 +193,17 @@ void genotype::build() {
 		}
 	}
 	Lengths[n_abs_seg] = n_rel_var;
+	// ASSERTION: Detect final empty segment creation
+	if (n_rel_var == 0 && n_abs_seg > 0) {
+		std::fprintf(stderr, "[EMPTY_SEGMENT_ERROR] Sample=%s: Created final empty segment %u (total n_variants=%u)\n",
+		             name.c_str(), n_abs_seg, n_variants);
+		std::fprintf(stderr, "  Loop terminated with n_rel_var=0 after last boundary\n");
+		std::fprintf(stderr, "  This causes AlphaSumSum underflow in backward pass\n");
+		std::fprintf(stderr, "  Previous segment: Lengths[%u]=%u\n",
+		             n_abs_seg > 0 ? n_abs_seg - 1 : 0,
+		             n_abs_seg > 0 ? Lengths[n_abs_seg - 1] : 0);
+		assert(false && "Final empty segment created - will cause underflow in TRANS_HAP()");
+	}
 
 	//3. Build Ambiguous
 	Ambiguous = vector < unsigned char >(n_ambiguous, 0U);
@@ -249,4 +296,21 @@ void genotype::build() {
 
 	//5. Count transitions
 	n_transitions = countTransitions();
+
+	//6. ASSERTION: Final validation that no empty segments exist
+	for (unsigned int s = 0; s < n_segments; s++) {
+		if (Lengths[s] == 0) {
+			std::fprintf(stderr, "[EMPTY_SEGMENT_ERROR] Sample=%s: CRITICAL - Empty segment detected at index %u/%u\n",
+			             name.c_str(), s, n_segments);
+			std::fprintf(stderr, "  n_variants=%u n_segments=%u n_ambiguous=%u\n",
+			             n_variants, n_segments, n_ambiguous);
+			std::fprintf(stderr, "  Segment lengths:");
+			for (unsigned int i = 0; i < n_segments && i < 20; i++) {
+				std::fprintf(stderr, " [%u]=%u", i, Lengths[i]);
+			}
+			std::fprintf(stderr, "\n");
+			std::fprintf(stderr, "  This WILL cause underflow in backward pass TRANS_HAP()\n");
+			assert(false && "Empty segment in built genotype - BUG in genotype::build()");
+		}
+	}
 }

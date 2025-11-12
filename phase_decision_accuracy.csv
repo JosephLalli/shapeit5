@@ -1,0 +1,5 @@
+sample_id,switch_error_rate,genotype_accuracy,switch_errors,genotype_errors,het_sites,total_sites
+sample0,0.4000,1.0000,4,0,10,20
+sample1,0.4000,1.0000,4,0,10,20
+sample2,0.4000,1.0000,4,0,10,20
+sample3,0.4000,1.0000,4,0,10,20

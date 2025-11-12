@@ -29,6 +29,7 @@
 
 #define private public
 #define protected public
+#include "../../phase_common/src/models/haplotype_segment_single.h"
 #include "../../phase_common/src/models/haplotype_segment_double.h"
 #undef private
 #undef protected
@@ -339,6 +340,67 @@ static FBResult run_forward_only(genotype& G,
     return res;
 }
 
+// Single precision versions
+static FBResult run_forward_backward_single(genotype& G,
+                                           conditioning_set& H,
+                                           hmm_parameters& M,
+                                           const window& W,
+                                           const std::vector<unsigned int>& idxH,
+                                           const SuperSiteContext* ctx) {
+    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
+    const std::vector<bool>* is_super_site = ctx ? &ctx->is_super_site : nullptr;
+    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
+    const std::vector<int>* super_site_var_index = ctx ? &ctx->super_site_var_index : nullptr;
+    const uint8_t* panel_codes = (ctx && !ctx->packed_codes.empty()) ? ctx->packed_codes.data() : nullptr;
+    const size_t panel_codes_size = ctx ? ctx->packed_codes.size() : 0;
+
+    haplotype_segment_single HS(&G, H.H_opt_hap, const_cast<std::vector<unsigned int>&>(idxH),
+                                const_cast<window&>(W), M,
+                                super_sites, is_super_site, locus_to_super_idx,
+                                panel_codes, panel_codes_size, super_site_var_index);
+
+    HS.forward();
+
+    std::vector<double> transition_probabilities(G.countTransitions(), 0.0);
+    std::vector<float> missing_probabilities;
+    HS.backward(transition_probabilities, missing_probabilities,
+                /*SC*/nullptr, /*anchor_has_missing*/nullptr);
+
+    FBResult res;
+    res.prob.assign(HS.prob.begin(), HS.prob.end());
+    res.probSumH.assign(HS.probSumH.begin(), HS.probSumH.end());
+    res.probSumT = HS.probSumT;
+    res.transition_probabilities = transition_probabilities;
+    return res;
+}
+
+// Forward-only runner for single precision
+static FBResult run_forward_only_single(genotype& G,
+                                        conditioning_set& H,
+                                        hmm_parameters& M,
+                                        const window& W,
+                                        const std::vector<unsigned int>& idxH,
+                                        const SuperSiteContext* ctx) {
+    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
+    const std::vector<bool>* is_super_site = ctx ? &ctx->is_super_site : nullptr;
+    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
+    const std::vector<int>* super_site_var_index = ctx ? &ctx->super_site_var_index : nullptr;
+    const uint8_t* panel_codes = (ctx && !ctx->packed_codes.empty()) ? ctx->packed_codes.data() : nullptr;
+    const size_t panel_codes_size = ctx ? ctx->packed_codes.size() : 0;
+
+    haplotype_segment_single HS(&G, H.H_opt_hap, const_cast<std::vector<unsigned int>&>(idxH),
+                                const_cast<window&>(W), M,
+                                super_sites, is_super_site, locus_to_super_idx,
+                                panel_codes, panel_codes_size, super_site_var_index);
+    HS.forward();
+
+    FBResult res;
+    res.prob.assign(HS.prob.begin(), HS.prob.end());
+    res.probSumH.assign(HS.probSumH.begin(), HS.probSumH.end());
+    res.probSumT = HS.probSumT;
+    return res;
+}
+
 static int compute_amb_index(const genotype& G,
                              int locus,
                              const std::vector<SuperSite>* super_sites,
@@ -426,8 +488,8 @@ int main() {
     G5.Lengths.assign(1, static_cast<unsigned short>(V5.size()));
 
     // Set observed genotypes 
-    set_phase(G5, 0, ALT_REF); // v500: 1|0
-    set_phase(G5, 1, ALT_REF); // v1000: 1|0 
+    set_phase(G5, 0, REF_ALT); // v500: 0|1
+    set_phase(G5, 1, REF_ALT); // v1000: 0|1 
     set_phase(G5, 2, REF_REF); // v1500: 0|0
     set_phase(G5, 3, REF_REF); // v2000: 0|0
     set_phase(G5, 4, ALT_ALT); // v2500: 1|1
@@ -505,9 +567,9 @@ int main() {
     // Set observed genotypes to match 5-variant test
     // Even indices: same as 5-variant test
     // Odd indices: homozygous REF (dummy variants)
-    set_phase(G10, 0, ALT_REF); // v500_main: 1|0 (same as 5-var v500)
+    set_phase(G10, 0, REF_ALT); // v500_main: 0|1 (same as 5-var v500)
     set_phase(G10, 1, REF_REF); // v500_dummy: 0|0
-    set_phase(G10, 2, ALT_REF); // ss1_A_C: 1|0 (same as 5-var v1000)
+    set_phase(G10, 2, REF_ALT); // ss1_A_C: 0|1 (same as 5-var v1000)
     set_phase(G10, 3, REF_REF); // ss1_dummy: 0|0
     set_phase(G10, 4, REF_REF); // ss2_A_G: 0|0 (same as 5-var v1500)
     set_phase(G10, 5, REF_REF); // ss2_dummy: 0|0
@@ -593,6 +655,9 @@ int main() {
     FBResult res5 = run_forward_backward(G5, H5, M5, W5, idxH, &ctx5);
     FBResult res10 = run_forward_backward(G10, H10, M10, W10, idxH, &ctx10);
 
+    // Also run single precision on 10-var dataset to trigger single precision diagnostics
+    FBResult res10_single = run_forward_backward_single(G10, H10, M10, W10, idxH, &ctx10);
+
     std::cout << "  5-variant final probSumT: " << std::scientific << std::setprecision(10) << res5.probSumT << std::endl;
     std::cout << "  10-variant final probSumT: " << std::scientific << std::setprecision(10) << res10.probSumT << std::endl;
 
@@ -608,6 +673,9 @@ int main() {
     window Wa10 = make_full_window(G10, &ctx10, 2 * a);
         FBResult fa5 = run_forward_only(G5, H5, M5, Wa5, idxH, &ctx5);
         FBResult fa10 = run_forward_only(G10, H10, M10, Wa10, idxH, &ctx10);
+
+        // Also run single precision forward-only to trigger diagnostics
+        FBResult fa10_single = run_forward_only_single(G10, H10, M10, Wa10, idxH, &ctx10);
 
         if (fa5.probSumH.size() != fa10.probSumH.size() || fa5.prob.size() != fa10.prob.size()) {
             std::cout << "  Anchor " << a << ": state size mismatch" << std::endl;
@@ -705,7 +773,7 @@ int main() {
                 // Build and compare match masks (per donor × lane) between 5-var and 10-var
                 MatchMask m5, m10;
                 bial5.build_match_mask(v5, H5.n_hap, locus5, m5);
-                ss10.build_match_mask(v10, H10.n_hap, /*use_anchor_split_semantics*/true, m10);
+                ss10.build_match_mask(v10, H10.n_hap, /*use_anchor_split_semantics*/false, m10);
                 bool masks_equal = (m5.by_donor_lane.size() == m10.by_donor_lane.size());
                 if (masks_equal) {
                     for (size_t i = 0; i < m5.by_donor_lane.size(); ++i) {
@@ -777,6 +845,9 @@ int main() {
             window Wst10 = make_full_window(G10, &ctx10, 2 * l);
             FBResult fst5 = run_forward_only(G5, H5, M5, Wst5, idxH, &ctx5);
             FBResult fst10 = run_forward_only(G10, H10, M10, Wst10, idxH, &ctx10);
+
+            // Also run single precision forward-only to trigger diagnostics
+            FBResult fst10_single = run_forward_only_single(G10, H10, M10, Wst10, idxH, &ctx10);
             double max_step_norm = 0.0;
             for (unsigned int k = 0, idx = 0; k < H5.n_hap; ++k, idx += HAP_NUMBER) {
                 for (int h = 0; h < HAP_NUMBER; ++h) {
