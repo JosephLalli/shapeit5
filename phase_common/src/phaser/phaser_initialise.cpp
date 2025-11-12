@@ -111,41 +111,22 @@ void phaser::read_files_and_initialise() {
 	// super-sites and packs per-haplotype codes (2 codes per byte).
 	// Uses global panel order (H.n_hap), independent of per-window conditioning sets.
 	// MUST be done before genotype_builder so build() can use locus_to_super_idx for segment boundaries.
-	if (enable_supersites) {
-		vrb.title("Building super-sites");
-		
-		// Ensure containers are empty
-		super_sites.clear();
-		is_super_site.clear();
-		packed_allele_codes.clear();
-		locus_to_super_idx.clear();
-		super_site_var_index.clear();
-		sample_supersite_genotypes.clear();
-		
-		// Build super-sites using variant map V and conditioning set H (uses H.H_opt_var)
-		buildSuperSites(V, H,
-		                super_sites,
-		                is_super_site,
-		                packed_allele_codes,
-		                locus_to_super_idx,
-		                super_site_var_index,
-		                sample_supersite_genotypes);
-		
-		// Mark sibling loci in HMM parameters so they're skipped like rare variants
-		M.markSuperSiteSiblings(super_sites, locus_to_super_idx);
-		
-		vrb.bullet("Built " + stb.str(super_sites.size()) + " super-sites covering " + 
-		           stb.str(std::count(is_super_site.begin(), is_super_site.end(), true)) + " variant positions");
-		
-		// Set supersite context for all genotypes BEFORE building segments
-		for (unsigned int i = 0; i < G.n_ind; i++) {
-			G.vecG[i]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+		if (enable_supersites) {
+			vrb.title("Building super-sites");
+			rebuildSupersiteMetadata("initialise");
+			
+			vrb.bullet("Built " + stb.str(super_sites.size()) + " super-sites covering " + 
+			           stb.str(std::count(is_super_site.begin(), is_super_site.end(), true)) + " variant positions");
+			
+			// Set supersite context for all genotypes BEFORE building segments
+			for (unsigned int i = 0; i < G.n_ind; i++) {
+				G.vecG[i]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+			}
+			
+			// Update anchor variant encoding to reflect supersite genotype status
+			// This must run after context is set but before segment building
+			updateSuperSiteAnchorEncoding(G, super_sites, super_site_var_index);
 		}
-		
-		// Update anchor variant encoding to reflect supersite genotype status
-		// This must run after context is set but before segment building
-		updateSuperSiteAnchorEncoding(G, super_sites, super_site_var_index);
-	}
 
 	//step9: Initialize genotype structures
 	genotype_builder(G, options["thread"].as < int > ()).build();

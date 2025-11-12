@@ -22,8 +22,23 @@
 
 #include <phaser/phaser_header.h>
 #include <objects/super_site_builder.h>
+#include <algorithm>
+#include <sstream>
 
 using namespace std;
+
+namespace {
+
+bool supersite_metadata_trace_enabled() {
+	static int flag = -1;
+	if (flag < 0) {
+		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
+		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+	}
+	return flag == 1;
+}
+
+} // namespace
 
 void * phaseWindow_callback(void * ptr) {
 	phaser * S = static_cast< phaser * >( ptr );
@@ -164,26 +179,38 @@ void phaser::phaseWindow() {
 
 void phaser::phase() {
 	unsigned long n_old_segments = G.numberOfSegments(), n_new_segments = 0;
+	std::vector<uint8_t> supersite_codes_before_update;
 	for (iteration_stage = 0 ; iteration_stage < iteration_counts.size() ; iteration_stage ++) {
 		for (int iter = 0 ; iter < iteration_counts[iteration_stage] ; iter ++) {
 			//VERBOSE
+			std::string stage_label = "unknown";
 			switch (iteration_types[iteration_stage]) {
-			case STAGE_BURN:	vrb.title("Burn-in iteration [" + stb.str(iter+1) + "/" + stb.str(iteration_counts[iteration_stage]) + "]"); break;
-			case STAGE_PRUN:	vrb.title("Pruning iteration [" + stb.str(iter+1) + "/" + stb.str(iteration_counts[iteration_stage]) + "]"); break;
-			case STAGE_MAIN:	vrb.title("Main iteration [" + stb.str(iter+1) + "/" + stb.str(iteration_counts[iteration_stage]) + "]"); break;
+			case STAGE_BURN:	stage_label = "burn"; vrb.title("Burn-in iteration [" + stb.str(iter+1) + "/" + stb.str(iteration_counts[iteration_stage]) + "]"); break;
+			case STAGE_PRUN:	stage_label = "prune"; vrb.title("Pruning iteration [" + stb.str(iter+1) + "/" + stb.str(iteration_counts[iteration_stage]) + "]"); break;
+			case STAGE_MAIN:	stage_label = "main"; vrb.title("Main iteration [" + stb.str(iter+1) + "/" + stb.str(iteration_counts[iteration_stage]) + "]"); break;
 			}
-			//SELECT NEW STATES WITH PBWT
-			H.select();
+			const std::string iteration_label = stage_label + "-iter" + stb.str(iter+1) + "of" + stb.str(iteration_counts[iteration_stage]);
+			supersite_codes_before_update.clear();
+            //SELECT NEW STATES WITH PBWT
+            H.select();
+            // Snapshot current packed codes before haplotype refresh
+            if (enable_supersites) {
+                supersite_codes_before_update = packed_allele_codes;
+            }
 			
 			//PHASE DATA
 			phaseWindow();
 			//MERGE IBD2 PAIRS
 			H.Kbanned.collapse();
-			//UPDATE H with new sampled haplotypes
-			H.updateHaplotypes(G);
-			//if (options.count("pedigree")) H.checkScaffoldPedigrees(G, options["pedigree"].as < string > ());
-			//TRANSPOSE H from Hfirst to Vfirst (for next PBWT compute)
-			H.transposeHaplotypes_H2V(false);
+            //UPDATE H with new sampled haplotypes
+            H.updateHaplotypes(G);
+            //TRANSPOSE H from Hfirst to Vfirst (for next PBWT compute)
+            H.transposeHaplotypes_H2V(false);
+            // Rebuild supersite metadata AFTER transpose so H.H_opt_var reflects new panel state
+            if (enable_supersites) {
+                rebuildSupersiteMetadata(iteration_label + "/post-update", &supersite_codes_before_update);
+            }
+            //if (options.count("pedigree")) H.checkScaffoldPedigrees(G, options["pedigree"].as < string > ());
 			//UPDATE PS after prunning
 			if (iteration_types[iteration_stage] == STAGE_PRUN) {
 				n_new_segments = G.numberOfSegments();
@@ -191,4 +218,82 @@ void phaser::phase() {
 			}
 		}
 	}
+}
+
+void phaser::logPackedCodeDiff(const std::string& context, const std::vector<uint8_t>& before, const std::vector<uint8_t>& after) const {
+	if (!enable_supersites) return;
+	const size_t min_size = std::min(before.size(), after.size());
+	size_t changed = 0;
+	for (size_t i = 0; i < min_size; ++i) {
+		if (before[i] != after[i]) ++changed;
+	}
+	const size_t added = (after.size() > before.size()) ? (after.size() - before.size()) : 0;
+	const size_t removed = (before.size() > after.size()) ? (before.size() - after.size()) : 0;
+	vrb.bullet("Supersite packed-code diff [" + context + "] changed=" + stb.str(changed, 0) +
+	           " added=" + stb.str(added, 0) + " removed=" + stb.str(removed, 0));
+	if (supersite_metadata_trace_enabled() && changed > 0) {
+		std::ostringstream oss;
+		oss << "  first-changed-bytes";
+		size_t reported = 0;
+		for (size_t i = 0; i < min_size && reported < 8; ++i) {
+			if (before[i] != after[i]) {
+				oss << " [" << i << ":" << static_cast<int>(before[i]) << "->" << static_cast<int>(after[i]) << "]";
+				++reported;
+			}
+		}
+		vrb.bullet(oss.str());
+	}
+}
+
+void phaser::traceSupersiteAnchors(const std::string& context, const std::vector<uint8_t>& codes_snapshot, size_t max_sites, size_t max_haps) const {
+	if (!enable_supersites || !supersite_metadata_trace_enabled()) return;
+	if (super_sites.empty() || codes_snapshot.empty()) return;
+	const size_t n_sites = std::min(max_sites, super_sites.size());
+	const size_t n_haps = std::min(max_haps, static_cast<size_t>(H.n_hap));
+	for (size_t ss_idx = 0; ss_idx < n_sites; ++ss_idx) {
+		const SuperSite& ss = super_sites[ss_idx];
+		std::ostringstream oss;
+		oss << "[SupersiteTrace] " << context << " ss_idx=" << ss_idx << " locus=" << ss.global_site_id;
+		for (size_t hap = 0; hap < n_haps; ++hap) {
+			uint8_t code = unpackSuperSiteCode(codes_snapshot.data(), ss.panel_offset, hap);
+			int panel_bit = -1;
+			if (ss.global_site_id < H.H_opt_var.n_rows && hap < H.H_opt_var.n_cols) {
+				panel_bit = H.H_opt_var.get(ss.global_site_id, hap);
+			}
+			oss << " h" << hap << "(code=" << static_cast<int>(code) << ",panel=" << panel_bit << ")";
+		}
+		vrb.bullet(oss.str());
+	}
+}
+
+void phaser::rebuildSupersiteMetadata(const std::string& context, const std::vector<uint8_t>* diff_against) {
+	if (!enable_supersites) return;
+
+	super_sites.clear();
+	is_super_site.clear();
+	packed_allele_codes.clear();
+	locus_to_super_idx.clear();
+	super_site_var_index.clear();
+	sample_supersite_genotypes.clear();
+
+	buildSuperSites(V, H,
+	                super_sites,
+	                is_super_site,
+	                packed_allele_codes,
+	                locus_to_super_idx,
+	                super_site_var_index,
+	                sample_supersite_genotypes);
+	M.markSuperSiteSiblings(super_sites, locus_to_super_idx);
+
+	supersite_build_last_context = context;
+	++supersite_build_counter;
+	vrb.bullet("Supersite metadata build #" + stb.str(supersite_build_counter, 0) +
+	           " [" + context + "] (n_sites=" + stb.str(super_sites.size(), 0) +
+	           ", packed_bytes=" + stb.str(packed_allele_codes.size(), 0) + ")");
+
+	if (diff_against) {
+		logPackedCodeDiff(context, *diff_against, packed_allele_codes);
+	}
+
+	traceSupersiteAnchors(context, packed_allele_codes);
 }

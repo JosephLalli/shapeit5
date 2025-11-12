@@ -1,9 +1,12 @@
 ifndef SHAPEIT5_COMMON_INCLUDED
 SHAPEIT5_COMMON_INCLUDED := 1
-include ../common/makefile_common.mk
+# (common makefile already included above)
 endif
 
 CXXFLAG += -I../common/src -I../phase_common/src
+LOCAL_INC := -I../common/src -I../phase_common/src
+
+include ../common/makefile_common.mk
 
 objdir := obj
 bindir := bin
@@ -23,6 +26,8 @@ PHASE_COMMON_OBJS := \
 	$(objdir)/haplotype_segment_single.o \
 	$(objdir)/haplotype_segment_double.o \
 	$(objdir)/hmm_parameters.o \
+	$(objdir)/compute_job.o \
+	$(objdir)/window_set.o \
 	$(objdir)/genotype_build.o \
 	$(objdir)/genotype_managment_from_pc.o \
 	$(objdir)/genotype_sweep.o \
@@ -67,7 +72,6 @@ TEST_BINARIES := \
 	$(bindir)/test_hmm_state_inflation \
 	$(bindir)/test_emission_pattern_validation \
 	$(bindir)/test_phase_decision_accuracy
-#    $(bindir)/test_supersite_expected_codes  # TODO: File missing, commented out for now
 
 # Thread Safety Tests
 THREADING_TEST_BINARIES := \
@@ -225,65 +229,71 @@ $(bindir)/test_supersite_parity_threading: $(objdir)/test_supersite_parity_threa
 
 # Explicit compile rules for external sources (not under tests/src)
 $(objdir)/genotype_managment_from_pc.o: ../phase_common/src/objects/genotype/genotype_managment.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/genotype_build.o: ../phase_common/src/objects/genotype/genotype_build.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_variant.o: ../phase_common/src/objects/variant.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_variant_map.o: ../phase_common/src/containers/variant_map.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_bitmatrix.o: ../phase_common/src/containers/bitmatrix.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_bitvector.o: ../phase_common/src/containers/bitvector.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_haplotype_set.o: ../phase_common/src/containers/haplotype_set.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 
 $(objdir)/phase_conditioning_set_managment.o: ../phase_common/src/containers/conditioning_set/conditioning_set_managment.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_conditioning_set_selection.o: ../phase_common/src/containers/conditioning_set/conditioning_set_selection.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_super_site_builder.o: ../phase_common/src/objects/super_site_builder.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_ibd2_tracks.o: ../phase_common/src/containers/ibd2_tracks.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/haplotype_segment_single.o: ../phase_common/src/models/haplotype_segment_single.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/haplotype_segment_double.o: ../phase_common/src/models/haplotype_segment_double.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/hmm_parameters.o: ../phase_common/src/objects/hmm_parameters.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+$(objdir)/compute_job.o: ../phase_common/src/objects/compute_job.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+$(objdir)/window_set.o: ../phase_common/src/containers/window_set.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 # Compile rule for genotype_set
 $(objdir)/phase_genotype_set.o: ../phase_common/src/containers/genotype_set.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/genotype_sweep.o: ../phase_common/src/objects/genotype/genotype_sweep.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/genotype_mendel.o: ../phase_common/src/objects/genotype/genotype_mendel.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 # Provide toolbox globals exactly once
 $(objdir)/test_toolbox.o: src/test_toolbox.cpp
-	$(CXX) $(CXXFLAG) -D_DECLARE_TOOLBOX_HERE -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -D_DECLARE_TOOLBOX_HERE -c $< -o $@ -Isrc $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 # Pattern rule for all other test source files
 $(objdir)/test_%.o: src/test_%.cpp
-	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc  -I$(HTSLIB_INC) -I$(BOOST_INC)
+	$(CXX) $(CXXFLAG) -c $< -o $@ -Isrc $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 # Pattern rule above handles all test_*.cpp compilation automatically
 
@@ -294,8 +304,6 @@ test-run: test-binaries
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_accessor
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_unpack
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_builder
-	@echo "Skipping test_supersite_hmm (old implementation, expected to fail)"
-	@echo "Skipping test_supersite_hmm_states (old implementation, expected to fail)"
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_missing_multiallelic_multinomial
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_supersite_vs_biallelic_simple
 	LD_LIBRARY_PATH=$(HOME)/.linuxbrew/lib:/usr/local/lib:$(LD_LIBRARY_PATH) $(bindir)/test_forward_backward_comprehensive

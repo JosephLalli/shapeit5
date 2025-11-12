@@ -25,6 +25,8 @@
 using namespace std;
 
 phaser::phaser() {
+	supersite_build_counter = 0;
+	supersite_build_last_context.clear();
 }
 
 phaser::~phaser() {
@@ -78,4 +80,3 @@ string phaser::get_iteration_scheme() {
 	str += "]";
 	return str;
 }
-

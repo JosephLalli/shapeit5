@@ -23,3 +23,9 @@ tests/out/**
 
 .gemini/
 gha-creds-*.json
+.gdbinit
+.github/workflows/gemini-dispatch.yml
+.github/workflows/gemini-invoke.yml
+.github/workflows/gemini-review.yml
+.github/workflows/gemini-scheduled-triage.yml
+.github/workflows/gemini-triage.yml

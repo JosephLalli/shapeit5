@@ -33,6 +33,7 @@
 #include <containers/conditioning_set/conditioning_set_header.h>
 #include <containers/variant_map.h>
 #include <models/super_site_accessor.h>
+#include <string>
 
 #define STAGE_BURN	0
 #define STAGE_PRUN	1
@@ -55,13 +56,15 @@ public:
 	std::vector<SuperSite> super_sites;
 	std::vector<bool> is_super_site; // legacy flag; superseded by locus_to_super_idx
 	std::vector<uint8_t> packed_allele_codes;
-	std::vector<uint8_t> sample_supersite_genotypes;
-	// Super-site indexing
-	std::vector<int> locus_to_super_idx;       // locus -> super-site index or -1
-	std::vector<int> super_site_var_index;     // flattened member variant indices
+		std::vector<uint8_t> sample_supersite_genotypes;
+		// Super-site indexing
+		std::vector<int> locus_to_super_idx;       // locus -> super-site index or -1
+		std::vector<int> super_site_var_index;     // flattened member variant indices
+		size_t supersite_build_counter;
+		std::string supersite_build_last_context;
 
-	//PBWT
-	bool pbwt_auto;
+		//PBWT
+		bool pbwt_auto;
 	int pbwt_depth;
 	double pbwt_modulo;
 
@@ -96,16 +99,18 @@ public:
 	void parse_command_line(std::vector < std::string > &);
 	void parse_iteration_scheme(std::string);
 	std::string get_iteration_scheme();
-	void check_options();
-	void verbose_options();
-	void verbose_files();
+		void check_options();
+		void verbose_options();
+		void verbose_files();
+		void rebuildSupersiteMetadata(const std::string& context, const std::vector<uint8_t>* diff_against = nullptr);
+		void logPackedCodeDiff(const std::string& context, const std::vector<uint8_t>& before, const std::vector<uint8_t>& after) const;
+		void traceSupersiteAnchors(const std::string& context, const std::vector<uint8_t>& codes_snapshot, size_t max_sites = 2, size_t max_haps = 8) const;
 
-	//
-	void read_files_and_initialise();
-	void phase(std::vector < std::string > &);
-	void write_files_and_finalise();
+		//
+		void read_files_and_initialise();
+		void phase(std::vector < std::string > &);
+		void write_files_and_finalise();
 };
 
 
 #endif
-

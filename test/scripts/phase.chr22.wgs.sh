@@ -44,8 +44,7 @@ fi
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.supersites.split_emissions.small.bcf \
-  --enable-supersites \
-  --thread 64
+  --enable-supersites
 
 #fi
 wait

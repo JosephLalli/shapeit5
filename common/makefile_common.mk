@@ -132,16 +132,16 @@ laptop: BOOST_LIB_IO=/usr/lib/x86_64-linux-gnu/libboost_iostreams.a
 laptop: BOOST_LIB_PO=/usr/lib/x86_64-linux-gnu/libboost_program_options.a
 laptop: $(BFILE)
 
-debug: CXXFLAG=-g -mavx2 -mfma
+debug: CXXFLAG=-g -mavx2 -mfma -g3 -ggdb3 \
+                  -fno-omit-frame-pointer \
+                  -fno-inline \
+                  -fno-inline-functions-called-once \
+                  -fno-var-tracking-assignments \
+                  -DDEBUG \
+                  -D_GLIBCXX_ASSERTIONS
 debug: LDFLAG=-g
 debug: CXXFLAG+= -D__COMMIT_ID__=\"$(COMMIT_VERS)\"
 debug: CXXFLAG+= -D__COMMIT_DATE__=\"$(COMMIT_DATE)\"
-debug: HTSSRC=$(HOME)/Tools
-debug: HTSLIB_INC=$(HTSSRC)/htslib-1.15
-debug: HTSLIB_LIB=$(HTSSRC)/htslib-1.15/libhts.a
-debug: BOOST_INC=/usr/include
-debug: BOOST_LIB_IO=/usr/lib/x86_64-linux-gnu/libboost_iostreams.a
-debug: BOOST_LIB_PO=/usr/lib/x86_64-linux-gnu/libboost_program_options.a
 debug: $(BFILE)
 debug: CXXFLAG+= $(SANITIZE_FLAGS)
 debug: LDFLAG+= $(SANITIZE_LDFLAGS)

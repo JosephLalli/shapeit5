@@ -28,3 +28,8 @@ static_exe:
 	$(MAKE) -j24 $@ -C $$dir; \
 	done
 
+debug:
+	for dir in $(projects); do \
+		$(MAKE) debug -j24 $@ -C $$dir; \
+	done
+

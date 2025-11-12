@@ -41,6 +41,7 @@
 #include "../../phase_common/src/objects/super_site_builder.h"
 #include "../../phase_common/src/containers/variant_map.h"
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
+#include "../../phase_common/src/objects/compute_job.h"
 
 namespace {
 
@@ -220,23 +221,12 @@ public:
     }
 
     void forward() {
-        if (env_true("SHAPEIT5_TEST_TRACE")) {
-            std::fprintf(stdout, "K_MEASUREMENT: starting forward() with %zu conditioning haps\n", idxH_ref.size());
-            std::fprintf(stdout, "K_MEASUREMENT: window segments[%d-%d] loci[%d-%d]\n", 
-                        segment_first, segment_last, locus_first, locus_last);
-        }
-        
         haplotype_segment_double::forward();
-        
         // Record K measurement after the base forward pass
         // For this test, K is constant throughout the window
         if (measurement) {
             int current_k = static_cast<int>(idxH_ref.size());
             measurement->k_per_locus.push_back(current_k);
-            
-            if (env_true("SHAPEIT5_TEST_TRACE")) {
-                std::fprintf(stdout, "K_MEASUREMENT: recorded K=%d\n", current_k);
-            }
         }
     }
 
@@ -290,8 +280,10 @@ int main() {
 
     // Create identical conditioning sets for both
     conditioning_set H_bial, H_ss;
-    H_bial.allocate(0, 4, V_bial.size()); // 4 reference samples => 8 haplotypes
-    H_ss.allocate(0, 4, V_ss.size());
+    // Increase reference panel: 16 reference samples => 32 haplotypes (more realistic)
+    const int N_REF_SAMPLES = 16;
+    H_bial.allocate(0, N_REF_SAMPLES, V_bial.size());
+    H_ss.allocate(0, N_REF_SAMPLES, V_ss.size());
 
     auto set_panel = [](conditioning_set& H, int locus, const std::vector<int>& alt_flags) {
         for (size_t hap = 0; hap < alt_flags.size(); ++hap) {
@@ -302,19 +294,26 @@ int main() {
         }
     };
 
-    // Set diverse haplotype patterns to create realistic conditioning scenarios
-    std::vector<std::vector<int>> patterns = {
-        {1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0},  // alternating
-        {0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1},  // reverse alternating
-        {1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0},  // pairs
-        {0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1},  // reverse pairs
-        {1,0,0,1,0,1,1,0,1,0,0,1,0,1,1,0},  // mixed
-        {0,1,1,0,1,0,0,1,0,1,1,0,1,0,0,1},  // reverse mixed
-        {1,1,1,0,0,0,1,1,1,0,0,0,1,1,1,0},  // triplets
-        {0,0,0,1,1,1,0,0,0,1,1,1,0,0,0,1}   // reverse triplets
-    };
+    // Programmatically generate diverse haplotype patterns sized to the panel (N_REF_SAMPLES * 2 haps)
+    const int N_HAPS = H_bial.n_hap;
+    std::vector<std::vector<int>> patterns;
+    patterns.reserve(N_REF_SAMPLES);
+    for (int s = 0; s < N_REF_SAMPLES; ++s) {
+        std::vector<int> pat;
+        pat.reserve(N_HAPS);
+        // Create pattern with varied periodicities and bit rotations so donors differ
+        int shift = 1 + (s % 5);
+        for (int h = 0; h < N_HAPS; ++h) {
+            // Use a mixture of bit shifts and modular residues to create diversity
+            int bit = ((h >> (shift % 6)) & 1) ^ ((s & 1) ? 1 : 0);
+            // Add some additional periodic toggles for variety
+            if (((h + s) % (2 + (s % 4))) == 0) bit = 1;
+            pat.push_back(bit);
+        }
+        patterns.push_back(pat);
+    }
 
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < N_REF_SAMPLES; ++i) {
         set_panel(H_bial, i, patterns[i]);
         set_panel(H_ss, i, patterns[i]);
     }
@@ -359,28 +358,34 @@ int main() {
     SuperSiteContext ctx_ss = build_supersites(V_ss, H_ss);
     std::cout << "  Detected " << ctx_ss.super_sites.size() << " supersites" << std::endl;
 
+    // Ensure variant allele counts are non-zero so PBWT evaluation can run
+    for (size_t i = 0; i < V_bial.size(); ++i) {
+        V_bial.vec_pos[i]->cref = 8;
+        V_bial.vec_pos[i]->calt = 8;
+        V_bial.vec_pos[i]->cmis = 0;
+        // set a small genetic distance so grouping is non-negative
+        V_bial.vec_pos[i]->cm = 0.001 * static_cast<double>(i);
+    }
+    for (size_t i = 0; i < V_ss.size(); ++i) {
+        V_ss.vec_pos[i]->cref = 8;
+        V_ss.vec_pos[i]->calt = 8;
+        V_ss.vec_pos[i]->cmis = 0;
+        V_ss.vec_pos[i]->cm = 0.001 * static_cast<double>(i);
+    }
+
     // Create windows and parameters
     auto create_window = [](const genotype& G) {
         window W{};
         W.start_locus = 0;
         W.stop_locus = static_cast<int>(G.n_variants) - 1;
         W.start_segment = 0;
-        W.stop_segment = static_cast<int>(G.n_segments) - 1;  // Fixed: use actual segments from genotype
+        W.stop_segment = 0;
         W.start_ambiguous = 0;
         W.stop_ambiguous = static_cast<int>(G.n_ambiguous) - 1;
         W.start_missing = 0;
-        W.stop_missing = static_cast<int>(G.n_missing) - 1;  // Fixed: use actual missing count
+        W.stop_missing = -1;
         W.start_transition = 0;
-        W.stop_transition = static_cast<int>(G.n_transitions) - 1;  // Fixed: use actual transitions
-        
-        // Debug output
-        if (env_true("SHAPEIT5_TEST_TRACE")) {
-            std::fprintf(stdout, "Window: locus[%d-%d] segment[%d-%d] ambiguous[%d-%d] missing[%d-%d] transitions[%d-%d]\n",
-                        W.start_locus, W.stop_locus, W.start_segment, W.stop_segment, 
-                        W.start_ambiguous, W.stop_ambiguous, W.start_missing, W.stop_missing, 
-                        W.start_transition, W.stop_transition);
-        }
-        
+        W.stop_transition = -1;
         return W;
     };
 
@@ -391,7 +396,7 @@ int main() {
         hmm_parameters M;
         M.ed = 0.01;
         M.ee = 1.0;
-        M.ss_anchor_split_emissions = true;  // Use anchor split for parity with biallelic
+        M.ss_anchor_split_emissions = true;
         M.cm.assign(n_variants, 0.0f);
         for (size_t i = 0; i < n_variants; ++i) {
             M.cm[i] = 0.001f * static_cast<float>(i + 1);
@@ -408,31 +413,114 @@ int main() {
     hmm_parameters M_ss = create_hmm_params(V_ss.size(), H_ss.n_hap);
     M_ss.markSuperSiteSiblings(ctx_ss.super_sites, ctx_ss.locus_to_super_idx);
 
-    std::vector<unsigned int> idxH = {0u,1u,2u,3u,4u,5u,6u,7u};
+    // We'll run three full epochs (PBWT selection + compute_job.make + update/transposition)
+    std::cout << "\nMeasuring K inflation across 3 epochs..." << std::endl;
 
-    // Measure K for both modes
-    std::cout << "\nMeasuring K inflation..." << std::endl;
-    
     KInflationReport report;
 
-    // Biallelic measurement
-    std::cout << "  Running biallelic measurement..." << std::endl;
-    KMeasuringHaplotypeSegment HS_bial(&G_bial, H_bial.H_opt_hap, 
-                                       idxH,
-                                       W_bial, M_bial, nullptr, nullptr, nullptr, 
-                                       nullptr, 0, nullptr, &report.biallelic);
-    HS_bial.forward();
+    // Initialize PBWT parameters (simple settings appropriate for tiny test)
+    const float modulo_selection = 1.0f;    // coarse grouping
+    const float modulo_multithreading = 1.0f;
+    // Use a very permissive MDR so synthetic sites are eligible for PBWT evaluation
+    const float mdr = 1e6f;
+    const int depth = 4;                     // PBWT depth (number of neighbours to propose)
+    const int mac = 0;                       // accept all sites for evaluation
+    const int nthread = 1;
 
-    // Supersite measurement  
-    std::cout << "  Running supersite measurement..." << std::endl;
-    KMeasuringHaplotypeSegment HS_ss(&G_ss, H_ss.H_opt_hap,
-                                     idxH,
-                                     W_ss, M_ss, &ctx_ss.super_sites, &ctx_ss.is_super_site,
-                                     &ctx_ss.locus_to_super_idx, 
-                                     ctx_ss.packed_codes.empty() ? nullptr : ctx_ss.packed_codes.data(),
-                                     ctx_ss.packed_codes.size(), &ctx_ss.super_site_var_index, 
-                                     &report.supersite);
-    HS_ss.forward();
+    H_bial.initialize(V_bial, modulo_selection, modulo_multithreading, mdr, depth, mac, nthread);
+    H_ss.initialize(V_ss, modulo_selection, modulo_multithreading, mdr, depth, mac, nthread);
+
+    // Debug: print PBWT grouping/evaluation mapping to debug select() bounds
+    std::cout << "\n[DEBUG] Biallelic PBWT groups: size=" << H_bial.sites_pbwt_grouping.size()
+              << " back=" << (H_bial.sites_pbwt_grouping.empty() ? -1 : H_bial.sites_pbwt_grouping.back())
+              << " eval_count=" << std::count(H_bial.sites_pbwt_evaluation.begin(), H_bial.sites_pbwt_evaluation.end(), true)
+              << std::endl;
+    std::cout << "[DEBUG] Supersite PBWT groups: size=" << H_ss.sites_pbwt_grouping.size()
+              << " back=" << (H_ss.sites_pbwt_grouping.empty() ? -1 : H_ss.sites_pbwt_grouping.back())
+              << " eval_count=" << std::count(H_ss.sites_pbwt_evaluation.begin(), H_ss.sites_pbwt_evaluation.end(), true)
+              << std::endl;
+
+    // Print full grouping vectors for deeper inspection
+    std::cout << "[DEBUG] H_bial grouping: ";
+    for (size_t i = 0; i < H_bial.sites_pbwt_grouping.size(); ++i) std::cout << H_bial.sites_pbwt_grouping[i] << (i+1<H_bial.sites_pbwt_grouping.size()?",":"\n");
+    std::cout << "[DEBUG] H_ss grouping: ";
+    for (size_t i = 0; i < H_ss.sites_pbwt_grouping.size(); ++i) std::cout << H_ss.sites_pbwt_grouping[i] << (i+1<H_ss.sites_pbwt_grouping.size()?",":"\n");
+
+    // Prepare genotype_set wrappers expected by compute_job
+    genotype_set GS_bial, GS_ss;
+    GS_bial.allocate(1, V_bial.size());
+    GS_ss.allocate(1, V_ss.size());
+
+    // Copy constructed genotypes into genotype_set objects
+    // (allocate created default genotype objects; overwrite their fields)
+    GS_bial.vecG[0]->n_segments = G_bial.n_segments;
+    GS_bial.vecG[0]->n_variants = G_bial.n_variants;
+    GS_bial.vecG[0]->n_ambiguous = G_bial.n_ambiguous;
+    GS_bial.vecG[0]->n_missing = G_bial.n_missing;
+    GS_bial.vecG[0]->n_transitions = G_bial.n_transitions;
+    GS_bial.vecG[0]->n_stored_transitionProbs = G_bial.n_stored_transitionProbs;
+    GS_bial.vecG[0]->n_storage_events = G_bial.n_storage_events;
+    GS_bial.vecG[0]->double_precision = G_bial.double_precision;
+    GS_bial.vecG[0]->haploid = G_bial.haploid;
+    GS_bial.vecG[0]->Variants = G_bial.Variants;
+    GS_bial.vecG[0]->Ambiguous = G_bial.Ambiguous;
+    GS_bial.vecG[0]->Diplotypes = G_bial.Diplotypes;
+    GS_bial.vecG[0]->Lengths = G_bial.Lengths;
+
+    GS_ss.vecG[0]->n_segments = G_ss.n_segments;
+    GS_ss.vecG[0]->n_variants = G_ss.n_variants;
+    GS_ss.vecG[0]->n_ambiguous = G_ss.n_ambiguous;
+    GS_ss.vecG[0]->n_missing = G_ss.n_missing;
+    GS_ss.vecG[0]->n_transitions = G_ss.n_transitions;
+    GS_ss.vecG[0]->n_stored_transitionProbs = G_ss.n_stored_transitionProbs;
+    GS_ss.vecG[0]->n_storage_events = G_ss.n_storage_events;
+    GS_ss.vecG[0]->double_precision = G_ss.double_precision;
+    GS_ss.vecG[0]->haploid = G_ss.haploid;
+    GS_ss.vecG[0]->Variants = G_ss.Variants;
+    GS_ss.vecG[0]->Ambiguous = G_ss.Ambiguous;
+    GS_ss.vecG[0]->Diplotypes = G_ss.Diplotypes;
+    GS_ss.vecG[0]->Lengths = G_ss.Lengths;
+
+    // Three epochs: PBWT selection -> compute_job.make() -> update haplotypes -> transpose
+    const int N_EPOCHS = 3;
+    for (int epoch = 0; epoch < N_EPOCHS; ++epoch) {
+        std::cout << "\nEpoch " << epoch+1 << " / " << N_EPOCHS << std::endl;
+
+        // --- Biallelic path ---
+        std::cout << "  [Biallelic] PBWT selection..." << std::endl;
+        H_bial.select();
+
+        // Run compute_job to build conditioning K-states for sample 0
+        compute_job CJ_bial(V_bial, GS_bial, H_bial, 1024, 1024, nullptr, nullptr, nullptr);
+        CJ_bial.make(0, 0.0);
+
+        // Record K (number of conditioning haplotypes) for each window
+        for (size_t w = 0; w < CJ_bial.Kstates.size(); ++w) {
+            int ksize = static_cast<int>(CJ_bial.Kstates[w].size());
+            report.biallelic.k_per_locus.push_back(ksize);
+            if (env_true("SHAPEIT5_TEST_TRACE")) std::cout << "    K[bial][w=" << w << "]=" << ksize << std::endl;
+        }
+
+        // Mimic panel update & transpose (no sampling in this test)
+        H_bial.updateHaplotypes(GS_bial, false);
+        H_bial.transposeHaplotypes_H2V(true, false);
+
+        // --- Supersite path ---
+        std::cout << "  [Supersite] PBWT selection..." << std::endl;
+        H_ss.select();
+
+        compute_job CJ_ss(V_ss, GS_ss, H_ss, 1024, 1024, &ctx_ss.super_sites, &ctx_ss.locus_to_super_idx, &ctx_ss.super_site_var_index);
+        CJ_ss.make(0, 0.0);
+
+        for (size_t w = 0; w < CJ_ss.Kstates.size(); ++w) {
+            int ksize = static_cast<int>(CJ_ss.Kstates[w].size());
+            report.supersite.k_per_locus.push_back(ksize);
+            if (env_true("SHAPEIT5_TEST_TRACE")) std::cout << "    K[ss][w=" << w << "]=" << ksize << std::endl;
+        }
+
+        H_ss.updateHaplotypes(GS_ss, false);
+        H_ss.transposeHaplotypes_H2V(true, false);
+    }
 
     // Analyze and report results
     report.analyze();
