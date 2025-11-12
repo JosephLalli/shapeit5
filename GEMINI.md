@@ -182,38 +182,23 @@ The algorithm is driven by the `phaser::phase()` method in `phaser_algorithm.cpp
         return true;
     }
     ```
-## 10. Critical Bug Report: Supersite Phasing Accuracy
+## 10. Supersite Phasing Accuracy Bug [RESOLVED]
 
-This section details a critical bug affecting the accuracy of the supersite phasing algorithm, leading to a significant drop in performance compared to the standard biallelic algorithm.
+This section documents a previously critical bug that affected the accuracy of the supersite phasing algorithm, which has since been resolved.
 
-### 10.1. The Problem: Reference Panel Corruption
+### 10.1. The Original Problem: Reference Panel Corruption
 
-The core of the issue lies in the disconnect between the multiallelic nature of the supersite HMM and the strictly biallelic nature of the PBWT algorithm and its main reference panel (`H_opt_hap`).
+The core of the issue was a disconnect between the multiallelic nature of the supersite HMM and the strictly biallelic representation required by the PBWT algorithm and the main reference panel (`H_opt_hap`).
 
-1.  **Biallelic PBWT:** The PBWT algorithm, used for selecting conditioning haplotypes (`K`), is designed to work on biallelic data (0 for REF, 1 for ALT). It is not aware of multiallelic supersites.
-2.  **Multiallelic HMM:** The HMM correctly treats a supersite as a single entity, making a phasing decision for the entire site at its designated "anchor" variant.
-3.  **Inconsistent State:** After the HMM sampling step (`genotype::sample`), the phasing decision is applied, but only the anchor variant's entry in the `genotype::Variants` array is guaranteed to be correct. The other constituent biallelic variants that form the supersite are not updated. This leaves the `Variants` array in an inconsistent state, where the biallelic representation does not match the true, phased multiallelic haplotype.
-4.  **Reference Panel Corruption:** During each MCMC iteration, the `haplotype_set::updateHaplotypes` function is called. This function blindly copies the data from the (now inconsistent) `Variants` array into the main `H_opt_hap` reference panel.
-5.  **K-inflation and Accuracy Loss:** This process pollutes the reference panel with nonsensical haplotypes. When the PBWT algorithm runs in the next iteration, it struggles to find good matches in the noisy panel, causing it to increase the number of selected states (`K`). This leads to a downward spiral of increasing `K` and decreasing phasing accuracy.
+After the HMM made a phasing decision for a multiallelic supersite, the program failed to correctly "project" this decision back onto all the individual biallelic variants that constitute the supersite *during* the MCMC iterations. The `genotype::Variants` array was left in an inconsistent state, which then corrupted the main reference panel (`H_opt_hap`) when it was updated in the next iteration. This led to a progressive degradation of phasing accuracy.
 
-### 10.2. Design Intent of `projectSupersites`
+### 10.2. The Resolution
 
-The `genotype::projectSupersites` function was designed to be the crucial link between the multiallelic HMM and the biallelic PBWT.
+A code review confirmed that this bug has been fixed. The codebase now contains the correct logic to prevent reference panel corruption. The fix consisted of two main parts:
 
-*   **Purpose:** Its sole purpose is to "project" the unified phasing decision made at a supersite's anchor variant back onto all the individual biallelic variants that constitute the supersite.
-*   **Mechanism:** For example, if the HMM determines a supersite's phasing is `allele 3 | allele 2`, `projectSupersites` is responsible for translating this into the correct bit-packed representation for the underlying biallelic variants (e.g., setting them to `0|0`, `0|1`, `1|0` in the `Variants` array).
-*   **Goal:** By ensuring the `Variants` array is fully consistent *before* `updateHaplotypes` is called, it guarantees that the main reference panel remains clean and biologically correct, allowing the biallelic PBWT to function as intended.
+1.  **Correct `projectSupersites` Implementation:** The function `genotype::projectSupersites` in `genotype_managment.cpp` was updated to correctly handle an arbitrary number of alternate alleles. It now properly translates the unified, multi-allelic phasing decision from a supersite's anchor variant back to the correct bit-packed representation for all underlying biallelic variants.
 
-### 10.3. Implementation Status and Flaws
+2.  **Correct Call Timing:** The `projectSupersites` function is now called at the end of both `genotype::sampleForward` and `genotype::sampleBackward` in `genotype_sweep.cpp`. This ensures that the projection occurs immediately after a new haplotype configuration is sampled and, crucially, *before* the main reference panel is updated.
 
-A review of the codebase revealed two critical flaws that cause the bug:
+These changes ensure that the reference panel remains consistent and biologically correct throughout the MCMC iterations, resolving the root cause of the accuracy degradation. A final call to `projectSupersites` in `phaser_finalise.cpp` also ensures the final output file is consistent.
 
-1.  **Incorrect Call Timing:** The `projectSupersites` function is only called once, at the very end of the program in `phaser_finalise.cpp`, just before writing the output file. It is **never called during the MCMC iterations**. This is the primary reason for the reference panel corruption.
-2.  **Buggy Implementation:** The existing implementation of `projectSupersites` in `genotype_managment.cpp` is itself flawed. It contains the comment `// For now, assume only ALT1 mapping` and is hardcoded to only handle the first alternate allele of a supersite. It cannot correctly project phasing for any site with more than two alternate alleles.
-
-### 10.4. The Plan for Resolution
-
-To fix this critical bug and restore supersite phasing accuracy, the following two steps must be taken:
-
-1.  **Fix the `projectSupersites` function:** The logic in `genotype_managment.cpp` must be rewritten to correctly handle an arbitrary number of alternate alleles. The corrected version should use the `getSampleSuperSiteAlleleCode` helper function to determine the true, phased allele class for each haplotype and then iterate through the constituent variants to set their biallelic state correctly.
-2.  **Call `projectSupersites` after sampling:** A call to `this->projectSupersites()` must be added at the end of both the `genotype::sampleForward` and `genotype_sampleBackward` functions in `genotype_sweep.cpp`. This will ensure that the projection occurs immediately after a new haplotype is sampled and before the `updateHaplotypes` function is called, thus preventing reference panel corruption.

@@ -47,6 +47,7 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 		prev_dipcount = curr_dipcount;
 	}
 	make(DipSampled, CurrentMissingProbabilities);
+	if (super_sites) projectSupersites();
 }
 
 void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vector < float > & CurrentMissingProbabilities) {
@@ -82,6 +83,7 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 		next_dipcount = curr_dipcount;
 	}
 	make(DipSampled, CurrentMissingProbabilities);
+	if (super_sites) projectSupersites();
 }
 
 void genotype::solve() {

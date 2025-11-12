@@ -389,34 +389,29 @@ void genotype::projectSupersites() {
 		const SuperSite& ss = (*super_sites)[ss_idx];
 		int anchor_locus = static_cast<int>(ss.global_site_id);
 
-		// Get anchor phasing result
-		unsigned char anchor_variant = Variants[DIV2(anchor_locus)];
-		bool anchor_hap0_alt = VAR_GET_HAP0(MOD2(anchor_locus), anchor_variant);
-		bool anchor_hap1_alt = VAR_GET_HAP1(MOD2(anchor_locus), anchor_variant);
-
-		// Handle missing anchor data
-		if (VAR_GET_MIS(MOD2(anchor_locus), anchor_variant)) {
-			continue; // Skip projection for missing anchors
+		// Skip if anchor is missing
+		if (VAR_GET_MIS(MOD2(anchor_locus), Variants[DIV2(anchor_locus)])) {
+			continue;
 		}
 
-		// Project anchor phasing to all member splits
+		// Determine which allele class is on each haplotype from the anchor's perspective
+		uint8_t class0 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 0);
+		uint8_t class1 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 1);
+
+		// Project to splits: class 0=REF, 1..n_alts=ALT1..ALTn
 		for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
 			unsigned int split_locus = (*super_site_var_index)[ss.var_start + ai];
 			uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
 
-			// Determine split genotype based on anchor phasing
-			// If anchor is REF/REF (class 0), all splits are REF
-			// If anchor is ALT_i/REF or ALT_i/ALT_i, corresponding split is ALT
-			
 			// Set hap0 for this split
-			if (anchor_hap0_alt && (alt_class == 1)) { // For now, assume only ALT1 mapping
+			if (class0 == alt_class) {
 				VAR_SET_HAP0(MOD2(split_locus), Variants[DIV2(split_locus)]);
 			} else {
 				VAR_CLR_HAP0(MOD2(split_locus), Variants[DIV2(split_locus)]);
 			}
 
-			// Set hap1 for this split  
-			if (anchor_hap1_alt && (alt_class == 1)) { // For now, assume only ALT1 mapping
+			// Set hap1 for this split
+			if (class1 == alt_class) {
 				VAR_SET_HAP1(MOD2(split_locus), Variants[DIV2(split_locus)]);
 			} else {
 				VAR_CLR_HAP1(MOD2(split_locus), Variants[DIV2(split_locus)]);
