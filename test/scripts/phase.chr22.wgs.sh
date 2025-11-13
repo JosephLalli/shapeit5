@@ -13,11 +13,11 @@ mkdir -p tmp
 
 #scaffold_region=chr22:18000000-25000000
 #comparison_region=chr22:19000000-24000000
-#scaffold_region=chr22:19000000-20000000
-#comparison_region=chr22:19000000-20000000
+scaffold_region=chr22:19000000-20000000
+comparison_region=chr22:19000000-20000000
 
-scaffold_region=chr22:19000000-19300000
-comparison_region=chr22:19000000-19300000
+#scaffold_region=chr22:19000000-19300000
+#comparison_region=chr22:19000000-19300000
 
 in_bcf="${TEST_DIR}/wgs/1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.unphased.native_maps.biallelic.18000000-25000000.bcf"
 scaffold_bcf_prefix="$tmp_dir/chr22.1KGP.18-25mb.phase_common"
@@ -40,18 +40,19 @@ if [[ 'x' == 'y' ]]; then
   --output $scaffold_bcf_prefix.main_algo.small.bcf \
   --thread 64 &
 fi
-SHAPEIT5_TEST_TRACE=1 \
+# SHAPEIT5_TEST_TRACE=1 \
 ../phase_common/bin/phase_common \
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.supersites.split_emissions.small.bcf \
-  --enable-supersites
-
+  --enable-supersites \
+  --thread 64
+#  --mcmc-iteration 3b,1p,1b,1p,3m
 #fi
 wait
-#exit 0
+exit 0
 ../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
   --estimation "$scaffold_bcf_prefix.og.small.bcf" \

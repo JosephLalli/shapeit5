@@ -27,6 +27,7 @@ using namespace std;
 phaser::phaser() {
 	supersite_build_counter = 0;
 	supersite_build_last_context.clear();
+	supersite_mac_threshold = 0;
 }
 
 phaser::~phaser() {

@@ -97,11 +97,14 @@ void phaser::read_files_and_initialise() {
 		pbwt_modulo = options["pbwt-modulo"].as < double > ();
 	}
 
+	const int pbwt_mac = options["pbwt-mac"].as < int > ();
+	supersite_mac_threshold = std::max(0, pbwt_mac);
+
 	H.initialize(V,	pbwt_modulo,
 					options["pbwt-window"].as < double > (),
 					options["pbwt-mdr"].as < double > (),
 					pbwt_depth,
-					options["pbwt-mac"].as < int > (),
+					pbwt_mac,
 					options["thread"].as < int > ());
 
 	if (!options.count("pbwt-disable-init")) H.solve(&G);

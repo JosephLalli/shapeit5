@@ -282,7 +282,8 @@ void phaser::rebuildSupersiteMetadata(const std::string& context, const std::vec
 	                packed_allele_codes,
 	                locus_to_super_idx,
 	                super_site_var_index,
-	                sample_supersite_genotypes);
+	                sample_supersite_genotypes,
+	                supersite_mac_threshold);
 	M.markSuperSiteSiblings(super_sites, locus_to_super_idx);
 
 	supersite_build_last_context = context;
@@ -296,4 +297,13 @@ void phaser::rebuildSupersiteMetadata(const std::string& context, const std::vec
 	}
 
 	traceSupersiteAnchors(context, packed_allele_codes);
+
+	applySupersiteAnchorGuards();
+}
+
+void phaser::applySupersiteAnchorGuards() {
+	if (!enable_supersites || super_sites.empty()) return;
+	H.applySupersiteAnchorMask(super_sites, super_site_var_index);
+	supersite_anchor_redirect = buildSupersiteAnchorMap(super_sites, super_site_var_index, V.size());
+	H.setSupersiteAnchorRedirect(supersite_anchor_redirect);
 }

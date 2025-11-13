@@ -22,6 +22,7 @@
 
 #include <containers/conditioning_set/conditioning_set_header.h>
 #include <models/supersite_trace_utils.h>
+#include <algorithm>
 
 using namespace std;
 
@@ -182,7 +183,24 @@ void conditioning_set::select() {
 
 	//Select new sites at which to trigger storage
 	vector < vector < int > > candidates = vector < vector < int > > (sites_pbwt_grouping.back() + 1);
-	for (int l = 0 ; l < n_site ; l++) if (sites_pbwt_evaluation[l]) candidates[sites_pbwt_grouping[l]].push_back(l);
+	for (int l = 0 ; l < n_site ; l++) {
+		if (!sites_pbwt_evaluation[l]) continue;
+		int locus = l;
+		if (supersite_anchor_redirect_enabled &&
+		    l < static_cast<int>(supersite_anchor_redirect.size()) &&
+		    supersite_anchor_redirect[l] >= 0) {
+			locus = supersite_anchor_redirect[l];
+		}
+		candidates[sites_pbwt_grouping[l]].push_back(locus);
+	}
+	if (supersite_anchor_redirect_enabled) {
+		for (auto& vec : candidates) {
+			if (vec.size() > 1) {
+				std::sort(vec.begin(), vec.end());
+				vec.erase(std::unique(vec.begin(), vec.end()), vec.end());
+			}
+		}
+	}
 	sites_pbwt_selection = vector < bool > (n_site , false);
 	for (int g = 0 ; g < candidates.size() ; g++) {
 		if (candidates[g].size() > 0) {

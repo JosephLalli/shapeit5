@@ -28,6 +28,8 @@
 #include <containers/haplotype_set.h>
 #include <containers/ibd2_tracks.h>
 
+struct SuperSite;
+
 class conditioning_set : public haplotype_set {
 public:
 
@@ -56,11 +58,16 @@ public:
 	int i_worker, i_job, d_job;
 	pthread_mutex_t mutex_workers;
 	std::vector < pthread_t > id_workers;
+	std::vector < int > supersite_anchor_redirect;
+	bool supersite_anchor_redirect_enabled;
 
 	//CONSTRUCTOR/DESTRUCTOR
 	conditioning_set();
 	~conditioning_set();
 	void initialize(variant_map & V, float _modulo_selection, float _modulo_multithreading, float _mdr, int _depth, int _mac, int _nthread);
+	void applySupersiteAnchorMask(const std::vector<SuperSite>& super_sites,
+	                              const std::vector<int>& super_site_var_index);
+	void setSupersiteAnchorRedirect(const std::vector<int>& anchor_map);
 
 	//VARIANT PROCESSING
 	bool split(variant_map & V, float min_length, int left_index, int right_index, std::vector < int > & output);

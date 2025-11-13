@@ -249,6 +249,20 @@ Native multivariant imputation:
 - ⚠️ Pending implementation
 - ❌ Known failure
 
+## Integration Regression Scripts
+
+### Supersite Finalization Crash Harness
+
+- **Script**: `test/scripts/phase.supersite.finalization_regression.sh`
+- **Goal**: Reproduce the `std::vector<_Tp>::operator[]` assertion that occurs during the `Finalization:` stage when supersites are enabled on long-running WGS jobs.
+- **Default inputs**:
+  - BCF: `test/wgs/1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.unphased.native_maps.biallelic.18000000-25000000.bcf`
+  - Region: `chr22:19000000-20000000`
+  - Iterations: `--mcmc-iteration 3b,1p,1b,1p,3m`
+  - Threads: `THREADS=${THREADS:-8}`
+- **Outputs**: Writes logs to `test/tmp/<LOG_STEM>.stdout.log|stderr.log` (set `LOG_STEM=tmp10` to mirror the `tmp10.log/tmp10.err.log` artifacts mentioned in the supersite crash reports).
+- **Pass/Fail semantics**: Currently fails (non-zero exit, flagged via `test_fail`) because the crash is still present. Once the bug is fixed, the same script will pass without log pollution, providing a regression test for the finalization path.
+
 ---
 
 ## Future Enhancements

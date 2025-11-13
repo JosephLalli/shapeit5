@@ -56,9 +56,10 @@ static void ensure_logs_dir() {
 
 // Sibling bookkeeping: update trace, maintain cursor/index sanity, no DP math
 void haplotype_segment_single::handle_sibling_bookkeeping(const SiteView& site_view) {
-	// Only log ambiguous cursor, do not advance or store AlphaMissing/AlphaSumMissing
-	// This keeps ambiguous/missing indices aligned for anchors, but does not touch DP state
-	trace_ambiguous_cursor(trace_forward_active ? "fwd_post" : "bwd_post", curr_abs_locus, true, 0);
+	// Only log ambiguous cursor for a sibling locus using a neutral stage label
+	// to avoid interfering with the standard fwd_pre/fwd_post or bwd_pre/bwd_post
+	// diagnostics that run once per locus outside of the sibling path.
+	trace_ambiguous_cursor("sib", curr_abs_locus, true, 0);
 	// Optionally, add asserts here to ensure ambiguous/missing cursor is in bounds
 	if (ambiguous_first <= ambiguous_last) {
 		const bool backward_stage = trace_backward_active && !trace_forward_active;
@@ -724,12 +725,15 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		if (curr_segment_locus == 0) SUMK();
 		prev_abs_locus=update_prev_locus?curr_abs_locus:prev_abs_locus;
 
-		if (curr_abs_locus == 0) SET_FIRST_TRANS(transition_probabilities);
-		if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
-			int ret = SET_OTHER_TRANS(transition_probabilities);
-			if (ret < 0) return ret;
-			else n_underflow_recovered += ret;
-		}
+			// Only emit transition probabilities if caller provided storage
+			if (!transition_probabilities.empty()) {
+				if (curr_abs_locus == 0) SET_FIRST_TRANS(transition_probabilities);
+				if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
+					int ret = SET_OTHER_TRANS(transition_probabilities);
+					if (ret < 0) return ret;
+					else n_underflow_recovered += ret;
+				}
+			}
 
 		if (data_mis) {
 			bool handled = false;
@@ -815,6 +819,24 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_probabilities) {
 	const unsigned int n_transitions = G->countDiplotypes(G->Diplotypes[0]);
 	std::vector<double> cprobs(n_transitions, 0.0);
+
+	if (supersite_trace_enabled()) {
+		std::fprintf(stdout, "SET_FIRST_TRANS single: n_transitions=%u buf_size=%zu\n",
+					 n_transitions, transition_probabilities.size());
+	}
+
+	// Guard: some tests pass an empty transition_probabilities buffer when
+	// they are not inspecting transitions. Avoid out-of-bounds writes.
+	// Nothing to emit if there are no diplotypes in first segment
+	if (n_transitions == 0) {
+		return;
+	}
+	if (transition_probabilities.size() < n_transitions) {
+		if (supersite_trace_enabled()) {
+			std::fprintf(stdout, "SET_FIRST_TRANS single: skip write (insufficient buffer)\n");
+		}
+		return;
+	}
 
 	double lane_probs[HAP_NUMBER];
 	bool use_outer = supersites_enabled_flag && !AlphaSum.empty();
@@ -918,6 +940,25 @@ int haplotype_segment_single::SET_OTHER_TRANS(vector < double > & transition_pro
 	unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
 	unsigned int n_transitions = curr_dipcount * prev_dipcount;
 	double scaleDip = 1.0 / sumDProbs;
+
+	if (supersite_trace_enabled()) {
+		std::fprintf(stdout, "SET_OTHER_TRANS single: curr_abs_transition=%d n_transitions=%u buf_size=%zu\n",
+					 curr_abs_transition, n_transitions, transition_probabilities.size());
+	}
+
+	// Guard: avoid out-of-bounds writes if caller did not allocate the
+	// transition buffer (some unit tests do not inspect transitions).
+	if (transition_probabilities.empty() ||
+	    (curr_abs_transition + 1) < 0 ||
+	    (static_cast<size_t>(curr_abs_transition) + n_transitions) > transition_probabilities.size()) {
+		if (supersite_trace_enabled()) {
+			std::fprintf(stdout, "SET_OTHER_TRANS single: skip write (insufficient buffer)\n");
+		}
+		// Maintain internal counters but skip writing.
+		curr_abs_transition -= (n_transitions - 1);
+		curr_abs_transition --;
+		return underflow_recovered;
+	}
 	curr_abs_transition -= (n_transitions - 1);
 	for (int t = 0 ; t < n_transitions ; t ++) transition_probabilities[curr_abs_transition + t] = DProbs[t] * scaleDip;
 	curr_abs_transition --;

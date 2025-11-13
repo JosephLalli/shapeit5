@@ -21,12 +21,14 @@
  ******************************************************************************/
 
 #include <containers/conditioning_set/conditioning_set_header.h>
+#include <objects/super_site_builder.h>
 
 using namespace std;
 
 conditioning_set::conditioning_set() {
 	depth = 0;
 	nthread = 0;
+	supersite_anchor_redirect_enabled = false;
 }
 
 conditioning_set::~conditioning_set() {
@@ -43,6 +45,8 @@ conditioning_set::~conditioning_set() {
 	sites_pbwt_selection.clear();
 	sites_pbwt_grouping.clear();
 	indexes_pbwt_neighbour.clear();
+	supersite_anchor_redirect.clear();
+	supersite_anchor_redirect_enabled = false;
 }
 
 
@@ -120,4 +124,31 @@ void conditioning_set::initialize(variant_map & V, float _modulo_selection, floa
 	Kbanned.initialize(n_ind, V);
 	indexes_pbwt_neighbour = vector < int > ( (depth+1) * (sites_pbwt_grouping.back()+1) * n_ind * 2UL, -1);
 	vrb.bullet("PBWT initialization [#eval=" + stb.str(n_evaluated) + " / #select=" + stb.str(sites_pbwt_grouping.back() + 1) + " / #chunk=" + stb.str(sites_pbwt_mthreading.back() + 1) + "] (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
+}
+
+void conditioning_set::applySupersiteAnchorMask(const std::vector<SuperSite>& super_sites,
+                                                const std::vector<int>& super_site_var_index) {
+	if (super_sites.empty() || sites_pbwt_evaluation.empty()) return;
+	for (const auto& ss : super_sites) {
+		const int anchor = static_cast<int>(ss.global_site_id);
+		if (anchor >= 0 && anchor < static_cast<int>(sites_pbwt_evaluation.size())) {
+			// Ensure anchor remains eligible
+			sites_pbwt_evaluation[anchor] = sites_pbwt_evaluation[anchor] || true;
+		}
+		for (uint16_t ai = 0; ai < ss.var_count; ++ai) {
+			const size_t offset = ss.var_start + ai;
+			if (offset >= super_site_var_index.size()) continue;
+			const int member = super_site_var_index[offset];
+			if (member >= 0 &&
+			    member < static_cast<int>(sites_pbwt_evaluation.size()) &&
+			    member != anchor) {
+				sites_pbwt_evaluation[member] = false;
+			}
+		}
+	}
+}
+
+void conditioning_set::setSupersiteAnchorRedirect(const std::vector<int>& anchor_map) {
+	supersite_anchor_redirect = anchor_map;
+	supersite_anchor_redirect_enabled = !supersite_anchor_redirect.empty();
 }

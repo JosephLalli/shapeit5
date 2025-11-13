@@ -169,11 +169,14 @@ int main() {
     hs.forward();
 
     // Setup for backward pass
-    std::vector<double> transition_probabilities;
-    std::vector<float> missing_probabilities;
+    // Build genotype to finalize segments/diplotypes and set supersite flags
     std::vector<float> SC(ss.n_classes * HAP_NUMBER, 0.0f);
     std::vector<bool> anchor_has_missing(super_sites.size(), false);
-    G.build(); // Sets the supersite flags like all_missing
+    G.build(); // Sets the supersite flags like all_missing and diplotypes for transitions
+
+    // Allocate buffers after build() so sizes reflect finalized genotype
+    std::vector<double> transition_probabilities(G.countTransitions(), 0.0);
+    std::vector<float> missing_probabilities(G.n_missing * HAP_NUMBER, 0.0f);
     for(size_t i=0; i<super_sites.size(); ++i) {
         if (G.getSuperSiteContext(super_sites[i].global_site_id).all_missing) {
             anchor_has_missing[i] = true;

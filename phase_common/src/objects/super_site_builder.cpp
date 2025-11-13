@@ -40,7 +40,8 @@ void buildSuperSites(
     std::vector<uint8_t>& packed_allele_codes_out,
     std::vector<int>& locus_to_super_idx_out,
     std::vector<int>& super_site_var_index_out,
-    std::vector<uint8_t>& /*sample_supersite_genotypes_out*/)
+    std::vector<uint8_t>& /*sample_supersite_genotypes_out*/,
+    int mac_threshold)
 {
     super_sites_out.clear();
     packed_allele_codes_out.clear();
@@ -62,14 +63,27 @@ void buildSuperSites(
         const std::vector<int>& variant_indices = kv.second;
         if (variant_indices.size() <= 1) continue; // not multi-allelic
 
+        std::vector<int> kept_indices;
+        kept_indices.reserve(variant_indices.size());
+        for (int v_idx : variant_indices) {
+            variant* vp = V.vec_pos[v_idx];
+            if (mac_threshold > 0 && vp->getMAC() < static_cast<unsigned int>(mac_threshold)) {
+                continue; // treat low-MAC sibling as biallelic
+            }
+            kept_indices.push_back(v_idx);
+        }
+
+        if (kept_indices.size() <= 1) continue; // nothing left to form a supersite
+
         // Split groups larger than SUPERSITE_MAX_ALTS into deterministic chunks
-        for (size_t chunk_start = 0; chunk_start < variant_indices.size(); chunk_start += SUPERSITE_MAX_ALTS) {
-            uint8_t n_alts = static_cast<uint8_t>(std::min<size_t>(SUPERSITE_MAX_ALTS, variant_indices.size() - chunk_start));
+        for (size_t chunk_start = 0; chunk_start < kept_indices.size(); chunk_start += SUPERSITE_MAX_ALTS) {
+            uint8_t n_alts = static_cast<uint8_t>(std::min<size_t>(SUPERSITE_MAX_ALTS, kept_indices.size() - chunk_start));
+            if (n_alts <= 1) continue; // chunk degenerates to biallelic after filtering
 
             SuperSite ss;
-            ss.global_site_id = variant_indices[chunk_start];
+            ss.global_site_id = kept_indices[chunk_start];
             ss.chr = 0; // chr is not used downstream; keep 0 to avoid string->int issues
-            ss.bp = static_cast<uint32_t>(V.vec_pos[variant_indices[chunk_start]]->bp);
+            ss.bp = static_cast<uint32_t>(V.vec_pos[kept_indices[chunk_start]]->bp);
             ss.n_alts = n_alts;
             ss.panel_offset = current_panel_offset;
             ss.var_start = static_cast<uint32_t>(super_site_var_index_out.size());
@@ -78,7 +92,7 @@ void buildSuperSites(
 
             // Record member variant indices and mark mappings
             for (uint8_t ai = 0; ai < n_alts; ++ai) {
-                int v_idx = variant_indices[chunk_start + ai];
+                int v_idx = kept_indices[chunk_start + ai];
                 super_site_var_index_out.push_back(v_idx);
                 is_super_site_out[v_idx] = true;
                 locus_to_super_idx_out[v_idx] = static_cast<int>(super_sites_out.size());
@@ -91,7 +105,7 @@ void buildSuperSites(
             for (unsigned long h = 0; h < H.n_hap; ++h) {
                 uint8_t code = SUPERSITE_CODE_REF;
                 for (uint8_t ai = 0; ai < n_alts; ++ai) {
-                    int v_idx = variant_indices[chunk_start + ai];
+                    int v_idx = kept_indices[chunk_start + ai];
                     if (H.H_opt_var.get(static_cast<unsigned int>(v_idx), static_cast<unsigned int>(h))) {
                         code = static_cast<uint8_t>(ai + 1);
                         break; // take first ALT encountered
@@ -156,4 +170,23 @@ void updateSuperSiteAnchorEncoding(genotype_set& G,
             }
         }
     }
+}
+
+std::vector<int> buildSupersiteAnchorMap(const std::vector<SuperSite>& super_sites,
+                                         const std::vector<int>& super_site_var_index,
+                                         size_t n_loci) {
+	std::vector<int> redirect(n_loci, -1);
+	for (const auto& ss : super_sites) {
+		const int anchor = static_cast<int>(ss.global_site_id);
+		if (anchor >= 0 && static_cast<size_t>(anchor) < n_loci) redirect[anchor] = anchor;
+		for (uint16_t ai = 0; ai < ss.var_count; ++ai) {
+			const size_t offset = ss.var_start + ai;
+			if (offset >= super_site_var_index.size()) continue;
+			const int member = super_site_var_index[offset];
+			if (member >= 0 && static_cast<size_t>(member) < n_loci) {
+				redirect[member] = anchor;
+			}
+		}
+	}
+	return redirect;
 }

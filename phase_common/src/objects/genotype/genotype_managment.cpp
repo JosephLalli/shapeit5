@@ -316,33 +316,25 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						}
 					}
 					
-					// Skip to end of supersite
-					// vabs will be incremented by loop, so set to last member and advance vrel accordingly
-					unsigned int last_member_vabs = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
-					if (last_member_vabs < vabs) {
-						if (supersite_trace_enabled()) {
-							supersite_trace_log("[SupersiteSample] invalid skip sample=%s ss_idx=%d last_member=%u vabs=%u\n",
-							                    this->name.c_str(),
-							                    ss_idx,
-							                    last_member_vabs,
-							                    vabs);
-						}
-						last_member_vabs = vabs;
-					}
-					unsigned int skip_count = last_member_vabs - vabs;
-					vabs = last_member_vabs;
-					vrel += skip_count;
+					// Do not attempt range skip: members may be non-consecutive after MAC pruning
+					// Count a single missing event for the supersite and proceed; siblings are skipped below
 					m++;  // One missing event per supersite
 					continue;
 				}
 				// Sibling: skip, already handled by anchor
-				if (supersite_trace_enabled()) {
-					supersite_trace_log("[SupersiteSample] skip sibling sample=%s ss_idx=%d locus=%u\n",
-					                    this->name.c_str(),
-					                    ss_idx,
-					                    vabs);
+				{
+					bool is_member = false;
+					for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+						if ((*super_site_var_index)[ss.var_start + ai] == vabs) { is_member = true; break; }
+					}
+					if (is_member && (int)vabs != (int)ss.global_site_id) {
+						if (supersite_trace_enabled()) {
+							supersite_trace_log("[SupersiteSample] skip sibling sample=%s ss_idx=%d locus=%u\n",
+							                    this->name.c_str(), ss_idx, vabs);
+						}
+						continue;
+					}
 				}
-				continue;
 			}
 			
 			// Normal biallelic missing site
@@ -427,20 +419,17 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                             debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: After projection in AMB");
                         }
 						
-						// Skip siblings: advance vabs to last member and advance vrel to account for consumed variants
-						unsigned int last_member_vabs = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
-						unsigned int skip_count = (last_member_vabs >= vabs) ? (last_member_vabs - vabs) : 0;
-						vabs = last_member_vabs;
-						vrel += skip_count;
-						a++;  // One ambiguous event per supersite
-						continue;
+							// Do not perform range skip: members may be non-consecutive after MAC pruning
+							a++;  // One ambiguous event per supersite
+							continue;
 					} else {
-						// This is a sibling of a supersite (not the anchor)
-						// Check if vabs is within this supersite's member range
-						unsigned int first_member = ss.global_site_id;
-						unsigned int last_member = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
-						if (vabs > first_member && vabs <= last_member) {
-							// Skip this sibling - it was already handled at the anchor
+						// This is a sibling of a supersite (not the anchor). Members may be non-consecutive
+						bool is_member = false;
+						for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+							if ((*super_site_var_index)[ss.var_start + ai] == vabs) { is_member = true; break; }
+						}
+						if (is_member) {
+							// Skip this sibling - already handled via anchor
 							continue;
 						}
 					}

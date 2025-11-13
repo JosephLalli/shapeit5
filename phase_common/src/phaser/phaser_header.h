@@ -60,6 +60,8 @@ public:
 		// Super-site indexing
 		std::vector<int> locus_to_super_idx;       // locus -> super-site index or -1
 		std::vector<int> super_site_var_index;     // flattened member variant indices
+		std::vector<int> supersite_anchor_redirect; // locus -> anchor locus or -1
+		int supersite_mac_threshold;
 		size_t supersite_build_counter;
 		std::string supersite_build_last_context;
 
@@ -97,12 +99,13 @@ public:
 	//PARAMETERS
 	void declare_options();
 	void parse_command_line(std::vector < std::string > &);
-	void parse_iteration_scheme(std::string);
-	std::string get_iteration_scheme();
+		void parse_iteration_scheme(std::string);
+		std::string get_iteration_scheme();
 		void check_options();
 		void verbose_options();
 		void verbose_files();
 		void rebuildSupersiteMetadata(const std::string& context, const std::vector<uint8_t>* diff_against = nullptr);
+		void applySupersiteAnchorGuards();
 		void logPackedCodeDiff(const std::string& context, const std::vector<uint8_t>& before, const std::vector<uint8_t>& after) const;
 		void traceSupersiteAnchors(const std::string& context, const std::vector<uint8_t>& codes_snapshot, size_t max_sites = 2, size_t max_haps = 8) const;
 

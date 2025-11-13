@@ -805,12 +805,11 @@ This section tracks the development status of the supersite feature. While most 
 - ✅ **Implemented**: Configurable emission semantics (`ss_anchor_split_emissions` parameter)
 - 🚧 **Partially Implemented**: K inflation resolution. While the root cause within the HMM emission logic is fixed and passes unit tests, the issue persists in full integration runs.
 - ✅ **Implemented**: Comprehensive test suite (unit tests for emission validation, parity, and K-inflation exist).
+- ✅ **Implemented**: MAC-aware supersite builder. `buildSuperSites()` now accepts the PBWT MAC threshold, drops any sibling split whose MAC falls below that cutoff, and only emits a supersite when at least two ALTs survive. If the historical anchor is filtered out, the next surviving split becomes the anchor automatically; if ≤1 ALT survives, the locus stays biallelic/phase_rare just like the rest of the pipeline.
 
 **Open Critical Issues:**
 - ❗️ **Finalization Crash**: A reproducible out-of-bounds crash occurs at the end of a run when supersites are enabled, making the feature unusable.
 - ❗️ **K-Inflation at Scale**: The conditioning set size (`K`) continues to grow in full integration tests, indicating a systemic issue that is not captured by unit tests.
-- 🟠 **TODO — PBWT MAC Handling for Supersites**: Today each split record is MAC-filtered independently, so multi-allelic loci often fall below `pbwt-mac` and force `compute_job` to inject 100 random donor states. We need to aggregate MAC across all splits in a supersite (or otherwise pre-qualify anchors) before `conditioning_set::initialize()` so supersite-heavy windows stop inflating K via the random fallback.
-
 **Previously addressed bugs/design antipatterns**
 
 **Issue #1: Duplicate SS_*_MIS functions**

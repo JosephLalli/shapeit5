@@ -30,6 +30,7 @@ PHASE_COMMON_OBJS := \
 	$(objdir)/window_set.o \
 	$(objdir)/genotype_build.o \
 	$(objdir)/genotype_managment_from_pc.o \
+	$(objdir)/genotype_prune.o \
 	$(objdir)/genotype_sweep.o \
 	$(objdir)/genotype_mendel.o \
 	$(objdir)/test_toolbox.o
@@ -61,6 +62,7 @@ TEST_BINARIES := \
 	$(bindir)/test_supersite_outer_product \
     $(bindir)/test_supersite_representation_parity \
     $(bindir)/test_supersite_expansion_parity \
+    $(bindir)/test_supersite_expansion_epochs \
     $(bindir)/test_segment_boundary_multiallelic \
     $(bindir)/test_segment_boundary_invariants \
     $(bindir)/test_supersite_transition_underflow \
@@ -160,6 +162,9 @@ $(bindir)/test_supersite_representation_parity: $(objdir)/test_supersite_represe
 $(bindir)/test_supersite_expansion_parity: $(objdir)/test_supersite_expansion_parity.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
+$(bindir)/test_supersite_expansion_epochs: $(objdir)/test_supersite_expansion_epochs.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
 $(bindir)/test_forward_backward_comprehensive: $(objdir)/test_forward_backward_comprehensive.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
@@ -232,6 +237,9 @@ $(objdir)/genotype_managment_from_pc.o: ../phase_common/src/objects/genotype/gen
 	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/genotype_build.o: ../phase_common/src/objects/genotype/genotype_build.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+$(objdir)/genotype_prune.o: ../phase_common/src/objects/genotype/genotype_prune.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_variant.o: ../phase_common/src/objects/variant.cpp
