@@ -21,6 +21,7 @@
  ******************************************************************************/
 
 #include <containers/window_set.h>
+#include <models/supersite_trace_utils.h>
 
 using namespace std;
 
@@ -157,6 +158,15 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 		W[w].stop_locus = loc_idx[W[w].stop_segment] + loc_siz[W[w].stop_segment] - 1;
 		W[w].start_transition = tra_idx[W[w].start_segment] + tra_siz[W[w].start_segment];
 		W[w].stop_transition = tra_idx[W[w].stop_segment] + tra_siz[W[w].stop_segment] - 1;
+		if (supersite_trace_enabled()) {
+			genotype::SuperSiteContext ctx = g->getSuperSiteContext(W[w].start_locus);
+			if (ctx.is_member && !ctx.is_anchor) {
+				supersite_trace_log("[SupersiteWindow] WARNING window %u starts on sibling locus=%u ss_idx=%d\n",
+				                    w,
+				                    W[w].start_locus,
+				                    ctx.ss_idx);
+			}
+		}
 	}
 	return n_windows;
 }

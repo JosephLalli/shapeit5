@@ -30,6 +30,7 @@
 #include <objects/hmm_parameters.h>
 #include <models/site_emission_types.h>
 #include <models/super_site_macros.h>
+#include <models/supersite_trace_utils.h>
 #include <cmath>
 #include <cstdio>
 #include <limits>
@@ -1526,14 +1527,16 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
         return;
     }
 
-    std::fprintf(stderr, "[supersite-debug] entering IMPUTE_SUPERSITE_MULTIVARIATE ss_idx=%d offset=%u C=%d rel_missing_index=%d n_cond_haps=%u\n",
-        ss_idx, offset, C, rel_missing_index, (unsigned)n_cond_haps);
+    if (supersite_trace_enabled()) {
+        supersite_trace_log("[SupersiteImpute] enter ss_idx=%d offset=%u C=%d rel_missing_index=%d n_cond_haps=%u\n",
+                            ss_idx, offset, C, rel_missing_index, (unsigned)n_cond_haps);
+    }
 
     // Load AlphaSumInv for normalization
     __m256 _alphaSum = _mm256_load_ps(&AlphaSumMissing[rel_missing_index][0]);
     __m256 _ones = _mm256_set1_ps(1.0f);
     __m256 _alphaSum_inv = _mm256_div_ps(_ones, _alphaSum);
-    std::fprintf(stderr, "[supersite-debug] after alphaSum load\n");
+    if (supersite_trace_enabled()) supersite_trace_log("[SupersiteImpute] alphaSum loaded\n");
     
     // Accumulate: for each conditioning donor haplotype k
     for (int k = 0, i = 0; k < (int)n_cond_haps; ++k, i += HAP_NUMBER) {
@@ -1549,7 +1552,7 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
         sum[code] = _mm256_add_ps(sum[code], term);
         denom = _mm256_add_ps(denom, term);
     }
-    std::fprintf(stderr, "[supersite-debug] after accumulation\n");
+    if (supersite_trace_enabled()) supersite_trace_log("[SupersiteImpute] accumulation complete\n");
     
     // Normalize: SC[offset + h*C + c] = sum[c][h] / denom[h]
     // Extract 8 lanes and write to SC buffer
@@ -1560,7 +1563,7 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
         _mm256_storeu_ps(sum_lanes[c], sum[c]);
     }
     _mm256_storeu_ps(denom_lanes, denom);
-    std::fprintf(stderr, "[supersite-debug] after store lanes\n");
+    if (supersite_trace_enabled()) supersite_trace_log("[SupersiteImpute] stored lane sums\n");
     
     // Write normalized posteriors to SC
     for (int h = 0; h < HAP_NUMBER; ++h) {
@@ -1577,7 +1580,7 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
             }
         }
     }
-    std::fprintf(stderr, "[supersite-debug] after write\n");
+    if (supersite_trace_enabled()) supersite_trace_log("[SupersiteImpute] wrote SC block\n");
 
     if (supersite_debug::guard_checks_enabled()) {
         for (int h = 0; h < HAP_NUMBER; ++h) {
@@ -1619,6 +1622,19 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
                 assert(std::isnan(pre_guard));
                 assert(std::isnan(post_guard));
             }
+        }
+    }
+
+    if (supersite_trace_enabled()) {
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            float row_sum = 0.0f;
+            supersite_trace_log("[SupersiteImpute] lane=%d", h);
+            for (int c = 0; c < C; ++c) {
+                float value = SC[offset + h * C + c];
+                row_sum += value;
+                supersite_trace_log(" %d:%.4f", c, value);
+            }
+            supersite_trace_log(" | sum=%.4f\n", row_sum);
         }
     }
 }

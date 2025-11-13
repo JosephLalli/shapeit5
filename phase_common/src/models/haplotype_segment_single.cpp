@@ -24,6 +24,7 @@
 
 #include <models/haplotype_segment_single.h>
 #include <models/site_emission_adapter.h>
+#include <models/supersite_trace_utils.h>
 #include <mutex>
 #include <cstdio>
 #include <string>
@@ -51,15 +52,6 @@ static void ensure_logs_dir() {
     }
 }
 
-static bool supersite_trace_enabled() {
-    static int flag = -1;
-    if (flag < 0) {
-        const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
-        flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-    }
-    return flag == 1;
-}
-
 } // namespace
 
 // Sibling bookkeeping: update trace, maintain cursor/index sanity, no DP math
@@ -73,6 +65,14 @@ void haplotype_segment_single::handle_sibling_bookkeeping(const SiteView& site_v
 	}
 	if (missing_first <= missing_last) {
 		assert(curr_abs_missing >= missing_first && curr_abs_missing <= missing_last);
+	}
+	if (supersite_trace_enabled()) {
+		supersite_trace_log("[SupersiteSibling] stage=%s locus=%d kind=%d curr_abs_amb=%d curr_abs_mis=%d\n",
+		                    trace_forward_active ? "FWD" : "BWD",
+		                    curr_abs_locus,
+		                    static_cast<int>(site_view.kind),
+		                    curr_abs_ambiguous,
+		                    curr_abs_missing);
 	}
 }
 

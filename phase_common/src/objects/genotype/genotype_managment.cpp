@@ -21,6 +21,7 @@
  ******************************************************************************/
 
 #include <objects/genotype/genotype_header.h>
+#include <models/supersite_trace_utils.h>
 #include <models/super_site_accessor.h>
 #include <string>
 #include <iostream>
@@ -244,9 +245,21 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                         std::cout << "[SUPERDEBUG] H3: r0=" << r0 << " -> sampled_class0=" << (int)class0 << std::endl;
                         std::cout << "[SUPERDEBUG] H3: r1=" << r1 << " -> sampled_class1=" << (int)class1 << std::endl;
                     }
+                    if (supersite_trace_enabled()) {
+                        supersite_trace_log("[SupersiteSample] sample=%s ss_idx=%d anchor=%u C=%d class0=%u class1=%u offset=%u\n",
+                                            this->name.c_str(),
+                                            ss_idx,
+                                            ss.global_site_id,
+                                            C,
+                                            static_cast<unsigned>(class0),
+                                            static_cast<unsigned>(class1),
+                                            offset);
+                    }
 					
 					// Project to splits: class 0=REF, 1..n_alts=ALT1..ALTn
 					// Iterate over all member variants and set based on sampled class
+					int alt_count_h0 = 0;
+					int alt_count_h1 = 0;
 					for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
 						unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
 						uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
@@ -254,6 +267,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						// Set hap0
 						if (class0 == alt_class) {
 							VAR_SET_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+							alt_count_h0++;
 						} else {
 							VAR_CLR_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
 						}
@@ -261,9 +275,17 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						// Set hap1
 						if (class1 == alt_class) {
 							VAR_SET_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+							alt_count_h1++;
 						} else {
 							VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
 						}
+					}
+					if (supersite_trace_enabled()) {
+						supersite_trace_log("[SupersiteSample] projection sample=%s ss_idx=%d alt_count_h0=%d alt_count_h1=%d\n",
+						                    this->name.c_str(),
+						                    ss_idx,
+						                    alt_count_h0,
+						                    alt_count_h1);
 					}
 
                     // HYPOTHESIS 3 DEBUGGING
@@ -297,13 +319,29 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					// Skip to end of supersite
 					// vabs will be incremented by loop, so set to last member and advance vrel accordingly
 					unsigned int last_member_vabs = (*super_site_var_index)[ss.var_start + ss.var_count - 1];
-					unsigned int skip_count = (last_member_vabs >= vabs) ? (last_member_vabs - vabs) : 0;
+					if (last_member_vabs < vabs) {
+						if (supersite_trace_enabled()) {
+							supersite_trace_log("[SupersiteSample] invalid skip sample=%s ss_idx=%d last_member=%u vabs=%u\n",
+							                    this->name.c_str(),
+							                    ss_idx,
+							                    last_member_vabs,
+							                    vabs);
+						}
+						last_member_vabs = vabs;
+					}
+					unsigned int skip_count = last_member_vabs - vabs;
 					vabs = last_member_vabs;
 					vrel += skip_count;
 					m++;  // One missing event per supersite
 					continue;
 				}
 				// Sibling: skip, already handled by anchor
+				if (supersite_trace_enabled()) {
+					supersite_trace_log("[SupersiteSample] skip sibling sample=%s ss_idx=%d locus=%u\n",
+					                    this->name.c_str(),
+					                    ss_idx,
+					                    vabs);
+				}
 				continue;
 			}
 			

@@ -10,6 +10,7 @@
 
 #include <containers/bitmatrix.h>
 #include <models/site_emission_types.h>
+#include <models/supersite_trace_utils.h>
 #include <models/super_site_accessor.h>
 #include <objects/genotype/genotype_header.h>
 #include <utils/otools.h>
@@ -129,6 +130,17 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
     view.sample_class0 = allele;
     view.sample_class1 = allele;
     view.amb_mask = 0u;
+    if (supersite_trace_enabled()) {
+        supersite_trace_log("[SupersiteEmit] build_view(biallelic) locus=%d emit=%d allele=%u\n",
+                            abs_locus,
+                            static_cast<int>(view.emit_kind),
+                            static_cast<unsigned>(allele));
+        supersite_trace_log("  lane_class:");
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            supersite_trace_log(" %d:%u", h, static_cast<unsigned>(view.lane_class[h]));
+        }
+        supersite_trace_log("\n");
+    }
 }
 
 inline void BiallelicEmissionAdapter::build_match_mask(const SiteView& view,
@@ -271,7 +283,20 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
             }
         }
     }
-
+    if (supersite_trace_enabled()) {
+        supersite_trace_log("[SupersiteEmit] build_view(super) locus=%d ss_idx=%d emit=%d anchor_class=%u c0=%u c1=%u\n",
+                            abs_locus,
+                            ss_idx,
+                            static_cast<int>(view.emit_kind),
+                            static_cast<unsigned>(view.anchor_class),
+                            static_cast<unsigned>(view.sample_class0),
+                            static_cast<unsigned>(view.sample_class1));
+        supersite_trace_log("  lane_class:");
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            supersite_trace_log(" %d:%u", h, static_cast<unsigned>(view.lane_class[h]));
+        }
+        supersite_trace_log("\n");
+    }
     return true;
 }
 
@@ -345,6 +370,20 @@ inline void SupersiteEmissionAdapter::build_match_mask(const SiteView& view,
                 mask.by_donor_lane[base + h] = match ? MatchMask::kMatch : MatchMask::kMismatch;
                 mask.any_match_lane[h] = mask.any_match_lane[h] || match;
             }
+        }
+    }
+    if (supersite_trace_enabled()) {
+        supersite_trace_log("[SupersiteEmit] build_match_mask locus=%d use_split=%d n_cond=%u\n",
+                            view.locus,
+                            use_anchor_split_semantics ? 1 : 0,
+                            n_cond_haps);
+        supersite_trace_log("  any_match_lane:");
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            supersite_trace_log(" %d:%d", h, mask.any_match_lane[h] ? 1 : 0);
+        }
+        supersite_trace_log("\n");
+        if (use_anchor_split_semantics) {
+            supersite_trace_log("  [SupersiteEmit] use_anchor_split_semantics path active (verify parity logic)\n");
         }
     }
 }
