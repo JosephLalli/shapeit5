@@ -207,7 +207,7 @@ static EmissionComparison compare_emission_logic(
     comp.significant_difference = false;
     
     // Build biallelic emission view and mask
-    BiallelicEmissionAdapter bial_adapter(&G_bial, &H_bial.H_opt_var);
+    BiallelicEmissionAdapter bial_adapter(&G_bial, const_cast<bitmatrix*>(&H_bial.H_opt_var));
     SiteView bial_view;
     MatchMask bial_mask;
     bial_adapter.build_view(locus, 0, bial_view);
@@ -219,7 +219,7 @@ static EmissionComparison compare_emission_logic(
             comp.biallelic_matches++;
         }
     }
-    comp.biallelic_mask = bial_mask.by_donor_lane;
+    comp.biallelic_mask.assign(bial_mask.by_donor_lane.begin(), bial_mask.by_donor_lane.end());
     
     // Build supersite emission view and mask (standard mode)
     SupersiteEmissionAdapter ss_adapter(&G_ss, &ctx_ss.super_sites, &ctx_ss.locus_to_super_idx,
@@ -240,7 +240,7 @@ static EmissionComparison compare_emission_logic(
                 comp.supersite_matches++;
             }
         }
-        comp.supersite_mask = ss_mask.by_donor_lane;
+        comp.supersite_mask.assign(ss_mask.by_donor_lane.begin(), ss_mask.by_donor_lane.end());
         
         // Split semantics supersite matching (use_anchor_split_semantics = true)
         MatchMask ss_split_mask;
@@ -251,7 +251,7 @@ static EmissionComparison compare_emission_logic(
                 comp.supersite_split_matches++;
             }
         }
-        comp.supersite_split_mask = ss_split_mask.by_donor_lane;
+        comp.supersite_split_mask.assign(ss_split_mask.by_donor_lane.begin(), ss_split_mask.by_donor_lane.end());
         
         // Calculate match ratio and detect significant differences
         comp.match_ratio = (comp.biallelic_matches > 0) 

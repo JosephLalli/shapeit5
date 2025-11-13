@@ -13,8 +13,11 @@ mkdir -p tmp
 
 #scaffold_region=chr22:18000000-25000000
 #comparison_region=chr22:19000000-24000000
-scaffold_region=chr22:19000000-20000000
-comparison_region=chr22:19000000-20000000
+#scaffold_region=chr22:19000000-20000000
+#comparison_region=chr22:19000000-20000000
+
+scaffold_region=chr22:19000000-19300000
+comparison_region=chr22:19000000-19300000
 
 in_bcf="${TEST_DIR}/wgs/1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.unphased.native_maps.biallelic.18000000-25000000.bcf"
 scaffold_bcf_prefix="$tmp_dir/chr22.1KGP.18-25mb.phase_common"
@@ -37,8 +40,8 @@ if [[ 'x' == 'y' ]]; then
   --output $scaffold_bcf_prefix.main_algo.small.bcf \
   --thread 64 &
 fi
-#SHAPEIT5_TEST_TRACE=1 SHAPEIT5_DEBUG_UNDERFLOW=1 \
-/usr/bin/time ../phase_common/bin/phase_common \
+SHAPEIT5_TEST_TRACE=1 \
+../phase_common/bin/phase_common \
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \

@@ -72,6 +72,26 @@ bool window_set::split(double min_length_cm, int left_index, int right_index, ve
 
 int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 
+	auto is_locus_ambiguous = [&](unsigned int locus) -> bool {
+		bool is_amb = VAR_GET_AMB(MOD2(locus), g->Variants[DIV2(locus)]);
+		genotype::SuperSiteContext ctx = g->getSuperSiteContext(locus);
+		if (ctx.is_member) {
+			if (!ctx.is_anchor) return false;
+			return ctx.has_het || ctx.has_sca;
+		}
+		return is_amb;
+	};
+
+	auto is_locus_missing = [&](unsigned int locus) -> bool {
+		bool is_mis = VAR_GET_MIS(MOD2(locus), g->Variants[DIV2(locus)]);
+		genotype::SuperSiteContext ctx = g->getSuperSiteContext(locus);
+		if (ctx.is_member) {
+			if (!ctx.is_anchor) return false;
+			return ctx.all_missing;
+		}
+		return is_mis;
+	};
+
 	//1. Mapping coordinates of each segment
 	vector < unsigned int > loc_idx = vector < unsigned int >(g->n_segments, 0);
 	vector < unsigned int > loc_siz = vector < unsigned int >(g->n_segments, 0);
@@ -92,32 +112,14 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 		amb_idx[s] = a;
 		for (unsigned int vrel = 0 ; vrel < g->Lengths[s] ; vrel ++) {
 			unsigned int locus = v + vrel;
-			bool is_amb = VAR_GET_AMB(MOD2(locus), g->Variants[DIV2(locus)]);
-			genotype::SuperSiteContext ctx = g->getSuperSiteContext(locus);
-			if (ctx.is_member) {
-				if (!ctx.is_anchor) {
-					is_amb = false;
-				} else {
-					is_amb = ctx.has_het || ctx.has_sca;
-				}
-			}
-			amb_siz[s] += is_amb;
+			if (is_locus_ambiguous(locus)) amb_siz[s]++;
 		}
 		a += amb_siz[s];
 		//update m
 		mis_idx[s] = m;
 		for (unsigned int vrel = 0 ; vrel < g->Lengths[s] ; vrel ++) {
 			unsigned int locus = v + vrel;
-			bool is_mis = VAR_GET_MIS(MOD2(locus), g->Variants[DIV2(locus)]);
-			genotype::SuperSiteContext ctx = g->getSuperSiteContext(locus);
-			if (ctx.is_member) {
-				if (!ctx.is_anchor) {
-					is_mis = false;
-				} else {
-					is_mis = ctx.all_missing;
-				}
-			}
-			mis_siz[s] += is_mis;
+			if (is_locus_missing(locus)) mis_siz[s]++;
 		}
 		m += mis_siz[s];
 		//update v
@@ -150,12 +152,46 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 	for (unsigned int w = 0 ; w < n_windows ; w ++) {
 		W[w].start_segment = output[2*w+0];
 		W[w].stop_segment = output[2*w+1];
-		W[w].start_ambiguous = amb_idx[W[w].start_segment];
-		W[w].stop_ambiguous = amb_idx[W[w].stop_segment] + amb_siz[W[w].stop_segment] - 1;
-		W[w].start_missing = mis_idx[W[w].start_segment];
-		W[w].stop_missing = mis_idx[W[w].stop_segment] + mis_siz[W[w].stop_segment] - 1;
 		W[w].start_locus = loc_idx[W[w].start_segment];
 		W[w].stop_locus = loc_idx[W[w].stop_segment] + loc_siz[W[w].stop_segment] - 1;
+
+		// Adjust ambiguous indices within boundary segments so we don't count loci outside the window
+		int start_amb = amb_idx[W[w].start_segment];
+		unsigned int start_seg_locus = loc_idx[W[w].start_segment];
+		for (unsigned int locus = start_seg_locus; locus < W[w].start_locus; ++locus) {
+			if (is_locus_ambiguous(locus)) start_amb++;
+		}
+		int stop_amb = amb_idx[W[w].stop_segment];
+		unsigned int stop_seg_locus = loc_idx[W[w].stop_segment];
+		for (unsigned int locus = stop_seg_locus; locus <= W[w].stop_locus; ++locus) {
+			if (is_locus_ambiguous(locus)) stop_amb++;
+		}
+		stop_amb -= 1;
+		if (stop_amb < start_amb) {
+			W[w].start_ambiguous = 0;
+			W[w].stop_ambiguous = -1;
+		} else {
+			W[w].start_ambiguous = start_amb;
+			W[w].stop_ambiguous = stop_amb;
+		}
+
+		int start_mis = mis_idx[W[w].start_segment];
+		for (unsigned int locus = start_seg_locus; locus < W[w].start_locus; ++locus) {
+			if (is_locus_missing(locus)) start_mis++;
+		}
+		int stop_mis = mis_idx[W[w].stop_segment];
+		for (unsigned int locus = stop_seg_locus; locus <= W[w].stop_locus; ++locus) {
+			if (is_locus_missing(locus)) stop_mis++;
+		}
+		stop_mis -= 1;
+		if (stop_mis < start_mis) {
+			W[w].start_missing = 0;
+			W[w].stop_missing = -1;
+		} else {
+			W[w].start_missing = start_mis;
+			W[w].stop_missing = stop_mis;
+		}
+
 		W[w].start_transition = tra_idx[W[w].start_segment] + tra_siz[W[w].start_segment];
 		W[w].stop_transition = tra_idx[W[w].stop_segment] + tra_siz[W[w].stop_segment] - 1;
 		if (supersite_trace_enabled()) {
@@ -165,6 +201,25 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 				                    w,
 				                    W[w].start_locus,
 				                    ctx.ss_idx);
+			}
+			if (w < 3) {
+				supersite_trace_log("[WindowAmbRange] w=%u seg=[%u,%u] locus=[%u,%u] amb_range=[%d,%d] mis_range=[%d,%d]\n",
+				                    w,
+				                    W[w].start_segment,
+				                    W[w].stop_segment,
+				                    W[w].start_locus,
+				                    W[w].stop_locus,
+				                    W[w].start_ambiguous,
+				                    W[w].stop_ambiguous,
+				                    W[w].start_missing,
+				                    W[w].stop_missing);
+				for (unsigned int locus = W[w].start_locus; locus <= W[w].stop_locus; ++locus) {
+					supersite_trace_log("  [WindowAmbLocus] w=%u locus=%u is_amb=%d is_mis=%d\n",
+					                    w,
+					                    locus,
+					                    (int)is_locus_ambiguous(locus),
+					                    (int)is_locus_missing(locus));
+				}
 			}
 		}
 	}

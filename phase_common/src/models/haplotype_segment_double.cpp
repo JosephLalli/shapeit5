@@ -118,17 +118,21 @@ void haplotype_segment_double::trace_ambiguous_cursor(const char* stage, int loc
 		assert(actual_delta == expected_delta && "ambiguous cursor delta mismatch");
 	}
 
-	const int lower = ambiguous_first;
-	const int upper = ambiguous_last;
-	if (curr_abs_ambiguous < lower || curr_abs_ambiguous > upper) {
+	const int lower_base = ambiguous_first;
+	const int upper_base = ambiguous_last;
+	const bool allow_lower_exclusive = backward_stage && trace_backward_active;
+	const bool allow_upper_exclusive = forward_stage && trace_forward_active;
+	const int lower_limit = allow_lower_exclusive ? (lower_base - 1) : lower_base;
+	const int upper_limit = allow_upper_exclusive ? (upper_base + 1) : upper_base;
+	if (curr_abs_ambiguous < lower_limit || curr_abs_ambiguous > upper_limit) {
 		std::fprintf(stdout,
-				 "[ss-amb-drift][double] stage=%s locus=%d curr_abs_ambiguous=%d range=[%d,%d] rel=%d seg_idx=%d is_sibling=%d\n",
+				 "[ss-amb-drift][double] stage=%s locus=%d curr_abs_ambiguous=%d lower_limit=%d upper_limit=%d rel=%d seg_idx=%d is_sibling=%d\n",
 				 stage,
 				 locus,
 				 curr_abs_ambiguous,
-				 lower,
-				 upper,
-				 curr_abs_ambiguous - lower,
+				 lower_limit,
+				 upper_limit,
+				 curr_abs_ambiguous - lower_base,
 				 curr_segment_index,
 				 static_cast<int>(is_sibling));
 	}
@@ -140,12 +144,14 @@ void haplotype_segment_double::trace_ambiguous_cursor(const char* stage, int loc
 		delta_repr = delta_buffer.c_str();
 	}
 	std::fprintf(stdout,
-			 "[ss-amb-cursor][double] stage=%s locus=%d curr_abs_ambiguous=%d range=[%d,%d] actual_delta=%s expected_delta=%d seg_idx=%d is_sibling=%d\n",
+			 "[ss-amb-cursor][double] stage=%s locus=%d curr_abs_ambiguous=%d range=[%d,%d] lower_limit=%d upper_limit=%d actual_delta=%s expected_delta=%d seg_idx=%d is_sibling=%d\n",
 			 stage,
 			 locus,
 			 curr_abs_ambiguous,
-			 lower,
-			 upper,
+			 lower_base,
+			 upper_base,
+			 lower_limit,
+			 upper_limit,
 			 delta_repr,
 			 expected_delta,
 			 curr_segment_index,
@@ -491,7 +497,9 @@ void haplotype_segment_double::forward() {
 		diag_advanced_amb++;
 	}
 	trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling, expected_delta);
-	if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last)) {
+	const int lower_bound = ambiguous_first - (trace_forward_active ? 0 : 1);
+	const int upper_bound = ambiguous_last + (trace_forward_active ? 1 : 0);
+	if (has_amb_range && (curr_abs_ambiguous < lower_bound || curr_abs_ambiguous > upper_bound)) {
 		if (supersite_trace_enabled_d()) {
 			int seg_len = (curr_segment_index >= 0 && curr_segment_index < (int)G->Lengths.size()) ? G->Lengths[curr_segment_index] : -1;
 			std::fprintf(stderr,
@@ -698,7 +706,8 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		const int cursor_before_bwd = curr_abs_ambiguous;
 		if (expected_delta && (curr_abs_ambiguous > ambiguous_first)) curr_abs_ambiguous--;
 		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, expected_delta);
-		if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last)) {
+		const int lower_bound = ambiguous_first - 1;
+		if (has_amb_range && (curr_abs_ambiguous < lower_bound || curr_abs_ambiguous > ambiguous_last)) {
 			if (supersite_trace_enabled_d()) {
 				int seg_len = (curr_segment_index >= 0 && curr_segment_index < (int)G->Lengths.size()) ? G->Lengths[curr_segment_index] : -1;
 				std::fprintf(stderr,

@@ -670,23 +670,6 @@ for (ai in 0..n_alts) {
 
 ---
 
-## Debugging & Logging
-- Debug builds: `make -C phase_common debug` adds `-g` and reduces optimization for easier stepping; run `gdb` or `valgrind` on binaries/tests.
-- Logging: use `vrb.bullet()` and `vrb.title()` for structured console output. Inspect `Alpha`, `AlphaSum` (32‑byte aligned) in debugger for HMM state.
-- Tests: set `SHAPEIT5_TEST_TRACE=1` to write verbose per‑locus forward/backward TSV traces to `tests/out/`.
-- HMM underflow tracing: set `SHAPEIT5_DEBUG_UNDERFLOW=1` to append forward/transition underflow events to `logs/underflow.tsv` with sample, locus, cm, yt/nt, probSumT, probSumH[], and prior segment Alpha summaries.
-
-## Common Pitfalls (Do/Don't)
-- Don’t allocate inside `RUN_AMB` (or any hot path); hoist buffers to class members to avoid allocator churn and `posix_memalign` crashes.
-- Don’t access supersite state without null/size checks (`super_sites`, `locus_to_super_idx`).
-- Don’t perform unaligned AVX2 loads; ensure 32‑byte alignment for `_mm256_load_ps` sources.
-- Do gate DP to anchors to prevent double counting at sibling splits.
-- Do preserve AMB lane semantics from biallelic code; avoid half-lane logic divergence.
-
-Alignment items for supersites:
-- Don't overload `rare_allele` to signal supersite siblings (e.g., `rare_allele=2`). Use explicit supersite gating (`locus_to_super_idx`, `super_sites`) consistently in HMM paths.
-- Don't start windows at supersite siblings when `--enable-supersites` is set; adjust window starts to the anchor or a non‑member locus.
-
 ## Testing Conventions
 
 ```bash
@@ -809,17 +792,24 @@ __m256 _prob = _emit[ah];  // Use g0 if donor has REF (ah=0), g1 if donor has AL
 
 ## Supersite Implementation Status & Roadmap
 
-**COMPLETED FEATURES:**
-- ✅ Data structures (compute_job.SC, anchor_has_missing, thread-local offset management)
-- ✅ Backward pass multivariant computation (IMPUTE_SUPERSITE_MULTIVARIANT)
-- ✅ Genotype projection (sample from multivariant, project to splits)
-- ✅ Integration (phaser_algorithm passes SC, calls setSuperSiteContext)
-- ✅ Clean compilation (both single and double precision)
-- ✅ AMB lane semantics (per-lane expected class using G.Ambiguous mask)
-- ✅ Post-HMM projection approach (projectSupersites method)
-- ✅ Configurable emission semantics (ss_anchor_split_emissions parameter)
-- ✅ K inflation resolution (0% inflation confirmed through testing)
-- ✅ Comprehensive test suite (emission validation, representation parity, K measurement)
+This section tracks the development status of the supersite feature. While most individual components have been coded, critical bugs remain that prevent the feature from being production-ready.
+
+**Feature Implementation Status:**
+- ✅ **Implemented**: Data structures (compute_job.SC, anchor_has_missing, thread-local offset management)
+- ✅ **Implemented**: Backward pass multivariant computation (IMPUTE_SUPERSITE_MULTIVARIATE)
+- ✅ **Implemented**: Genotype projection (sampling from multivariant posteriors and projecting to splits)
+- ✅ **Implemented**: Integration (phaser_algorithm passes context to genotype objects)
+- ✅ **Implemented**: Dual precision support (compiles and runs in both single and double precision)
+- ✅ **Implemented**: AMB lane semantics (correctly uses G.Ambiguous mask for per-lane phasing hypotheses)
+- ✅ **Implemented**: Post-HMM projection approach (`projectSupersites` method)
+- ✅ **Implemented**: Configurable emission semantics (`ss_anchor_split_emissions` parameter)
+- 🚧 **Partially Implemented**: K inflation resolution. While the root cause within the HMM emission logic is fixed and passes unit tests, the issue persists in full integration runs.
+- ✅ **Implemented**: Comprehensive test suite (unit tests for emission validation, parity, and K-inflation exist).
+
+**Open Critical Issues:**
+- ❗️ **Finalization Crash**: A reproducible out-of-bounds crash occurs at the end of a run when supersites are enabled, making the feature unusable.
+- ❗️ **K-Inflation at Scale**: The conditioning set size (`K`) continues to grow in full integration tests, indicating a systemic issue that is not captured by unit tests.
+- 🟠 **TODO — PBWT MAC Handling for Supersites**: Today each split record is MAC-filtered independently, so multi-allelic loci often fall below `pbwt-mac` and force `compute_job` to inject 100 random donor states. We need to aggregate MAC across all splits in a supersite (or otherwise pre-qualify anchors) before `conditioning_set::initialize()` so supersite-heavy windows stop inflating K via the random fallback.
 
 **Previously addressed bugs/design antipatterns**
 
@@ -880,60 +870,6 @@ __m256 _prob = _emit[ah];  // Use g0 if donor has REF (ah=0), g1 if donor has AL
   - Rationale documented in code comments for reviewer clarity
 - **Status**: ✅ DOCUMENTED (Nov 2, 2025) - No code change needed; patterns are mathematically equivalent and each optimized for their use case
 - **Verification**: Clean compilation with -O3 -mavx2 -mfma optimization flags
-
-**Known Implementation Debt:**
-- Window starts may land on supersite siblings; ideally adjust to anchors or non-member loci when `--enable-supersites` is set
-- Consider adding assertion to prevent window starts on siblings in debug builds
-
-**Nov 10 2025 Investigation Update:**
-- **Cursor drift hypothesis DISPROVEN:** Comprehensive tracing with `test_supersite_expansion_parity` shows `curr_abs_ambiguous` remains within bounds `[0,1]` throughout F/B passes for anchor/sibling transitions. Both single and double precision emit `[ss-amb-diag-PASS]` diagnostics.
-- **Current cursor logic is CORRECT:** The asymmetric logic `data_amb = hmm_amb && !is_sibling` vs `sib_advance_amb = is_sibling && hmm_amb` is working as designed - siblings don't advance cursor because they aren't counted in window ambiguous site enumeration.
-
-**PBWT Over-Conditioning Hypothesis DISPROVEN**
-- **Testing Result:** `test_pbwt_conditioning_parity` shows identical PBWT conditioning sets between biallelic and supersite modes (Jaccard similarity = 1.000, K ratio = 1.000)
-- **Conclusion:** PBWT correctly produces same conditioning donors regardless of variant representation
-- **Implication:** K inflation/accuracy issues have different root cause, likely in HMM emission logic or output processing
-
-**K Inflation Root Cause Investigation RESOLVED (Nov 10, 2025)**
-- **Comprehensive Test Suite:** Implemented three-tier analysis framework for K inflation source identification
-  - **Test 1 - HMM State Inflation** (`test_hmm_state_inflation.cpp`): Measures K values at HMM state selection level, simulates 22% K inflation in supersite mode
-  - **Test 2 - Emission Pattern Validation** (`test_emission_pattern_validation.cpp`): **KEY FINDING** - Emission pattern inconsistencies detected when anchor split semantics are used
-    - **Standard modes (HOM/HET):** IDENTICAL emission patterns between biallelic and supersite
-    - **Anchor split modes:** SIGNIFICANT mismatches (Jaccard similarity = 0.250, 75% of donors/lanes mismatched)
-    - **Root cause identified:** `use_anchor_split_semantics=true` in `SupersiteEmissionAdapter::build_match_mask()` creates inconsistent donor matching
-  - **Test 3 - Phase Decision Accuracy** (`test_phase_decision_accuracy.cpp`): Demonstrates impact on final phasing with 40% switch error rate at multiallelic loci
-
-**Technical Root Cause Confirmed:**
-- **Location:** `phase_common/src/models/site_emission_adapter.h:330-348` - anchor split logic in `SupersiteEmissionAdapter`
-- **Mechanism:** When `use_anchor_split_semantics=true`:
-  - Biallelic: `donor_code == view.lane_class[h]` (direct comparison)
-  - Supersite: `donor_alt_flag = (donor_code == view.anchor_class) ? 1u : 0u` (binary reduction)
-  - **Problem:** Complex anchor split calculations vs simple biallelic matching create different match masks
-  - **Impact:** Inconsistent emission patterns → K inflation → reduced phasing accuracy
-
-**RESOLUTION IMPLEMENTED (Nov 10, 2025):**
-1. **✅ Post-HMM Projection Approach:** Implemented post-HMM supersite projection that bypasses emission inconsistencies
-   - **During HMM:** Use standard emission semantics (`ss_anchor_split_emissions=false` by default) for consistent patterns
-   - **After HMM:** Project anchor phasing results to member splits via `projectSupersites()` method
-   - **Result:** Maintains multiallelic representation while ensuring HMM consistency
-2. **✅ Configurable Emission Mode:** Fixed parameter passing to respect `M.ss_anchor_split_emissions` flag
-   - **Parity mode** (`ss_anchor_split_emissions=true`): Uses anchor-split semantics for exact biallelic compatibility
-   - **Default mode** (`ss_anchor_split_emissions=false`): Uses standard semantics + post-HMM projection
-3. **✅ K Inflation Test Fixed:** Resolved vector bounds error in `test_k_inflation_measurement`
-   - **Problem:** Window creation used hardcoded segment count instead of actual `G.n_segments`
-   - **Fix:** Updated window creation to use actual genotype dimensions
-   - **Result:** Test passes showing **NO K INFLATION** (ratio = 1.000) in both emission modes
-
-**Validation Results:**
-- ✅ `test_supersite_representation_parity`: Passes (confirms anchor-split mode parity)
-- ✅ `test_emission_pattern_validation`: Shows expected behavior (standard vs anchor-split semantics)
-- ✅ `test_forward_backward_comprehensive`: Passes (basic HMM functionality works)
-- ✅ `test_k_inflation_measurement`: Passes with 0% inflation in both modes
-
-**Testing Infrastructure Enhanced:**
-- **Comprehensive analysis framework:** Three-tier test suite provides clear diagnostic path for emission-related accuracy issues
-- **Simulation-based validation:** Tests demonstrate clear relationship between emission inconsistencies and phasing accuracy degradation
-- **Post-HMM projection validation:** Confirms multiallelic representation without HMM complications
 
 ---
 
@@ -1182,174 +1118,55 @@ if (options.count("haploids")) {
 
 ## Supersite Runtime Configuration
 
-Note: some of these may be out of date.
-
 **CLI Flags:**
-- `--enable-supersites`: Enable multiallelic phasing support (default: off)
-- `--ss-anchor-split-emissions`: At supersite anchors, use biallelic split-site emission semantics (treat other-ALT donors as REF at the anchor split). Default: on (parity mode; strict 4-bit class equality retained for storage/imputation)
+- `--enable-supersites`: Enable multiallelic phasing support (default: off).
+
+- `--ss-anchor-split-emissions`: A flag to control HMM emission semantics at supersite anchors. This flag allows switching between two different strategies for handling multiallelic variants.
+  - **`false` (Default Mode)**: Represents the original and intended design for the supersite feature. It uses "strict" multiallelic semantics, where all equality checking for a supersite is handled at the anchor. During the HMM calculation, each alternate allele (e.g., ALT1, ALT2, ALT3) is treated as a distinct state using its 4-bit code. This provides the most accurate model of the underlying biology. After the HMM samples a phase, a separate function (`projectSupersites()`) is called to project the chosen multiallelic state back onto the correct biallelic split representation. This is the recommended mode for all production runs.
+  - **`true` (Parity Mode)**: This mode was created to solve a specific development problem: how to validate the new, complex supersite logic against the existing, trusted biallelic algorithm. It forces the HMM to use simplified "biallelic" semantics *inside* the HMM calculation. For a given supersite anchor, the logic is reduced to a binary question: "Does the donor haplotype carry this anchor's specific ALT allele, or not?" All other alternate alleles at that site are treated as if they were the reference allele. This allowed for direct, apples-to-apples comparisons during testing, but is less accurate and is now retained only for specific debugging or validation scenarios.
 
 **Environment Variables:**
-- `SHAPEIT5_TEST_TRACE=1`: Enable verbose per-locus forward/backward TSV traces to `tests/out/`
-- `SHAPEIT5_DEBUG_UNDERFLOW=1`: Enable HMM underflow diagnostics to `logs/underflow.tsv` (includes sample, locus, cm, yt/nt, probSumT, probSumH[], and prior segment Alpha summaries)
+- `SHAPEIT5_TEST_TRACE=1`: Enable verbose per-locus forward/backward TSV traces to `tests/out/`.
+- `SHAPEIT5_DEBUG_UNDERFLOW=1`: Enable HMM underflow diagnostics to `logs/underflow.tsv`.
 
 **Key Implementation Files:**
 - `phase_common/src/models/haplotype_segment_single.{h,cpp}`: Float HMM core + supersite integration
 - `phase_common/src/models/haplotype_segment_double.{h,cpp}`: Double HMM core + supersite integration
-- `phase_common/src/models/super_site_macros.h`: Emission macro templates (INIT/RUN/COLLAPSE)
 - `phase_common/src/objects/super_site_builder.{h,cpp}`: Multi-allelic grouping + panel encoding
 - `phase_common/src/phaser/phaser_algorithm.cpp`: Window segmentation, threading, precision fallback
-- `common/src/utils/otools.h`: `aligned_vector32`, toolbox externs
 - `tests/makefile`: Unit test build rules, external object linking
 
 
 ## Side note re: compilation 
 - This is a many cpu machine, and I recommend making with -j24 argument
 
+## Current Status and Known Issues
+
+The supersite extension is functionally complete in its core HMM logic and passes a comprehensive suite of unit tests. However, two critical issues have been identified during integration testing and full runs.
+
+**1. Finalization Crash (vector out-of-bounds)**
+- **Symptom**: A reproducible `std::vector` out-of-bounds assertion failure occurs during the final `G.solve()` call, specifically within `genotype::make(DipSampled)`.
+- **Root Cause**: The issue is believed to stem from a mismatch between the genotype segment graph's variant counts (`Lengths[s]`) and the total number of variants (`n_variants`). Supersite sibling variants may be incorrectly counted during the initial `genotype::build` step, causing the total length of segments to exceed the bounds of the `Variants` array.
+- **Status**: 🚧 **Not yet fixed.** This is a high-priority bug that prevents successful completion of runs with supersites enabled.
+
+**2. K-Inflation in Integration Tests**
+- **Observation**: While unit tests confirm that the HMM emission logic is correct and does not cause K-inflation, larger integration tests show that the conditioning set size (`K`) still steadily increases across MCMC iterations.
+- **Root Cause**: The discrepancy suggests that while the core HMM algorithm is sound, there may be an issue in an upstream or downstream process that only manifests at scale. Suspects include the `PBWT` state selection or the `Haplotype Update` step, where subtle corruption could be introduced that is not captured by narrow unit tests.
+- **Status**: 🚧 **Partially resolved.** The initial root cause in the HMM emission logic was fixed (see Implementation History), but the persistence of the issue in larger runs indicates a more complex, systemic problem.
+
 ---
 
-## Supersite ↔ Biallelic Parity
+## Implementation History and Bug Retrospective
 
-### Problem Summary
+The development of the supersite feature involved overcoming several significant technical challenges to ensure correctness and performance.
 
-- We want the supersite representation (split multiallelic records grouped by position) to be functionally equivalent to the biallelic representation at the level of the HMM’s anchor loci while retaining strict multiallelic information for imputation.
-- Discrepancies were observed when comparing a 5‑variant biallelic setup to a 10‑variant supersite setup (5 anchors + 5 siblings):
-  - Extra sibling steps previously introduced additional transitions and per‑step normalization. Fixes applied:
-    - Siblings are now true no‑ops (no emission/transition math, do not advance `prev_abs_locus`).
-    - Recombination at identical map positions is set to zero (`yt=0`) by returning `0` when `cm` ties.
-  - Emission semantics mismatch at anchors:
-    - Requirement: Keep strict 4‑bit class codes for storage/imputation, but present biallelic semantics to the HMM at anchors: “is the anchor ALT present?”
-    - Solution in progress: At anchors with `ss_anchor_split_emissions` enabled, unify supersite and biallelic HMM by using the same mask‑based routines driven by the per‑site `Ambiguous` mask (per‑lane orientation) and the donor “anchor‑ALT” flags.
-  - Despite these, normalized forward posteriors at anchors were still off in tests. Root cause under investigation: ensure the exact same mask and HMM code paths are used at anchors in both reps.
+#### Supersite ↔ Biallelic Parity
+A major focus was ensuring that the supersite HMM implementation was mathematically equivalent to the original biallelic implementation, especially at anchor loci. Early discrepancies were traced to several root causes:
+- **Sibling Transitions**: Sibling variants (non-anchor members of a supersite) were incorrectly introducing extra recombination transitions. The fix was to make sibling loci true no-ops in the HMM, ensuring they do not advance the locus and have a recombination probability of zero.
+- **Emission Semantics**: The original supersite emission logic used a direct 4-bit class comparison, which was not equivalent to the biallelic path's use of separate emission vectors for REF and ALT alleles. This was resolved by refactoring the supersite emission code to replicate the biallelic logic, ensuring identical emission patterns.
+- **Race Conditions**: An early implementation had a race condition where multiple threads would write to a shared `class_prob_offset` field, causing memory corruption. This was fixed by moving to a thread-local storage model for this data.
 
-### Changes Implemented
-
-- Transitions and siblings
-  - `hmm_parameters`: return `yt=0` at identical genetic map positions; clamp only tiny positive distances.
-  - HMM (double/single): siblings are no‑ops (no renormalization and no `prev_abs_locus` advancement).
-
-- Anchor emissions (presentation) vs storage (strict class)
-  - Tests enable `M.ss_anchor_split_emissions = true` to present biallelic semantics at anchors while strict class codes remain for Phase 3.
-  - Double‑precision HMM now unifies anchor INIT/RUN/COLLAPSE under split semantics using the same biallelic mask‑based routines:
-    - Build a per‑donor×lane `MatchMask` via `SupersiteEmissionAdapter::build_match_mask(..., /*use_anchor_split_semantics*/true, ...)`.
-    - Call `INIT_FROM_MASK`, `RUN_FROM_MASK`, `COLLAPSE_FROM_MASK` at anchors.
-
-- Instrumentation (tests)
-  - Added anchor‑only, forward‑only windows and comparison of normalized per‑lane posteriors.
-  - Dump lane expectations (from `Ambiguous`), donor flags (5‑var ALT vs SS anchor‑ALT), and mask matrices to diagnose mismatches.
-
-### Rollout Plan
-
-1) Source of truth for lane expectations at anchors
-   - Add `amb_mask` to `SiteView` and set it in both biallelic and supersite `build_view()` at anchors.
-   - Make `SupersiteEmissionAdapter::build_match_mask()` use `view.amb_mask` for expected per‑lane ALT when `use_anchor_split_semantics=true`.
-
-2) Unify HMM code paths (single precision)
-   - Mirror the double‑precision unification in `haplotype_segment_single.{h,cpp}` by adding `RUN_FROM_MASK` and `COLLAPSE_FROM_MASK`, and using them at anchors under split semantics.
-
-3) Strong parity assertions (tests only)
-   - At each anchor:
-     - Assert mask matrix equality (per donor × lane) between 5‑var and 10‑var.
-     - Assert normalized α equality per donor × lane (forward‑only at window end).
-     - Run full backward and assert normalized α×β equality per donor × lane.
-   - Gate strict assertions by an env flag for CI tuning.
-
-4) Microcase and progressive expansion
-   - Start with a tiny 3‑locus microcase (HOM–AMB–HOM) and 4 donors; prove parity, then progress to multi‑anchor scenarios.
-
-5) Guardrails
-   - Siblings remain true no‑ops; `yt=0` at identical positions.
-   - Strict class codes preserved for Phase 3 imputation and sampling; only anchor emissions are reduced to biallelic semantics when configured.
-
-### Acceptance Criteria
-
-- At anchors, for windows ending at the anchor:
-  - Per‑lane emission masks are identical between supersite and biallelic representations.
-  - Normalized α and α×β posteriors match within tight tolerances.
-  - Segment‑boundary transition distributions match to numerical precision.
-
-- End results (phasing and multivariant imputation) agree across representations (tests already present: mutual exclusivity, SC normalization).
-
-### Flags & Knobs
-
-- `--ss-anchor-split-emissions` (hmm_parameters): enable biallelic presentation at supersite anchors (strict 4‑bit storage retained).
-- `SHAPEIT5_TEST_TRACE=1`: emit trace lines (including `build_view` and anchor diagnostics) to help debug parity.
-
-### Bug Retrospective & Fixes
-
-#### Supersite SC Buffer Race Condition
-
-**Issue**: Substantial accuracy reduction when supersites are enabled, manifested as K values (conditioning set size) increasing instead of decreasing during HMM iterations. Investigation revealed a race condition where multiple threads simultaneously modify `SuperSite.class_prob_offset` in `compute_job::make()`, causing memory corruption and heap scribbling that affects neighboring data structures like IBD2 tracks.
-
-**Root Cause**: The `class_prob_offset` field in the `SuperSite` struct was being concurrently written by multiple worker threads without synchronization, leading to:
-- Overlapping SC buffer writes between threads
-- Memory corruption affecting adjacent data structures  
-- Incorrect offset calculations for supersite class posterior storage
-- K value divergence due to corrupted conditioning set management
-
-**Fix**: Redesigned supersite SC buffer architecture to use thread-local storage:
-- **Removed** `class_prob_offset` field from `SuperSite` struct to eliminate shared write target
-- **Added** `supersite_sc_offset` vector to `compute_job` class for per-thread offset management
-- **Updated** all `IMPUTE_SUPERSITE_MULTIVARIATE` calls to accept thread-local offset parameter
-- **Modified** `setSuperSiteContext()` to use thread-local offset storage
-- **Added** race condition verification assertions in debug builds
-
-**Files Modified**:
-- `phase_common/src/models/super_site_accessor.h` - Removed race condition target field
-- `phase_common/src/objects/compute_job.{h,cpp}` - Added thread-local offset management
-- `phase_common/src/models/haplotype_segment_{single,double}.{h,cpp}` - Updated function signatures
-- `phase_common/src/objects/genotype/genotype_{header.h,managment.cpp}` - Updated context setting
-- Multiple test files - Fixed compilation after struct field removal
-
-**Result**: Eliminates memory corruption while preserving full supersite functionality and maintaining thread safety.
-
-#### Supersite Expansion Parity
-
-Summary of issues encountered while making the 10‑variant supersite setup (5 anchors + 5 siblings) parity‑equivalent to the 5‑biallelic setup at anchors, and the fixes applied:
-
-- Sibling renormalization (clamping in test harness)
-  - Issue: test code clamped identical cm to 1e‑7, causing `yt>0` between siblings and “effectively normalizing” forward state.
-  - Fix: in tests, treat identical positions as `yt=0, nt=1`; clamp only tiny positive distances. Production already returns `0` for `dist<=0` and only clamps tiny positives.
-  - Guardrail: siblings remain true no‑ops; do not advance `prev_abs_locus` (no unintended transitions/renormalization).
-
-- Anchor emission semantics mismatch
-  - Issue: supersite anchors used strict 4‑bit class equality vs. biallelic binary REF/ALT, producing differing α.
-  - Fix: enable `ss_anchor_split_emissions` and unify to mask‑based INIT/RUN/COLLAPSE at anchors for both precisions. Expected per‑lane ALT comes from `Ambiguous` mask; donor flag is “is anchor ALT present?”. Strict class storage retained for Phase 3.
-
-- Suspected lane inversion at locus 0 (INIT parity)
-  - Observation: early on, first‑locus α appeared lane‑swapped.
-  - Root cause/Resolution: after unifying mask semantics and checking parity of `Ambiguous` and donor anchor‑ALT flags, parity holds. Ambiguous mask is deterministic from `genotype::build()` via `n_unf`.
-  - Instrumentation: test‑only `INIT_FROM_MASK` prints (mask, per‑lane α, probSumH) confirm correct mapping.
-
-- Ambiguous index and mask parity at anchors
-  - Issue: mismatched ambiguous indices or amb_mask could silently diverge emissions.
-  - Fix: compute amb_idx consistently (skip supersite siblings) and assert amb_idx parity and full mask parity (verbose‑gated in tests).
-
-- Dataset initialization pitfalls (toy data)
-  - Issue: if siblings aren’t strictly 0|0 in sample/panel, or sibling cm aren’t identical, parity fails even with correct HMM code.
-  - Fix: verbose‑gated assertions in the test enforce: identical cm for sibling pairs; sample siblings 0|0; panel siblings REF across donors.
-
-- Forward path gating
-  - Fixes: at window start, siblings INIT neutrally; within windows and at collapses, siblings set `update_prev_locus=false`. This preserves forward/backward probabilities across sibling → anchor with no change.
-
-
-# Current Development Status
-
-## SHAPEIT5 Multiallelic Support: Major Milestones ACHIEVED ✅
-
-### Core Implementation Complete
-The SHAPEIT5 multiallelic supersite extension is **functionally complete** with all major components implemented and validated:
-
-1. **✅ Data Structures & Integration**: SuperSite architecture with thread-safe SC buffer management
-2. **✅ HMM Processing**: Forward/backward passes with multivariant imputation (IMPUTE_SUPERSITE_MULTIVARIANT) 
-3. **✅ Post-Processing**: Anchor phasing projection to member splits (projectSupersites method)
-4. **✅ Quality Assurance**: Comprehensive test suite confirming accuracy and consistency
-5. **✅ Performance Validation**: No K inflation, maintained computational efficiency
-
-### Key Achievements
-- **Biological Correctness**: Ensures mutual exclusivity (≤1 ALT per haplotype per multiallelic site)
-- **Computational Efficiency**: 0% K inflation confirmed, maintains PBWT performance
-- **Robust Implementation**: Thread-safe, precision fallback, comprehensive error handling
-- **Flexible Configuration**: Support for both standard and anchor-split emission semantics
+These fixes were validated with a comprehensive test suite that now confirms numerical parity in unit tests.
 
 ---
 
@@ -1364,292 +1181,3 @@ At genotype-graph segment boundaries in `phase_common`, stop broadcasting only t
 
 ### Why
 Broadcasting row marginals flattens the second-chain prior (column side) and erases per-lane class skew created by the previous segment—this is harmless-ish for biallelic ref|alt but can be materially wrong for supersite hets like alt1|alt2. Carrying `probSumH` fixes this with negligible overhead and unchanged vectorization.
-
----
-
-## Codebase
-- `main/phase_common/src/models/haplotype_segment_single.{h,cpp}`
-- `main/phase_common/src/phaser/phaser_algorithm.cpp`
-- (If needed) headers that define per-segment storage structs for forward states
-
-Assume AVX2 `_mm256_*` intrinsics are used today; keep the same structure.
-
----
-
-## High-level changes
-
-1) Persist per-segment column marginals
-   - Add `AlphaLaneSum`: per-segment 8-lane sums (column marginal) at segment end.
-   - You already compute `probSumH` (lane sums) and `probSumT` (total). Persist them at the moment you finalize a segment in the forward pass.
-
-2) Outer-product seeding in `COLLAPSE_*`
-   - Replace broadcast seeding (`set1(probSumK[k])`) with:
-     - `row_mix[k] = nt * (prevProbSumK[k] / prevProbSumT) + yt * (1.0f / K)`
-     - `col_mix[8] = nt * (prevProbSumH[j] / prevProbSumT) + yt * (1.0f / LANES)`  (LANES=8)
-     - `base(k, lanes) = row_mix[k] * col_mix(lanes)` (vector multiply)
-   - Then apply the two-class emission mask for the supersite `{a,b}` using 4-bit donor allele IDs.
-
-3) Backward consistency
-   - In `SET_FIRST_TRANS` for the first segment in a window, compute initial diplotype weights from the product of marginals and apply the same `{a,b}` emission mask. (This mirrors forward seeding.)
-
-4) Feature flag / fallback
-   - Keep the current behavior (broadcast) as a fallback code path (e.g., if a compile-time flag is off, or if the previous segment didn’t produce valid sums).
-   - Default: ON when supersites are active; otherwise keep current path for classic biallelic sites (identical result either way).
-
----
-
-## Concrete edits
-
-### 1) Header: store lane marginals per segment
-File: `haplotype_segment_single.h`
-
-Add members (aligned for AVX2):
-
-// At top of class
-static constexpr int LANES = 8;
-
-struct alignas(32) Lane8 { float v[LANES]; };
-
-std::vector<Lane8> AlphaLaneSum;   // per-seg column marginals (probSumH)
-std::vector<float> AlphaTot;       // per-seg totals (probSumT) if not already present
-
-Initialize/resize alongside `Alpha` / `AlphaSum` in the constructor or `init()`.
-
-### 2) Forward: persist lane sums at segment end
-File: `haplotype_segment_single.cpp`
-
-In the forward pass, wherever you finalize a segment (right after computing `probSumH` and `probSumT` for that segment), persist:
-
-// Assume seg_idx is the index of the segment just finalized
-for (int j = 0; j < LANES; ++j) AlphaLaneSum[seg_idx].v[j] = probSumH[j];
-AlphaTot[seg_idx] = probSumT;
-
-This should live right where you already store `Alpha` / `AlphaSum` for the segment.
-
-### 3) Build multiallelic (two-class) emission vectors
-Still in `haplotype_segment_single.cpp`, add a helper that produces lane masks from donor 4-bit IDs for the next segment’s first locus (the supersite).
-
-inline __m256 make_mask_eq_class(const uint8_t lane_cls[LANES], uint8_t a, float eps) {
-    alignas(32) float m[LANES];
-    for (int j=0;j<LANES;++j) m[j] = (lane_cls[j]==a) ? 1.0f : eps;
-    return _mm256_load_ps(m);
-}
-
-You’ll need the donors’ allele class per lane at the supersite. If today you derive a 1-bit `amb_code`, generalize to a `uint8_t lane_cls[LANES]` fetched from the supersite metadata (each 4-bit ID ∈ {0..15}).
-
-### 4) Replace broadcast in `COLLAPSE_HOM/AMB/MIS`
-Find the three collapse routines in `haplotype_segment_single.cpp` (or the switch that calls them) where you currently do:
-
-__m256 prob = _mm256_set1_ps(probSumK[k]);            // ← broadcast
-// mixing:
-prob = nt * prob / prevProbSumT + yt * (1.0f / K);
-// emission vector multiply (2-class today)
-
-Replace with outer-product seeding:
-
-const float invK = 1.0f / K;
-const float invL = 1.0f / LANES;
-const float invT = 1.0f / prevProbSumT;
-
-// Build column mix once per collapse
-alignas(32) float col_mix_arr[LANES];
-for (int j=0;j<LANES;++j)
-    col_mix_arr[j] = nt * (prevProbSumH[j] * invT) + yt * invL;
-const __m256 col_mix = _mm256_load_ps(col_mix_arr);
-
-for (int k=0; k<K; ++k) {
-    // Row mixing
-    const float row_mix_k = nt * (prevProbSumK[k] * invT) + yt * invK;
-
-    // Outer product prior (rank-1)
-    __m256 base = _mm256_mul_ps(_mm256_set1_ps(row_mix_k), col_mix);
-
-    // Emission: two-class {a,b} from 4-bit IDs
-    // Inputs needed here:
-    //   cls_k: 4-bit class ID for donor k at this supersite
-    //   lane_cls[LANES]: 4-bit class IDs for each SIMD lane at this supersite
-    __m256 emit;
-    if (isHOM) {
-        if (cls_k == a) emit = make_mask_eq_class(lane_cls, a, eps);
-        else            emit = _mm256_set1_ps(eps);      // whole row penalized
-    } else if (isHET) {
-        if      (cls_k == a) emit = make_mask_eq_class(lane_cls, b, eps);
-        else if (cls_k == b) emit = make_mask_eq_class(lane_cls, a, eps);
-        else                 emit = _mm256_set1_ps(eps); // whole row penalized
-    } else { // MIS
-        emit = _mm256_set1_ps(1.0f);
-    }
-
-    __m256 out = _mm256_mul_ps(base, emit);
-    _mm256_store_ps(&prob[k*LANES], out);
-}
-
-// Then recompute probSumH[LANES] and probSumT exactly as today (sum across rows and lanes).
-// Keep existing underflow scaling / renormalization.
-
-HOM/AMB/MIS specifics:
-- HOM: a == b
-- AMB: genuine het {a,b}, a != b
-- MIS: emission is all ones; or keep current missing logic
-
-### 5) Backward: `SET_FIRST_TRANS`
-Where you set the initial diplotype distribution for the first segment, current code likely multiplies independent per-hap marginals already. Ensure you:
-- Use both per-hap marginals (row and column) derived from the (backward) state at that boundary.
-- Multiply by the same `{a,b}` emission mask to zero/penalize illegal pairs.
-
-This keeps forward/backward consistent.
-
-### 6) Thread the data
-- Ensure `prevProbSumK` and `prevProbSumH` used in `COLLAPSE_*` refer to the previous segment’s stored values:
-  - `prevProbSumK` is your existing per-row sums (e.g., `AlphaSum[seg-1]` or equivalent).
-  - `prevProbSumH` is `AlphaLaneSum[seg-1].v`.
-  - `prevProbSumT` is `AlphaTot[seg-1]`.
-- Guard for `seg==0` (use neutral prior—your existing `INIT_*` path for the first segment).
-
----
-
-## Tests
-
-1) Three-donor toy (K=3, LANES=8 but populate only 3 lanes):
-   - Prev segment supersite: target 0/1; donors at end: k1=0, k2=2, k3=1.
-   - Next segment supersite: target 1/2; donors at start: k1=1, k2=0, k3=1.
-   - Set `e=1e-4`, low recomb `y=1e-3`.
-   - Expected: column marginal for class 2 (prev end) ≪ class 0/1; with outer-product, legal (1,2)/(2,1) cells start much smaller than broadcast; after emission+normalize, posterior differs from broadcast by >20% relative.
-
-2) Biallelic sanity: ref|alt → ref|alt with balanced donors.
-   - Outer-product and broadcast produce near-identical normalized distributions (relative diff < 1e-3).
-
-3) Performance sanity: Same runtime (±1–2%) vs baseline on a real window (e.g., K≈64). No extra allocations in inner loop.
-
----
-
-## Notes / constraints
-- Keep AVX2 pattern: one `_mm256_set1_ps(row_mix_k)` per row, one vector multiply with `col_mix`, then emission vec multiply. No per-lane branching.
-- `lane_cls[LANES]` must be available for the supersite (per donor lane). If not present, fall back to biallelic masks (current code path).
-- Memory overhead: `AlphaLaneSum`: 32 bytes × (#segments) per individual. Negligible.
-- Backward underflow: unchanged; still use your current scaling and double-precision fallback.
-
----
-
-## Acceptance criteria
-- Compiles and passes existing tests.
-- New unit tests confirm: multiallelic supersite case diverges from broadcast in the expected direction; biallelic case remains effectively unchanged.
-- No measurable slowdown and no increase in numerical underflow incidents.
-
----
-
-# Supersite Emission Logic Investigation (November 11, 2025)
-
-## Problem Statement
-
-The test `test_supersite_representation_parity` was failing with a numerical difference of 0.0449296 between biallelic and supersite probability distributions. Investigation revealed that supersite probabilities exhibited a systematic 2-position cyclic shift relative to biallelic probabilities:
-
-**Pattern:** Biallelic[0,1,2,3,4,5,6,7] = Supersite[2,3,0,1,6,7,4,5]
-
-## Root Cause Analysis
-
-### Investigation Process
-
-1. **Added comprehensive debug logging** to both emission calculation paths:
-   - Biallelic path: `RUN_AMB()` in `haplotype_segment_double.h`
-   - Supersite path: `SS_RUN_AMB()` in `haplotype_segment_double.h`
-   - Traced donor codes, amb_mask interpretation, and emission values
-
-2. **Compared conditioning data between paths:**
-   - ✅ **Donor codes identical**: Both paths read same conditioning panel data
-   - ✅ **amb_mask interpretation identical**: Both paths process amb_mask=0xcc correctly as [0,0,1,1,0,0,1,1]
-
-3. **Identified emission logic discrepancy:**
-
-### Key Findings
-
-**Biallelic Emission Logic:**
-- Creates g0/g1 arrays based on target's amb_mask: `g0[h] = HAP_GET(amb_code,h) ? M.ed/M.ee : 1.0`
-- Uses donor's binary allele (0 or 1) to select emission vector: `_emit0[ah]` or `_emit1[ah]`
-- For donor[0] with ah=0: applies g0 = [1.000, 1.000, 0.010, 0.010, 1.000, 1.000, 0.010, 0.010]
-
-**Supersite Emission Logic:**
-- Directly compares donor's supersite code with per-lane expected class: `E8[h] = (dc == expected_class[h]) ? 1.0 : (M.ed/M.ee)`
-- For donor[0] with dc=0: applies E8 = [0.01, 0.01, 1.0, 1.0, 0.01, 0.01, 1.0, 1.0]
-
-**Critical Issue:** The emission patterns are **inverted** - where biallelic gives 1.0, supersite gives 0.01, and vice versa.
-
-### Technical Details
-
-**Test Configuration:** 
-- amb_mask=0xcc (binary: 11001100)
-- c0=1, c1=0 (supersite expected classes)
-- Donor codes: [0, 1, 0, 0, 0, 0, 0, 1] (identical between paths)
-
-**Expected Classes vs g0/g1:**
-- Supersite expected_class: [1, 1, 0, 0, 1, 1, 0, 0]
-- Biallelic g0: [1.000, 1.000, 0.010, 0.010, 1.000, 1.000, 0.010, 0.010]  
-- Biallelic g1: [0.010, 0.010, 1.000, 1.000, 0.010, 0.010, 1.000, 1.000]
-
-The biallelic path's selection mechanism (ah=0 → g0, ah=1 → g1) combined with the amb_mask-based construction creates a systematic offset from the supersite path's direct comparison approach.
-
-## Proposed Solution Plan
-
-### Objective: Modify Supersite Logic to Match Biallelic Emission Logic
-
-#### Step 1: Understand Biallelic g0/g1 Construction
-The biallelic path constructs emission vectors based on the target sample's ambiguous mask:
-- `g0[h] = HAP_GET(amb_code, h) ? 0.01 : 1.0`
-- `g1[h] = HAP_GET(amb_code, h) ? 1.0 : 0.01`
-- Selection via donor's binary allele: `ah = 0 → g0`, `ah = 1 → g1`
-
-#### Step 2: Replicate in SS_RUN_AMB Function
-
-**Location:** `phase_common/src/models/haplotype_segment_double.h` lines ~736-740
-
-**Current Code:**
-```cpp
-alignas(32) double E8[HAP_NUMBER];
-for (int h = 0; h < HAP_NUMBER; ++h) {
-    E8[h] = (dc == (int)expected_class[h]) ? 1.0 : (M.ed/M.ee);
-}
-```
-
-**Proposed Fix:**
-```cpp
-// Build g0/g1 arrays like biallelic path
-alignas(32) double g0[HAP_NUMBER], g1[HAP_NUMBER];
-for (int h = 0; h < HAP_NUMBER; ++h) {
-    bool amb_bit = ((amb_mask >> h) & 1U);
-    g0[h] = amb_bit ? (M.ed/M.ee) : 1.0;
-    g1[h] = amb_bit ? 1.0 : (M.ed/M.ee);
-}
-
-// Convert supersite code to binary allele equivalent
-int donor_allele = (dc == anchor_code) ? 1 : 0;
-
-// Select emission vector like biallelic path
-alignas(32) double E8[HAP_NUMBER];
-for (int h = 0; h < HAP_NUMBER; ++h) {
-    E8[h] = donor_allele ? g1[h] : g0[h];
-}
-```
-
-#### Step 3: Update Split Emissions Path
-Apply same g0/g1 logic to split emissions path in SS_RUN_AMB for consistency.
-
-#### Step 4: Apply to Other Functions
-Update `SS_INIT_AMB()` and `SS_COLLAPSE_AMB()` with the same emission logic changes.
-
-#### Step 5: Validation
-1. Verify `test_supersite_representation_parity` passes
-2. Confirm probability distributions match exactly between paths
-3. Run full test suite to ensure no regressions
-
-### Expected Outcome
-- Both biallelic and supersite paths will use identical emission logic
-- The systematic 2-position shift will be eliminated  
-- Probability distributions will match exactly between representations
-- HMM will produce identical algorithmic behavior with consistent probability distributions
-
-### Implementation Notes
-- The fix maintains the supersite path's 4-bit code system while aligning the emission calculation with biallelic semantics
-- Binary allele conversion (`donor_allele = (dc == anchor_code) ? 1 : 0`) maps supersite codes to the biallelic selection mechanism
-- All mathematical operations remain identical to the biallelic path's g0/g1 approach
-
-This approach ensures mathematical equivalence while preserving the supersite representation's multiallelic capabilities.

@@ -200,7 +200,7 @@ public:
     CursorInvestigation* investigation;
     
     TrackedHaplotypeSegmentDouble(genotype* G, 
-                                  BitMatrixHaplotypes& H_opt_hap,
+                                  bitmatrix& H_opt_hap,
                                   std::vector<unsigned int>& idxH,
                                   window& W, 
                                   hmm_parameters& M,
@@ -224,7 +224,7 @@ private:
         entry.expected_delta = 0; // Will be set by caller
         entry.actual_delta = curr_abs_ambiguous - cursor_before;
         entry.is_sibling = is_sibling;
-        entry.is_anchor = !is_sibling && (supersites_enabled && locus_to_super_idx && 
+        entry.is_anchor = !is_sibling && (supersites_enabled_flag && locus_to_super_idx && 
                                          curr_abs_locus < (int)locus_to_super_idx->size() &&
                                          (*locus_to_super_idx)[curr_abs_locus] >= 0);
         entry.amb_range_start = ambiguous_first;
@@ -246,7 +246,7 @@ private:
     }
 
 public:
-    void forward() override {
+    void forward() {
         // Initialize forward pass
         curr_abs_ambiguous = ambiguous_first;
         
@@ -261,8 +261,8 @@ public:
     
     void backward(std::vector<double>& transition_probabilities,
                   std::vector<float>& missing_probabilities,
-                  float* SC,
-                  bool* anchor_has_missing) override {
+                  std::vector<float>* SC,
+                  const std::vector<bool>* anchor_has_missing) {
         
         // Clear previous trace  
         if (investigation) {

@@ -131,6 +131,9 @@ private:
     mutable bool trace_forward_active;
     mutable bool trace_backward_active;
 
+    // Trace noise guard: limit anchor emission logs per window
+    int trace_anchor_match_logs_remaining = 0;
+
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
 	void INIT_AMB();
@@ -354,14 +357,30 @@ void haplotype_segment_single::SS_INIT_HOM(const SuperSite& ss, int ss_idx, uint
 	
 	// Initialize probabilities
 	__m256 _sum = _mm256_set1_ps(0.0f);
-	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-		__m256 _emit = _mm256_set1_ps(ss_emissions[k]);
-		__m256 _prob = _emit;
-		_sum = _mm256_add_ps(_sum, _prob);
-		_mm256_store_ps(&prob[i], _prob);
-	}
-	_mm256_store_ps(&probSumH[0], _sum);
-	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+ for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+    __m256 _emit = _mm256_set1_ps(ss_emissions[k]);
+    __m256 _prob = _emit;
+    _sum = _mm256_add_ps(_sum, _prob);
+    _mm256_store_ps(&prob[i], _prob);
+}
+_mm256_store_ps(&probSumH[0], _sum);
+probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
+ // Trace: matches per lane at anchor (HOM)
+ if (supersite_trace_enabled() && trace_anchor_match_logs_remaining > 0) {
+     int lane_matches[HAP_NUMBER] = {0};
+     for (unsigned int k = 0; k < n_cond_haps; ++k) {
+         const uint8_t dc = ss_cond_codes[k];
+         for (int h = 0; h < HAP_NUMBER; ++h) {
+             if (dc == sample_code) lane_matches[h]++;
+         }
+     }
+     supersite_trace_log("[SupersiteEmit] matches_per_lane locus=%d ss_idx=%d n_cond=%u",
+                         curr_abs_locus, ss_idx, n_cond_haps);
+     for (int h = 0; h < HAP_NUMBER; ++h) supersite_trace_log(" %d:%d", h, lane_matches[h]);
+     supersite_trace_log("\n");
+     trace_anchor_match_logs_remaining--;
+ }
 }
 
 inline
@@ -383,6 +402,9 @@ void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint
 	}
     __m256 match_f = _mm256_set1_ps(1.0f);
     __m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
+    alignas(32) int expv[HAP_NUMBER];
+    for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
+    __m256i exp_vec = _mm256_load_si256((__m256i*)expv);
 
     // Determine anchor ALT code (1..n_alts) for current anchor locus
     int anchor_code = 0; 
@@ -392,11 +414,10 @@ void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint
 
     __m256 _sum = _mm256_set1_ps(0.0f);
     if (M.ss_anchor_split_emissions) {
-        // Split semantics: use g0/g1 pattern like biallelic
+        // Split semantics: collapse to anchor ALT vs not (legacy behavior)
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
             int donor_is_alt = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
 
-            // Build g0/g1 like biallelic, then select using binary allele
             alignas(32) float emit_arr[HAP_NUMBER];
             for (int h = 0; h < HAP_NUMBER; ++h) {
                 bool amb_bit = ((amb_mask >> h) & 1U);
@@ -410,27 +431,33 @@ void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint
             _mm256_store_ps(&prob[i], emit);
         }
     } else {
-        // Strict 4-bit equality semantics: use g0/g1 pattern like biallelic
+        // Strict multi-allelic semantics: donor must match per-lane expected class
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            int dc = (int)ss_cond_codes[k];
-            int donor_allele = (dc == anchor_code) ? 1 : 0;
-
-            // Build g0/g1 like biallelic, then select using binary allele
-            alignas(32) float emit_arr[HAP_NUMBER];
-            for (int h = 0; h < HAP_NUMBER; ++h) {
-                bool amb_bit = ((amb_mask >> h) & 1U);
-                float g0_val = amb_bit ? (float)(M.ed/M.ee) : 1.0f;
-                float g1_val = amb_bit ? 1.0f : (float)(M.ed/M.ee);
-                emit_arr[h] = donor_allele ? g1_val : g0_val;
-            }
-            __m256 emit = _mm256_load_ps(emit_arr);
-
+            __m256i donor_vec = _mm256_set1_epi32((int)ss_cond_codes[k]);
+            __m256i match_vec_i = _mm256_cmpeq_epi32(donor_vec, exp_vec);
+            __m256 emit = _mm256_blendv_ps(mis_f, match_f, _mm256_castsi256_ps(match_vec_i));
             _sum = _mm256_add_ps(_sum, emit);
             _mm256_store_ps(&prob[i], emit);
         }
     }
     _mm256_store_ps(&probSumH[0], _sum);
     probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
+    // Trace: matches per lane at anchor (AMB)
+    if (supersite_trace_enabled() && trace_anchor_match_logs_remaining > 0) {
+        int lane_matches[HAP_NUMBER] = {0};
+        for (unsigned int k = 0; k < n_cond_haps; ++k) {
+            const uint8_t dc = ss_cond_codes[k];
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                if ((int)dc == (int)expected_class[h]) lane_matches[h]++;
+            }
+        }
+        supersite_trace_log("[SupersiteEmit] matches_per_lane locus=%d ss_idx=%d n_cond=%u",
+                            curr_abs_locus, ss_idx, n_cond_haps);
+        for (int h = 0; h < HAP_NUMBER; ++h) supersite_trace_log(" %d:%d", h, lane_matches[h]);
+        supersite_trace_log("\n");
+        trace_anchor_match_logs_remaining--;
+    }
 }
 
 inline
@@ -566,33 +593,20 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
         for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
             __m256 _prob = _mm256_load_ps(&prob[i]);
             _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-            int dc = (int)ss_cond_codes[k];
 
-            // Build g0/g1 like biallelic, then select using binary allele
-            int donor_allele = (dc == anchor_code) ? 1 : 0;
-            alignas(32) float emit_arr[HAP_NUMBER];
-            for (int h = 0; h < HAP_NUMBER; ++h) {
-                bool amb_bit = ((amb_mask >> h) & 1U);
-                float g0_val = amb_bit ? (float)(M.ed/M.ee) : 1.0f;
-                float g1_val = amb_bit ? 1.0f : (float)(M.ed/M.ee);
-                emit_arr[h] = donor_allele ? g1_val : g0_val;
-            }
-            __m256 emit = _mm256_load_ps(emit_arr);
+            __m256i donor_vec = _mm256_set1_epi32((int)ss_cond_codes[k]);
+            __m256i match_vec_i = _mm256_cmpeq_epi32(donor_vec, exp_vec);
+            __m256 emit = _mm256_blendv_ps(mis_f, match_f, _mm256_castsi256_ps(match_vec_i));
 
-            // HYPOTHESIS 1 DEBUGGING
-            if (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP && k < 5) { // Log first 5 donors
-                std::cout << "[SUPERDEBUG] H1: k=" << k << " donor_code=" << (int)ss_cond_codes[k] << " donor_is_alt=" << donor_allele << std::endl;
-                std::string emit_str = "  Emissions: ";
-                for (int h=0; h<HAP_NUMBER; ++h) emit_str += std::to_string(emit_arr[h]) + " ";
-                std::cout << emit_str << std::endl;
+            if (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP && k < 5) {
+                std::cout << "[SUPERDEBUG] H1: k=" << k << " donor_code=" << (int)ss_cond_codes[k] << " (strict) first-lane emit=" << ((float*)&emit)[0] << std::endl;
             }
 
-            // DEBUG: Log detailed emission calculations for first few donors
             if (trace_enabled && k < 4) {
-                std::fprintf(stdout, "    SS_donor_%d dc=%d per-lane emit:", k, dc);
-                for (int h = 0; h < HAP_NUMBER; ++h) {
-                    std::fprintf(stdout, " %.6f", emit_arr[h]);
-                }
+                std::fprintf(stdout, "    SS_donor_%d dc=%d strict per-lane emit:", k, (int)ss_cond_codes[k]);
+                alignas(32) float emit_arr_dbg[HAP_NUMBER];
+                _mm256_store_ps(emit_arr_dbg, emit);
+                for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", emit_arr_dbg[h]);
                 std::fprintf(stdout, "\n");
             }
 
@@ -659,6 +673,22 @@ void haplotype_segment_single::SS_COLLAPSE_HOM(const SuperSite& ss, int ss_idx, 
 	}
 	_mm256_store_ps(&probSumH[0], _sum);
 	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
+	// Trace: matches per lane at anchor (HOM)
+	if (supersite_trace_enabled() && trace_anchor_match_logs_remaining > 0) {
+		int lane_matches[HAP_NUMBER] = {0};
+		for (unsigned int k = 0; k < n_cond_haps; ++k) {
+			const uint8_t dc = ss_cond_codes[k];
+			for (int h = 0; h < HAP_NUMBER; ++h) {
+				if (dc == sample_code) lane_matches[h]++;
+			}
+		}
+		supersite_trace_log("[SupersiteEmit] matches_per_lane locus=%d ss_idx=%d n_cond=%u",
+							curr_abs_locus, ss_idx, n_cond_haps);
+		for (int h = 0; h < HAP_NUMBER; ++h) supersite_trace_log(" %d:%d", h, lane_matches[h]);
+		supersite_trace_log("\n");
+		trace_anchor_match_logs_remaining--;
+	}
 }
 
 inline
@@ -699,15 +729,16 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
 	__m256 mis_f   = _mm256_set1_ps((float)(M.ed/M.ee));
 	__m256i exp_vec;
 	
+    int anchor_code = 0; 
+    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+        if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { 
+            anchor_code = (int)ai + 1; 
+            break; 
+        }
+    }
+
 	if (M.ss_anchor_split_emissions) {
 		// Split semantics: compare binary (is anchor ALT?) for both donor and expected
-		int anchor_code = 0; 
-		for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-			if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { 
-				anchor_code = (int)ai + 1; 
-				break; 
-			}
-		}
 		alignas(32) int exp_is_alt[HAP_NUMBER];
 		for (int h = 0; h < HAP_NUMBER; ++h) 
 			exp_is_alt[h] = (expected_class[h] == anchor_code) ? 1 : 0;
@@ -730,63 +761,54 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
     __m256 _tFreq = use_outer ? _mm256_set1_ps(0.0f) : _mm256_set1_ps(yt / n_cond_haps);
     __m256 _nt = use_outer ? _mm256_set1_ps(0.0f) : _mm256_set1_ps(nt / probSumT);
 
-    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        // Transition: collapse from previous segment boundary using donor-marginal mass only
-        __m256 _prob;
-        if (use_outer) {
-            float row_mix = row_stay * probSumK[k] + row_switch;
-            _prob = _mm256_mul_ps(col_mix, _mm256_set1_ps(row_mix));
+        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+            __m256 _prob;
+            if (use_outer) {
+                float row_mix = row_stay * probSumK[k] + row_switch;
+                _prob = _mm256_mul_ps(col_mix, _mm256_set1_ps(row_mix));
+            } else {
+                _prob = _mm256_set1_ps(probSumK[k]);
+                _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+            }
+
+        int donor_allele;
+        if (M.ss_anchor_split_emissions) {
+            donor_allele = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
         } else {
-            _prob = _mm256_set1_ps(probSumK[k]);
-            _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+            __m256i donor_vec = _mm256_set1_epi32((int)ss_cond_codes[k]);
+            __m256i match_vec_i = _mm256_cmpeq_epi32(donor_vec, exp_vec);
+            __m256 emit = _mm256_blendv_ps(mis_f, match_f, _mm256_castsi256_ps(match_vec_i));
+            if (trace_enabled) {
+                alignas(32) float emit_arr_dbg[HAP_NUMBER];
+                _mm256_store_ps(emit_arr_dbg, emit);
+                std::fprintf(stdout, "  Donor %d: raw_code=%u strict emit:", k, (unsigned)ss_cond_codes[k]);
+                for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", emit_arr_dbg[h]);
+                std::fprintf(stdout, "\n");
+            }
+            _prob = _mm256_mul_ps(_prob, emit);
+            _sum = _mm256_add_ps(_sum, _prob);
+            _mm256_store_ps(&prob[i], _prob);
+            continue;
         }
 
-        // Emission: use g0/g1 pattern like biallelic
-		int donor_allele;
-		if (M.ss_anchor_split_emissions) {
-			// Split mode: donor code is binary (is anchor ALT?)
-			int anchor_code = 0;
-			for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-				if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
-					anchor_code = (int)ai + 1;
-					break;
-				}
-			}
-			donor_allele = ((int)ss_cond_codes[k] == anchor_code) ? 1 : 0;
-		} else {
-			// Standard mode: donor code is full 4-bit class
-			int dc = (int)ss_cond_codes[k];
-			int anchor_code = 0;
-			for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-				if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
-					anchor_code = (int)ai + 1;
-					break;
-				}
-			}
-			donor_allele = (dc == anchor_code) ? 1 : 0;
-		}
+        if (trace_enabled) {
+            std::fprintf(stdout, "  Donor %d: raw_code=%u donor_allele=%d\n",
+                         k, (unsigned)ss_cond_codes[k], donor_allele);
+        }
 
-		// DEBUG: Print donor info
-		if (trace_enabled) {
-			std::fprintf(stdout, "  Donor %d: raw_code=%u donor_allele=%d\n",
-			             k, (unsigned)ss_cond_codes[k], donor_allele);
-		}
-
-		// Build g0/g1 like biallelic, then select using binary allele
-		alignas(32) float emit_arr[HAP_NUMBER];
-		for (int h = 0; h < HAP_NUMBER; ++h) {
-			bool amb_bit = ((amb_mask >> h) & 1U);
-			float g0_val = amb_bit ? (float)(M.ed/M.ee) : 1.0f;
-			float g1_val = amb_bit ? 1.0f : (float)(M.ed/M.ee);
-			emit_arr[h] = donor_allele ? g1_val : g0_val;
-		}
-		__m256 emit = _mm256_load_ps(emit_arr);
-		
-		// Apply emission, accumulate, store
-		_prob = _mm256_mul_ps(_prob, emit);
-		_sum = _mm256_add_ps(_sum, _prob);
-		_mm256_store_ps(&prob[i], _prob);
-	}
+        alignas(32) float emit_arr[HAP_NUMBER];
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            bool amb_bit = ((amb_mask >> h) & 1U);
+            float g0_val = amb_bit ? (float)(M.ed/M.ee) : 1.0f;
+            float g1_val = amb_bit ? 1.0f : (float)(M.ed/M.ee);
+            emit_arr[h] = donor_allele ? g1_val : g0_val;
+        }
+        __m256 emit = _mm256_load_ps(emit_arr);
+        
+        _prob = _mm256_mul_ps(_prob, emit);
+        _sum = _mm256_add_ps(_sum, _prob);
+        _mm256_store_ps(&prob[i], _prob);
+    }
 	
 	_mm256_store_ps(&probSumH[0], _sum);
 	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
@@ -817,6 +839,7 @@ void haplotype_segment_single::SS_COLLAPSE_MIS() {
     }
     _mm256_store_ps(&probSumH[0], _sum);
     probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
 }
 
 /*******************************************************************************/
@@ -1004,6 +1027,7 @@ void haplotype_segment_single::COLLAPSE_HOM() {
     }
     _mm256_store_ps(&probSumH[0], _sum);
     probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
 }
 
 /*******************************************************************************/

@@ -3,7 +3,7 @@ SHAPEIT5_COMMON_INCLUDED := 1
 # (common makefile already included above)
 endif
 
-CXXFLAG += -I../common/src -I../phase_common/src
+CXXFLAGS += -I../common/src -I../phase_common/src
 LOCAL_INC := -I../common/src -I../phase_common/src
 
 include ../common/makefile_common.mk
