@@ -129,6 +129,11 @@ void phaser::read_files_and_initialise() {
 			// Update anchor variant encoding to reflect supersite genotype status
 			// This must run after context is set but before segment building
 			updateSuperSiteAnchorEncoding(G, super_sites, super_site_var_index);
+
+			for (unsigned int i = 0; i < G.n_ind; i++) {
+				G.vecG[i]->snapshotSupersiteClasses(super_sites, super_site_var_index);
+				G.vecG[i]->snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
+			}
 		}
 
 	//step9: Initialize genotype structures

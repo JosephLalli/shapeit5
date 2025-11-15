@@ -25,6 +25,7 @@ struct SiteView {
     EmitKind emit_kind{EmitKind::Hom};
     uint8_t lane_class[HAP_NUMBER] = {0};
     uint8_t anchor_class{0}; // Meaningful for supersite anchors (ALT code 0..15)
+    // Immutable supersite classes for emissions (c0/c1). These are not the sampled h0/h1.
     uint8_t sample_class0{0};
     uint8_t sample_class1{0};
     // New: biallelic ambiguous orientation bits for this site (Ambiguous mask)

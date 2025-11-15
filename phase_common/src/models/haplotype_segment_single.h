@@ -122,6 +122,28 @@ private:
 	MatchMask init_match_mask;
 	bool prepare_outer_product_mix(int rel_prev_segment, __m256& col_mix, float& row_stay, float& row_switch, bool allow_outer = true);
     void trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling, int expected_delta) const;
+    void trace_log_forward_state(int locus,
+                                 int prev_before,
+                                 int prev_after,
+                                 double yt_val,
+                                 double nt_val,
+                                 bool update_prev,
+                                 bool is_anchor,
+                                 bool is_sibling,
+                                 bool hmm_amb,
+                                 bool hmm_mis,
+                                 bool hmm_hom);
+    void trace_log_backward_state(int locus,
+                                  int prev_before,
+                                  int prev_after,
+                                  double yt_val,
+                                  double nt_val,
+                                  bool update_prev,
+                                  bool is_anchor,
+                                  bool is_sibling,
+                                  bool hmm_amb,
+                                  bool hmm_mis,
+                                  bool hmm_hom);
     mutable int trace_forward_pre_cursor;
     mutable int trace_forward_pre_locus;
     mutable bool trace_forward_pre_valid;
@@ -130,6 +152,8 @@ private:
     mutable bool trace_backward_pre_valid;
     mutable bool trace_forward_active;
     mutable bool trace_backward_active;
+    bool trace_forward_table_header_emitted;
+    bool trace_backward_table_header_emitted;
 
     // Trace noise guard: limit anchor emission logs per window
     int trace_anchor_match_logs_remaining = 0;
@@ -810,8 +834,13 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
         _mm256_store_ps(&prob[i], _prob);
     }
 	
-	_mm256_store_ps(&probSumH[0], _sum);
-	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    _mm256_store_ps(&probSumH[0], _sum);
+    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+    if (trace_enabled) {
+        std::fprintf(stdout, "  BIAL sums lanes:");
+        for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", probSumH[h]);
+        std::fprintf(stdout, " probSumT=%.6f\n", probSumT);
+    }
 }
 
 inline

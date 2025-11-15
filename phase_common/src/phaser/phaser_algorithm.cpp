@@ -24,6 +24,7 @@
 #include <objects/super_site_builder.h>
 #include <algorithm>
 #include <sstream>
+#include <iostream>
 
 using namespace std;
 
@@ -36,6 +37,108 @@ bool supersite_metadata_trace_enabled() {
 		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
 	}
 	return flag == 1;
+}
+
+const SuperSite* find_superdebug_supersite(const std::vector<SuperSite>& super_sites) {
+	if (debug::SUPERDEBUG_BP <= 0) return nullptr;
+	for (const auto& ss : super_sites) {
+		if (static_cast<int>(ss.global_site_id) == debug::SUPERDEBUG_BP) {
+			return &ss;
+		}
+	}
+	return nullptr;
+}
+
+int find_superdebug_sample_index(const genotype_set& G) {
+	if (debug::SUPERDEBUG_SAMPLENAME.empty()) return -1;
+	for (int i = 0; i < G.n_ind; ++i) {
+		if (G.vecG[i] && G.vecG[i]->name == debug::SUPERDEBUG_SAMPLENAME) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+void log_superdebug_genotype_state(const std::string& context,
+                                   const genotype_set& G,
+                                   const std::vector<SuperSite>& super_sites,
+                                   const std::vector<int>& super_site_var_index) {
+	if (debug::SUPERDEBUG_SAMPLENAME.empty()) return;
+	const SuperSite* target = find_superdebug_supersite(super_sites);
+	if (!target) return;
+	for (int i = 0; i < G.n_ind; ++i) {
+		const genotype* sample = G.vecG[i];
+		if (sample && sample->name == debug::SUPERDEBUG_SAMPLENAME) {
+			debug::print_supersite_state(sample, *target, super_site_var_index, context);
+			break;
+		}
+	}
+}
+
+void log_superdebug_panel_state(const std::string& context,
+                                const haplotype_set& H,
+                                const genotype_set& G,
+                                const std::vector<SuperSite>& super_sites,
+                                const std::vector<int>& super_site_var_index) {
+	if (debug::SUPERDEBUG_SAMPLENAME.empty()) return;
+	const SuperSite* target = find_superdebug_supersite(super_sites);
+	if (!target) return;
+	const int sample_index = find_superdebug_sample_index(G);
+	if (sample_index < 0) return;
+	const int hap0 = 2 * sample_index;
+	const int hap1 = hap0 + 1;
+	if (hap0 >= static_cast<int>(H.n_hap) || hap1 >= static_cast<int>(H.n_hap)) return;
+
+	std::ostringstream hap0_line;
+	std::ostringstream hap1_line;
+	hap0_line << "[SUPERDEBUG] Sample=" << debug::SUPERDEBUG_SAMPLENAME
+	          << " Pos=" << target->global_site_id
+	          << " Context='" << context << "' Panel HAP0:";
+	hap1_line << "  Panel HAP1:";
+
+	for (uint16_t ai = 0; ai < target->var_count; ++ai) {
+		const size_t offset = target->var_start + ai;
+		if (offset >= super_site_var_index.size()) break;
+		const int locus = super_site_var_index[offset];
+		int bit0 = -1;
+		int bit1 = -1;
+		if (locus >= 0 && locus < static_cast<int>(H.H_opt_var.n_rows)) {
+			if (hap0 >= 0 && hap0 < static_cast<int>(H.H_opt_var.n_cols)) {
+				bit0 = H.H_opt_var.get(static_cast<unsigned int>(locus), static_cast<unsigned int>(hap0));
+			}
+			if (hap1 >= 0 && hap1 < static_cast<int>(H.H_opt_var.n_cols)) {
+				bit1 = H.H_opt_var.get(static_cast<unsigned int>(locus), static_cast<unsigned int>(hap1));
+			}
+		}
+		hap0_line << " " << bit0;
+		hap1_line << " " << bit1;
+	}
+
+	std::cout << hap0_line.str() << std::endl;
+	std::cout << hap1_line.str() << std::endl;
+}
+
+void log_superdebug_packed_codes(const std::string& context,
+                                 const genotype_set& G,
+                                 const std::vector<SuperSite>& super_sites,
+                                 const std::vector<uint8_t>& packed_codes) {
+	if (debug::SUPERDEBUG_SAMPLENAME.empty()) return;
+	if (packed_codes.empty()) return;
+	const SuperSite* target = find_superdebug_supersite(super_sites);
+	if (!target) return;
+	const int sample_index = find_superdebug_sample_index(G);
+	if (sample_index < 0) return;
+	const int hap0 = 2 * sample_index;
+	const int hap1 = hap0 + 1;
+	uint8_t code0 = unpackSuperSiteCode(packed_codes.data(), target->panel_offset, static_cast<uint32_t>(hap0));
+	uint8_t code1 = unpackSuperSiteCode(packed_codes.data(), target->panel_offset, static_cast<uint32_t>(hap1));
+
+	std::cout << "[SUPERDEBUG] Sample=" << debug::SUPERDEBUG_SAMPLENAME
+	          << " Pos=" << target->global_site_id
+	          << " Context='" << context << "' PackedCodes h0="
+	          << static_cast<unsigned>(code0)
+	          << " h1=" << static_cast<unsigned>(code1)
+	          << std::endl;
 }
 
 } // namespace
@@ -202,13 +305,24 @@ void phaser::phase() {
 			phaseWindow();
 			//MERGE IBD2 PAIRS
 			H.Kbanned.collapse();
+			if (enable_supersites && !debug::SUPERDEBUG_SAMPLENAME.empty()) {
+				log_superdebug_genotype_state(iteration_label + "/pre-hap-update sample", G, super_sites, super_site_var_index);
+				log_superdebug_panel_state(iteration_label + "/pre-hap-update panel", H, G, super_sites, super_site_var_index);
+			}
             //UPDATE H with new sampled haplotypes
             H.updateHaplotypes(G);
+            if (enable_supersites && !debug::SUPERDEBUG_SAMPLENAME.empty()) {
+				log_superdebug_panel_state(iteration_label + "/post-hap-update panel", H, G, super_sites, super_site_var_index);
+			}
             //TRANSPOSE H from Hfirst to Vfirst (for next PBWT compute)
             H.transposeHaplotypes_H2V(false);
             // Rebuild supersite metadata AFTER transpose so H.H_opt_var reflects new panel state
             if (enable_supersites) {
                 rebuildSupersiteMetadata(iteration_label + "/post-update", &supersite_codes_before_update);
+                if (!debug::SUPERDEBUG_SAMPLENAME.empty()) {
+					log_superdebug_panel_state(iteration_label + "/post-rebuild panel", H, G, super_sites, super_site_var_index);
+					log_superdebug_packed_codes(iteration_label + "/post-rebuild packed", G, super_sites, packed_allele_codes);
+				}
             }
             //if (options.count("pedigree")) H.checkScaffoldPedigrees(G, options["pedigree"].as < string > ());
 			//UPDATE PS after prunning
@@ -299,6 +413,11 @@ void phaser::rebuildSupersiteMetadata(const std::string& context, const std::vec
 	traceSupersiteAnchors(context, packed_allele_codes);
 
 	applySupersiteAnchorGuards();
+
+	for (unsigned int i = 0; i < G.n_ind; ++i) {
+		G.vecG[i]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+		G.vecG[i]->snapshotSupersiteClasses(super_sites, super_site_var_index);
+	}
 }
 
 void phaser::applySupersiteAnchorGuards() {

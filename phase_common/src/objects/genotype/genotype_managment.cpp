@@ -129,12 +129,114 @@ void genotype::free() {
 	vector < unsigned long > ().swap(Diplotypes);
 	vector < unsigned short > ().swap(Lengths);
 	vector < uint8_t > ().swap(supersite_flags);
+	vector < uint8_t > ().swap(supersite_class_pairs);
+	vector < uint8_t > ().swap(supersite_class_pairs_base);
 }
 
 bool genotype::supersiteHasFlag(int ss_idx, uint8_t flag) const {
 	return ss_idx >= 0 &&
 	       ss_idx < static_cast<int>(supersite_flags.size()) &&
 	       (supersite_flags[ss_idx] & flag);
+}
+
+namespace {
+inline size_t supersite_pair_offset(int ss_idx) {
+	return static_cast<size_t>(ss_idx) * 2u;
+}
+}
+
+static inline uint8_t safe_class_code(uint8_t code) {
+	return (code <= SUPERSITE_MAX_ALTS) ? code : SUPERSITE_CODE_MISSING;
+}
+
+void genotype::setSupersiteClassPair(int ss_idx, uint8_t class0, uint8_t class1) {
+	if (ss_idx < 0) return;
+	const size_t required_pairs = super_sites ? super_sites->size() : supersite_class_pairs.size() / 2u;
+	const size_t required = required_pairs * 2u;
+	if (supersite_class_pairs.size() != required) {
+		supersite_class_pairs.assign(required, SUPERSITE_CODE_MISSING);
+	}
+	const size_t offset = supersite_pair_offset(ss_idx);
+	if (offset + 1 < supersite_class_pairs.size()) {
+		supersite_class_pairs[offset] = safe_class_code(class0);
+		supersite_class_pairs[offset + 1] = safe_class_code(class1);
+	}
+}
+
+void genotype::getSupersiteClassPair(int ss_idx, uint8_t& class0, uint8_t& class1) const {
+	if (ss_idx >= 0) {
+		const size_t offset = supersite_pair_offset(ss_idx);
+		if (offset + 1 < supersite_class_pairs.size()) {
+			class0 = supersite_class_pairs[offset];
+			class1 = supersite_class_pairs[offset + 1];
+			return;
+		}
+	}
+    // Fallback: derive from current hap bits if storage not initialized
+    // Note: when initialized, this pair represents the current epoch's sampled h0/h1.
+    // Immutable c0/c1 are used in emissions (see SiteView.sample_class0/1).
+	class0 = class1 = SUPERSITE_CODE_MISSING;
+	if (!super_sites || !super_site_var_index || ss_idx < 0 || ss_idx >= static_cast<int>(super_sites->size())) return;
+	const SuperSite& ss = (*super_sites)[ss_idx];
+	class0 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 0);
+	class1 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 1);
+}
+
+void genotype::getSupersiteBaseClassPair(int ss_idx, uint8_t& class0, uint8_t& class1) const {
+	class0 = class1 = SUPERSITE_CODE_MISSING;
+	if (ss_idx >= 0) {
+		const size_t offset = supersite_pair_offset(ss_idx);
+		if (offset + 1 < supersite_class_pairs_base.size()) {
+			class0 = supersite_class_pairs_base[offset];
+			class1 = supersite_class_pairs_base[offset + 1];
+			return;
+		}
+	}
+	if (!super_sites || !super_site_var_index || ss_idx < 0 || ss_idx >= static_cast<int>(super_sites->size())) return;
+	const SuperSite& ss = (*super_sites)[ss_idx];
+	class0 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 0);
+	class1 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 1);
+}
+
+bool genotype::supersiteIsAmbiguous(int ss_idx) const {
+	uint8_t class0 = SUPERSITE_CODE_MISSING;
+	uint8_t class1 = SUPERSITE_CODE_MISSING;
+	getSupersiteClassPair(ss_idx, class0, class1);
+	return (class0 != SUPERSITE_CODE_MISSING &&
+	        class1 != SUPERSITE_CODE_MISSING &&
+	        class0 != class1);
+}
+
+void genotype::snapshotSupersiteClasses(const std::vector<SuperSite>& super_sites_ref,
+                                        const std::vector<int>& super_site_var_index_ref) {
+	const size_t required = super_sites_ref.size() * 2u;
+	if (supersite_class_pairs.size() != required) {
+		supersite_class_pairs.assign(required, SUPERSITE_CODE_MISSING);
+	}
+	for (size_t ss_idx = 0; ss_idx < super_sites_ref.size(); ++ss_idx) {
+		const SuperSite& ss = super_sites_ref[ss_idx];
+		uint8_t class0 = getSampleSuperSiteAlleleCode(this, ss, super_site_var_index_ref, 0);
+		uint8_t class1 = getSampleSuperSiteAlleleCode(this, ss, super_site_var_index_ref, 1);
+		const size_t offset = supersite_pair_offset(static_cast<int>(ss_idx));
+		supersite_class_pairs[offset] = class0;
+		supersite_class_pairs[offset + 1] = class1;
+	}
+}
+
+void genotype::snapshotSupersiteBaseClasses(const std::vector<SuperSite>& super_sites_ref,
+                                            const std::vector<int>& super_site_var_index_ref) {
+	const size_t required = super_sites_ref.size() * 2u;
+	if (supersite_class_pairs_base.size() != required) {
+		supersite_class_pairs_base.assign(required, SUPERSITE_CODE_MISSING);
+	}
+	for (size_t ss_idx = 0; ss_idx < super_sites_ref.size(); ++ss_idx) {
+		const SuperSite& ss = super_sites_ref[ss_idx];
+		uint8_t class0 = getSampleSuperSiteAlleleCode(this, ss, super_site_var_index_ref, 0);
+		uint8_t class1 = getSampleSuperSiteAlleleCode(this, ss, super_site_var_index_ref, 1);
+		const size_t offset = supersite_pair_offset(static_cast<int>(ss_idx));
+		supersite_class_pairs_base[offset] = class0;
+		supersite_class_pairs_base[offset + 1] = class1;
+	}
 }
 
 genotype::SuperSiteContext genotype::getSuperSiteContext(unsigned int locus) const {
@@ -193,9 +295,11 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					int C = (int)ss.n_classes;
 					uint32_t offset = supersite_sc_offset ? (*supersite_sc_offset)[ss_idx] : 0;
 					
-					// Sample one class per haplotype from multivariant
-					// SC[offset + hap*C + c] = P(class_c | hap)
-					uint8_t class0 = 0, class1 = 0;
+                    // Sample one class per haplotype from multivariant
+                    // SC[offset + hap*C + c] = P(class_c | hap)
+                    // Here, h0/h1 are the sampled supersite classes for this epoch (mutable);
+                    // c0/c1 remain the immutable site classes used for emissions.
+                    uint8_t h0 = 0, h1 = 0;
 
                     // HYPOTHESIS 3 DEBUGGING
                     if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
@@ -212,74 +316,74 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                         std::cout << sc_probs1 << std::endl;
                     }
 					
-                    // Sample class for hap0
+                    // Sample h0 for hap0
                     float r0 = rng.getDouble();
                     float cumsum0 = 0.0f;
                     for (int c = 0; c < C; ++c) {
                         cumsum0 += (*SC)[offset + hap0 * C + c];
                         if (r0 <= cumsum0) {
-                            class0 = c;
+                            h0 = c;
                             break;
                         }
                     }
                     if (cumsum0 < r0) {
-                        class0 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
+                        h0 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
                     }
                     
-                    // Sample class for hap1
+                    // Sample h1 for hap1
                     float r1 = rng.getDouble();
                     float cumsum1 = 0.0f;
                     for (int c = 0; c < C; ++c) {
                         cumsum1 += (*SC)[offset + hap1 * C + c];
                         if (r1 <= cumsum1) {
-                            class1 = c;
+                            h1 = c;
                             break;
                         }
                     }
                     if (cumsum1 < r1) {
-                        class1 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
+                        h1 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
                     }
 
                     // HYPOTHESIS 3 DEBUGGING
                     if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
-                        std::cout << "[SUPERDEBUG] H3: r0=" << r0 << " -> sampled_class0=" << (int)class0 << std::endl;
-                        std::cout << "[SUPERDEBUG] H3: r1=" << r1 << " -> sampled_class1=" << (int)class1 << std::endl;
+                        std::cout << "[SUPERDEBUG] H3: r0=" << r0 << " -> sampled_h0=" << (int)h0 << std::endl;
+                        std::cout << "[SUPERDEBUG] H3: r1=" << r1 << " -> sampled_h1=" << (int)h1 << std::endl;
                     }
                     if (supersite_trace_enabled()) {
-                        supersite_trace_log("[SupersiteSample] sample=%s ss_idx=%d anchor=%u C=%d class0=%u class1=%u offset=%u\n",
+                        supersite_trace_log("[SupersiteSample] sample=%s ss_idx=%d anchor=%u C=%d h0=%u h1=%u offset=%u\n",
                                             this->name.c_str(),
                                             ss_idx,
                                             ss.global_site_id,
                                             C,
-                                            static_cast<unsigned>(class0),
-                                            static_cast<unsigned>(class1),
+                                            static_cast<unsigned>(h0),
+                                            static_cast<unsigned>(h1),
                                             offset);
                     }
 					
-					// Project to splits: class 0=REF, 1..n_alts=ALT1..ALTn
+                    // Project to splits from sampled h0/h1: class 0=REF, 1..n_alts=ALT1..ALTn
 					// Iterate over all member variants and set based on sampled class
-					int alt_count_h0 = 0;
-					int alt_count_h1 = 0;
-					for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-						unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
-						uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
-						
-						// Set hap0
-						if (class0 == alt_class) {
-							VAR_SET_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
-							alt_count_h0++;
-						} else {
-							VAR_CLR_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
-						}
-						
-						// Set hap1
-						if (class1 == alt_class) {
-							VAR_SET_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
-							alt_count_h1++;
-						} else {
-							VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
-						}
-					}
+                    int alt_count_h0 = 0;
+                    int alt_count_h1 = 0;
+                    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+                        unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
+                        uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
+                        
+                        // Set hap0
+                        if (h0 == alt_class) {
+                            VAR_SET_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                            alt_count_h0++;
+                        } else {
+                            VAR_CLR_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                        }
+                        
+                        // Set hap1
+                        if (h1 == alt_class) {
+                            VAR_SET_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                            alt_count_h1++;
+                        } else {
+                            VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                        }
+                    }
 					if (supersite_trace_enabled()) {
 						supersite_trace_log("[SupersiteSample] projection sample=%s ss_idx=%d alt_count_h0=%d alt_count_h1=%d\n",
 						                    this->name.c_str(),
@@ -301,21 +405,24 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 							alt_count_h0 += VAR_GET_HAP0(MOD2(split_vabs), vbyte) ? 1 : 0;
 							alt_count_h1 += VAR_GET_HAP1(MOD2(split_vabs), vbyte) ? 1 : 0;
 						}
-						if (alt_count_h0 > 1 || alt_count_h1 > 1 || (class0 > 0 && alt_count_h0 == 0) || (class1 > 0 && alt_count_h1 == 0)) {
-							std::string msg = "projection mismatch sample=" + name +
-								" ss_idx=" + std::to_string(ss_idx) +
-								" class0=" + std::to_string(class0) +
-								" class1=" + std::to_string(class1) +
-								" alt_h0=" + std::to_string(alt_count_h0) +
-								" alt_h1=" + std::to_string(alt_count_h1);
-							supersite_debug::report_guard_violation("genotype::make", msg.c_str());
-							assert(alt_count_h0 <= 1);
-							assert(alt_count_h1 <= 1);
-							assert(class0 == 0 || alt_count_h0 > 0);
-							assert(class1 == 0 || alt_count_h1 > 0);
-						}
-					}
-					
+						if (alt_count_h0 > 1 || alt_count_h1 > 1 || (h0 > 0 && alt_count_h0 == 0) || (h1 > 0 && alt_count_h1 == 0)) {
+                        std::string msg = "projection mismatch sample=" + name +
+                            " ss_idx=" + std::to_string(ss_idx) +
+                            " h0=" + std::to_string(h0) +
+                            " h1=" + std::to_string(h1) +
+                            " alt_h0=" + std::to_string(alt_count_h0) +
+                            " alt_h1=" + std::to_string(alt_count_h1);
+                        supersite_debug::report_guard_violation("genotype::make", msg.c_str());
+                        assert(alt_count_h0 <= 1);
+                        assert(alt_count_h1 <= 1);
+                        assert(h0 == 0 || alt_count_h0 > 0);
+                        assert(h1 == 0 || alt_count_h1 > 0);
+                    }
+                    }
+                    
+                    // Persist the sampled classes for this epoch as the current h0/h1 pair
+                    setSupersiteClassPair(ss_idx, h0, h1);
+
 					// Do not attempt range skip: members may be non-consecutive after MAC pruning
 					// Count a single missing event for the supersite and proceed; siblings are skipped below
 					m++;  // One missing event per supersite
@@ -365,16 +472,27 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					
 					if (vabs == ss.global_site_id) {
 						// This is a heterozygous supersite anchor
-						// Determine which allele class each sampled lane represents
-						
-                        // HYPOTHESIS 2 DEBUGGING
-                        if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+                    // Determine h0/h1 (sampled classes for this epoch) from lanes and immutable c0/c1
+                    
+                    const bool is_superdebug_target =
+							(!debug::SUPERDEBUG_SAMPLENAME.empty() &&
+							 this->name == debug::SUPERDEBUG_SAMPLENAME &&
+							 static_cast<int>(ss.global_site_id) == debug::SUPERDEBUG_BP);
+                        if (is_superdebug_target) {
+							unsigned long dip_mask = Diplotypes[s];
+							std::cout << "[SUPERDEBUG] H2: Enter AMB block segment=" << s
+									  << " dip_mask=0x" << std::hex << dip_mask << std::dec
+									  << " DipSampled=" << static_cast<unsigned>(DipSampled[s])
+									  << " hap0_lane=" << static_cast<int>(hap0)
+									  << " hap1_lane=" << static_cast<int>(hap1)
+									  << std::endl;
                             debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: Enter AMB block");
                         }
 
-						// Get the current allele codes from the Variants data
-						uint8_t current_c0 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 0);
-						uint8_t current_c1 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 1);
+						// Get the current allele codes from the immutable supersite snapshot
+                    uint8_t current_c0 = SUPERSITE_CODE_MISSING;
+                    uint8_t current_c1 = SUPERSITE_CODE_MISSING;
+                    getSupersiteClassPair(ss_idx_amb, current_c0, current_c1);
 						
 						// The Ambiguous array tells us the phase orientation for this site
 						// Use it to determine which allele goes to which lane
@@ -383,41 +501,43 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						// Determine which allele class each sampled lane should get
 						// If HAP_GET(amb_code, hap) == 0, this lane gets c0's allele
 						// If HAP_GET(amb_code, hap) == 1, this lane gets c1's allele
-						uint8_t class0 = HAP_GET(amb_code, hap0) ? current_c1 : current_c0;
-						uint8_t class1 = HAP_GET(amb_code, hap1) ? current_c1 : current_c0;
+                    uint8_t h0 = HAP_GET(amb_code, hap0) ? current_c1 : current_c0;
+                    uint8_t h1 = HAP_GET(amb_code, hap1) ? current_c1 : current_c0;
 
                         // HYPOTHESIS 2 DEBUGGING
-                        if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+                        if (is_superdebug_target) {
                             std::cout << "[SUPERDEBUG] H2: Resolving het at Pos=" << ss.global_site_id << " for sample " << this->name << std::endl;
                             std::cout << "[SUPERDEBUG] H2: current_c0=" << (int)current_c0 << " current_c1=" << (int)current_c1 << " amb_code=" << (int)amb_code << std::endl;
                             std::cout << "[SUPERDEBUG] H2: hap0_lane=" << (int)hap0 << " hap1_lane=" << (int)hap1 << std::endl;
-                            std::cout << "[SUPERDEBUG] H2: sampled_class0=" << (int)class0 << " sampled_class1=" << (int)class1 << std::endl;
+                            std::cout << "[SUPERDEBUG] H2: sampled_h0=" << (int)h0 << " sampled_h1=" << (int)h1 << std::endl;
                         }
-						
-						// Project to all splits based on sampled classes
-						for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-							unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
-							uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
-							
-							// Set hap0
-							if (class0 == alt_class) {
-								VAR_SET_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
-							} else {
-								VAR_CLR_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
-							}
-							
-							// Set hap1
-							if (class1 == alt_class) {
-								VAR_SET_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
-							} else {
-								VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
-							}
-						}
+                    
+                    // Project to all splits based on sampled classes
+                    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+                        unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
+                        uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
+                        
+                        // Set hap0
+                        if (h0 == alt_class) {
+                            VAR_SET_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                        } else {
+                            VAR_CLR_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                        }
+                        
+                        // Set hap1
+                        if (h1 == alt_class) {
+                            VAR_SET_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                        } else {
+                            VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                        }
+                    }
 
                         // HYPOTHESIS 2 DEBUGGING
-                        if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+						if (is_superdebug_target) {
                             debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: After projection in AMB");
                         }
+                    // Persist sampled h0/h1 for this supersite anchor
+                    setSupersiteClassPair(ss_idx_amb, h0, h1);
 						
 							// Do not perform range skip: members may be non-consecutive after MAC pruning
 							a++;  // One ambiguous event per supersite
@@ -436,11 +556,21 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				}
 				
 				// Normal biallelic heterozygous site
+				if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && static_cast<int>(vabs) == debug::SUPERDEBUG_BP) {
+					unsigned long dip_mask = Diplotypes[s];
+					std::cout << "[SUPERDEBUG] BIAL: segment=" << s
+					          << " dip_mask=0x" << std::hex << dip_mask << std::dec
+					          << " DipSampled=" << static_cast<unsigned>(DipSampled[s])
+					          << " HapLanes(" << static_cast<int>(hap0) << "," << static_cast<int>(hap1) << ")"
+					          << " amb_code=" << static_cast<int>(Ambiguous[a])
+					          << std::endl;
+				}
 				HAP_GET(Ambiguous[a], hap0)?VAR_SET_HAP0(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP0(MOD2(vabs),Variants[DIV2(vabs)]);
 				HAP_GET(Ambiguous[a], hap1)?VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
 				a++;
 			}
 		}
+
 	}
 }
 
@@ -490,6 +620,12 @@ super_site_var_index = _super_site_var_index;
 SC = _SC;
 anchor_has_missing = _anchor_has_missing;
 supersite_sc_offset = _supersite_sc_offset;
+	if (super_sites) {
+		const size_t required = super_sites->size() * 2u;
+		if (supersite_class_pairs.size() != required) {
+			supersite_class_pairs.assign(required, SUPERSITE_CODE_MISSING);
+		}
+	}
 }
 
 void genotype::projectSupersites() {
@@ -507,28 +643,61 @@ void genotype::projectSupersites() {
 			continue;
 		}
 
-		// Determine which allele class is on each haplotype from the anchor's perspective
-		uint8_t class0 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 0);
-		uint8_t class1 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 1);
+		const bool trace_enabled = supersite_trace_enabled();
+		const bool is_superdebug_target =
+			(!debug::SUPERDEBUG_SAMPLENAME.empty() &&
+			 this->name == debug::SUPERDEBUG_SAMPLENAME &&
+			 static_cast<int>(ss.global_site_id) == debug::SUPERDEBUG_BP);
 
-		// Project to splits: class 0=REF, 1..n_alts=ALT1..ALTn
-		for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-			unsigned int split_locus = (*super_site_var_index)[ss.var_start + ai];
-			uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
+		if (is_superdebug_target) {
+			debug::print_supersite_state(this, ss, *super_site_var_index, "projectSupersites:entry");
+		}
 
-			// Set hap0 for this split
-			if (class0 == alt_class) {
-				VAR_SET_HAP0(MOD2(split_locus), Variants[DIV2(split_locus)]);
-			} else {
-				VAR_CLR_HAP0(MOD2(split_locus), Variants[DIV2(split_locus)]);
-			}
+        // Determine current sampled classes (h0/h1) for this anchor from stored pair
+        // Note: getSupersiteClassPair returns the current epoch's h0/h1; c0/c1 remain immutable in emissions.
+        uint8_t h0 = SUPERSITE_CODE_MISSING;
+        uint8_t h1 = SUPERSITE_CODE_MISSING;
+        getSupersiteClassPair(static_cast<int>(ss_idx), h0, h1);
 
-			// Set hap1 for this split
-			if (class1 == alt_class) {
-				VAR_SET_HAP1(MOD2(split_locus), Variants[DIV2(split_locus)]);
-			} else {
-				VAR_CLR_HAP1(MOD2(split_locus), Variants[DIV2(split_locus)]);
-			}
+        if (trace_enabled) {
+            supersite_trace_log("[SupersiteProject] sample=%s ss_idx=%zu locus=%u h0=%u h1=%u\n",
+                                name.c_str(),
+                                ss_idx,
+                                static_cast<unsigned>(ss.global_site_id),
+                                static_cast<unsigned>(h0),
+                                static_cast<unsigned>(h1));
+        }
+        if (is_superdebug_target) {
+            std::cout << "[SUPERDEBUG] Sample=" << name
+                      << " Pos=" << ss.global_site_id
+                      << " Context='projectSupersites:anchor-classes'"
+                      << " h0=" << static_cast<unsigned>(h0)
+                      << " h1=" << static_cast<unsigned>(h1)
+                      << std::endl;
+        }
+
+        // Project to splits from sampled h0/h1: class 0=REF, 1..n_alts=ALT1..ALTn
+        for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+            unsigned int split_locus = (*super_site_var_index)[ss.var_start + ai];
+            uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
+
+            // Set hap0 for this split
+            if (h0 == alt_class) {
+                VAR_SET_HAP0(MOD2(split_locus), Variants[DIV2(split_locus)]);
+            } else {
+                VAR_CLR_HAP0(MOD2(split_locus), Variants[DIV2(split_locus)]);
+            }
+
+            // Set hap1 for this split
+            if (h1 == alt_class) {
+                VAR_SET_HAP1(MOD2(split_locus), Variants[DIV2(split_locus)]);
+            } else {
+                VAR_CLR_HAP1(MOD2(split_locus), Variants[DIV2(split_locus)]);
+            }
+        }
+
+		if (is_superdebug_target) {
+			debug::print_supersite_state(this, ss, *super_site_var_index, "projectSupersites:exit");
 		}
 	}
 }

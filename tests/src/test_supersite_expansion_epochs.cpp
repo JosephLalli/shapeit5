@@ -393,6 +393,14 @@ static MiniContext build_context(bool supersite, unsigned int n_ref_samples) {
     ctx.ss_context = ctx.enable_supersites ? build_supersites(ctx.V, ctx.H) : SuperSiteContext{};
     if (ctx.enable_supersites) {
         apply_supersite_pbwt_guards(ctx.H, ctx.ss_context, ctx.V.size());
+        // Initialize immutable base classes (c0/c1) once at build time
+        genotype* g0 = ctx.Gset.vecG[0];
+        g0->setSuperSiteContext(&ctx.ss_context.super_sites,
+                                &ctx.ss_context.locus_to_super_idx,
+                                &ctx.ss_context.super_site_var_index,
+                                nullptr, nullptr, nullptr);
+        g0->snapshotSupersiteBaseClasses(ctx.ss_context.super_sites,
+                                         ctx.ss_context.super_site_var_index);
     } else {
         ctx.H.setSupersiteAnchorRedirect({});
     }
@@ -438,6 +446,17 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
         ctx.ss_context = build_supersites(ctx.V, ctx.H);
         ctx.M.markSuperSiteSiblings(ctx.ss_context.super_sites, ctx.ss_context.locus_to_super_idx);
         apply_supersite_pbwt_guards(ctx.H, ctx.ss_context, ctx.V.size());
+
+        // Ensure genotype carries immutable supersite class snapshot before HMM
+        // This mirrors phaser_initialise/rebuildSupersiteMetadata behavior so
+        // build_view(super) can read stable c0/c1 instead of 0xFF defaults.
+        genotype* g_pre = ctx.Gset.vecG[0];
+        g_pre->setSuperSiteContext(&ctx.ss_context.super_sites,
+                                   &ctx.ss_context.locus_to_super_idx,
+                                   &ctx.ss_context.super_site_var_index,
+                                   nullptr, nullptr, nullptr);
+        g_pre->snapshotSupersiteClasses(ctx.ss_context.super_sites,
+                                        ctx.ss_context.super_site_var_index);
     }
 
     const unsigned int max_transitions = 4096;

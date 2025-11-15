@@ -193,6 +193,98 @@ void haplotype_segment_single::trace_ambiguous_cursor(const char* stage, int loc
 			 static_cast<int>(is_sibling));
 }
 
+void haplotype_segment_single::trace_log_forward_state(int locus,
+                                                       int prev_before,
+                                                       int prev_after,
+                                                       double yt_val,
+                                                       double nt_val,
+                                                       bool update_prev,
+                                                       bool is_anchor,
+                                                       bool is_sibling,
+                                                       bool hmm_amb,
+                                                       bool hmm_mis,
+                                                       bool hmm_hom) {
+	if (!supersite_trace_enabled()) return;
+	if (!trace_forward_table_header_emitted) {
+		std::fprintf(stdout,
+		             "# Forward trace - sample=%s loci=[%d,%d] segments=[%d,%d] n_cond_haps=%u\n",
+		             G ? G->name.c_str() : "<null>",
+		             locus_first,
+		             locus_last,
+		             segment_first,
+		             segment_last,
+		             n_cond_haps);
+		std::fprintf(stdout,
+		             "locus\tprev_before\tprev_after\tyt\tnt\tupdate_prev\tis_anchor\tis_sibling\tamb\tmis\thom");
+		for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, "\tprobSumH[%d]", h);
+		std::fprintf(stdout, "\tprobSumT\n");
+		trace_forward_table_header_emitted = true;
+	}
+	std::fprintf(stdout,
+	             "%d\t%d\t%d\t%.6f\t%.6f\t%d\t%d\t%d\t%d\t%d\t%d",
+	             locus,
+	             prev_before,
+	             prev_after,
+	             yt_val,
+	             nt_val,
+	             update_prev ? 1 : 0,
+	             is_anchor ? 1 : 0,
+	             is_sibling ? 1 : 0,
+	             hmm_amb ? 1 : 0,
+	             hmm_mis ? 1 : 0,
+	             hmm_hom ? 1 : 0);
+	for (int h = 0; h < HAP_NUMBER; ++h) {
+		std::fprintf(stdout, "\t%.6f", static_cast<double>(probSumH[h]));
+	}
+	std::fprintf(stdout, "\t%.6f\n", static_cast<double>(probSumT));
+}
+
+void haplotype_segment_single::trace_log_backward_state(int locus,
+                                                        int prev_before,
+                                                        int prev_after,
+                                                        double yt_val,
+                                                        double nt_val,
+                                                        bool update_prev,
+                                                        bool is_anchor,
+                                                        bool is_sibling,
+                                                        bool hmm_amb,
+                                                        bool hmm_mis,
+                                                        bool hmm_hom) {
+	if (!supersite_trace_enabled()) return;
+	if (!trace_backward_table_header_emitted) {
+		std::fprintf(stdout,
+		             "# Backward trace - sample=%s loci=[%d,%d] segments=[%d,%d] n_cond_haps=%u\n",
+		             G ? G->name.c_str() : "<null>",
+		             locus_first,
+		             locus_last,
+		             segment_first,
+		             segment_last,
+		             n_cond_haps);
+		std::fprintf(stdout,
+		             "locus\tprev_before\tprev_after\tyt\tnt\tupdate_prev\tis_anchor\tis_sibling\tamb\tmis\thom");
+		for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, "\tprobSumH[%d]", h);
+		std::fprintf(stdout, "\tprobSumT\n");
+		trace_backward_table_header_emitted = true;
+	}
+	std::fprintf(stdout,
+	             "%d\t%d\t%d\t%.6f\t%.6f\t%d\t%d\t%d\t%d\t%d\t%d",
+	             locus,
+	             prev_before,
+	             prev_after,
+	             yt_val,
+	             nt_val,
+	             update_prev ? 1 : 0,
+	             is_anchor ? 1 : 0,
+	             is_sibling ? 1 : 0,
+	             hmm_amb ? 1 : 0,
+	             hmm_mis ? 1 : 0,
+	             hmm_hom ? 1 : 0);
+	for (int h = 0; h < HAP_NUMBER; ++h) {
+		std::fprintf(stdout, "\t%.6f", static_cast<double>(probSumH[h]));
+	}
+	std::fprintf(stdout, "\t%.6f\n", static_cast<double>(probSumT));
+}
+
 haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M,
     const std::vector<SuperSite>* _super_sites,
     const std::vector<bool>* _is_super_site,
@@ -265,6 +357,8 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	trace_backward_pre_valid = false;
 	trace_forward_active = false;
 	trace_backward_active = false;
+	trace_forward_table_header_emitted = false;
+	trace_backward_table_header_emitted = false;
 
     // Test-only diagnostics
     if (supersite_trace_enabled()) {
@@ -314,6 +408,7 @@ void haplotype_segment_single::forward() {
 	if (supersite_trace_enabled()) std::fprintf(stderr, "FWD1 seg=%d lf=%d ll=%d\n", curr_segment_index, locus_first, locus_last);
 	trace_forward_active = true;
 	trace_backward_active = false;
+	trace_forward_table_header_emitted = false;
 
 	// Diagnostics: track ambiguous-site bookkeeping counts to verify cursor correctness
 	int diag_expected_amb_sites = 0; // number of data_amb sites (excluding siblings) encountered
@@ -337,6 +432,7 @@ void haplotype_segment_single::forward() {
         if (supersite_trace_enabled()) std::fprintf(stderr, "FWD3 loop enter abs=%d rel_off=%d\n", curr_abs_locus, curr_rel_locus_offset);
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
+		const int prev_before = prev_abs_locus;
 		bool update_prev_locus = true;
 		char rare_allele = M.rare_allele[curr_abs_locus];
 
@@ -465,6 +561,18 @@ void haplotype_segment_single::forward() {
 			}
         }
 		prev_abs_locus=update_prev_locus?curr_abs_locus:prev_abs_locus;
+		const int prev_after = prev_abs_locus;
+		trace_log_forward_state(curr_abs_locus,
+		                        prev_before,
+		                        prev_after,
+		                        static_cast<double>(yt),
+		                        static_cast<double>(nt),
+		                        update_prev_locus,
+		                        is_anchor,
+		                        is_sibling,
+		                        hmm_amb,
+		                        hmm_mis,
+		                        hmm_hom);
 
 		if (curr_segment_locus == (G->Lengths[curr_segment_index] - 1)) SUMK();
 		if (curr_segment_locus == G->Lengths[curr_segment_index] - 1) {
@@ -607,6 +715,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	prev_abs_locus = locus_last;
 	trace_forward_active = false;
 	trace_backward_active = true;
+	trace_backward_table_header_emitted = false;
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
@@ -615,6 +724,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
+		const int prev_before = prev_abs_locus;
 		char rare_allele = M.rare_allele[curr_abs_locus];
 		bool update_prev_locus = true;
 
@@ -724,6 +834,18 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		}
 		if (curr_segment_locus == 0) SUMK();
 		prev_abs_locus=update_prev_locus?curr_abs_locus:prev_abs_locus;
+		const int prev_after = prev_abs_locus;
+		trace_log_backward_state(curr_abs_locus,
+		                         prev_before,
+		                         prev_after,
+		                         static_cast<double>(yt),
+		                         static_cast<double>(nt),
+		                         update_prev_locus,
+		                         is_anchor,
+		                         is_sibling,
+		                         hmm_amb,
+		                         hmm_mis,
+		                         hmm_hom);
 
 			// Only emit transition probabilities if caller provided storage
 			if (!transition_probabilities.empty()) {

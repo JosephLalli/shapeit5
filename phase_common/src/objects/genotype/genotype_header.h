@@ -143,6 +143,10 @@ public:
 	const std::vector<float>* SC;  // CurrentSuperClassPosteriors from compute_job
 	const std::vector<bool>* anchor_has_missing;
 	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets
+	// Mutable per-epoch sampled classes (h0,h1) per supersite
+	std::vector<uint8_t> supersite_class_pairs;
+	// Immutable snapshot of site classes (c0,c1) per supersite, used for emissions
+	std::vector<uint8_t> supersite_class_pairs_base;
 
 	//METHODS
 	genotype(unsigned int);
@@ -156,6 +160,15 @@ public:
 	                          const std::vector<float>* _SC,
 	                          const std::vector<bool>* _anchor_has_missing,
 	                          const std::vector<uint32_t>* _supersite_sc_offset = nullptr);
+	void snapshotSupersiteClasses(const std::vector<SuperSite>& super_sites,
+	                              const std::vector<int>& super_site_var_index);
+	// Capture immutable c0/c1 snapshot for emissions
+	void snapshotSupersiteBaseClasses(const std::vector<SuperSite>& super_sites,
+	                                  const std::vector<int>& super_site_var_index);
+	void setSupersiteClassPair(int ss_idx, uint8_t class0, uint8_t class1);
+	void getSupersiteClassPair(int ss_idx, uint8_t& class0, uint8_t& class1) const;
+	void getSupersiteBaseClassPair(int ss_idx, uint8_t& class0, uint8_t& class1) const;
+	bool supersiteIsAmbiguous(int ss_idx) const;
 	void build();
 	void sample(std::vector < double > &, std::vector < float > &);
 	void sampleForward(std::vector < double > &, std::vector < float > &);
