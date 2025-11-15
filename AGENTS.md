@@ -1,5 +1,5 @@
 ## Project
-SHAPEIT5 — `phase_common` super-site integration
+SHAPEIT5 — `phase_common` supersite (multiallelic) integration
 
 ## Source of Truth
 - This AGENTS.md mirrors `.github/copilot-instructions.md`, which is the authoritative, detailed guide distilled from `SUPERSITE_CONVERSATION_SUMMARY.md`.
@@ -7,10 +7,9 @@ SHAPEIT5 — `phase_common` super-site integration
 - Runtime binaries depend on locally installed Boost/HTSlib libraries; before running any tests or executable directly, export `LD_LIBRARY_PATH="$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH"` so the dynamic loader can resolve shared libraries (e.g., `libboost_iostreams.so.1.89.0`).
 
 ## Context
-- SHAPEIT5's algorithm is a program that employs two variations (phase_common and phase_rare) of the MCMC Li-Stephens model to take genetic variant calls and determine the allele of origin (right or left) for heterozygous variants
-- When variant callers were unsure of the genotype and emitted a missing call(./.), SHAPEIT5 also imputes the most likely genotype.
-- It only supports biallelic sites, as it internally represents variants as 0 (reference) or 1 (not reference)
-- MCMC uses forwards/backwards algorithm to calculate "emission" probability (probability of 1; default 0.001 likelihood of genotype error) and "transmission probability" (likelihood of variant arising from different source haplotype)
+- SHAPEIT5 uses Li–Stephens (phase_common/phase_rare) to phase and impute genotypes.
+- Phase_common is the full HMM; phase_rare is a scaffolded HMM for rare variants.
+- Emissions use a default mismatch penalty `ed/ee ≈ 0.001`; transitions use `nt/yt` from the genetic map.
 
 ## SHAPEIT5 algorithm details
 
@@ -59,7 +58,7 @@ SHAPEIT5 has two phasing/imputation modes:
 - **phase_common**: Used on common variants (MAF > 0.001 by default). Uses the full HMM on all samples.
 - **phase_rare**: Used on rare variants. Phases rare variants onto existing common variant scaffolds using a simplified HMM.
 
-This documentation focuses on **phase_common**, which is the core algorithm.
+This documentation focuses on **phase_common** and its supersite support.
 
 ---
 
@@ -189,7 +188,7 @@ bool split(min_length, left_index, right_index) {
 - `start_missing`, `stop_missing`: Missing variant range
 - `start_transition`, `stop_transition`: Transition range in graph
 
-### [5] Multi-threaded HMM Computation (`haplotype_segment_single.cpp`)
+### [5] Multi-threaded HMM Computation (`haplotype_segment_single.*`)
 
 This is the computational core of SHAPEIT5. Each sample is processed independently in parallel.
 
@@ -417,7 +416,7 @@ void make(DipSampled, MissingProbs) {
 **Pruning** (optional, in PRUN stage):
 After sampling, identify segment transitions with very high confidence (>95%) and merge them, reducing the graph complexity for future iterations.
 
-### [7] Haplotype Update (`conditioning_set_selection.cpp`)
+### [7] Haplotype Update
 
 After sampling new phase configurations, update the reference panel:
 
@@ -457,12 +456,24 @@ void transposeHaplotypes_H2V() {
 - **IBD2 Constraints**: Detect and prevent identical samples from being used as mutual donors
 - **Validation**: Check for biologically impossible configurations (e.g., trio Mendelian conflicts)
 
-### Debugging & Logging
+### Debugging & Logging (General)
 
 - **Debug builds**: `make -C phase_common debug` adds `-g` and reduces optimization for easier stepping; run `gdb` or `valgrind` on binaries/tests
 - **Logging**: Use `vrb.bullet()` and `vrb.title()` for structured console output. Inspect `Alpha`, `AlphaSum` (32‑byte aligned) in debugger for HMM state
-- **Test tracing**: Set `SHAPEIT5_TEST_TRACE=1` to write verbose per‑locus forward/backward TSV traces to `tests/out/`
-- **Underflow diagnostics**: Set `SHAPEIT5_DEBUG_UNDERFLOW=1` to append forward/transition underflow events to `logs/underflow.tsv` with sample, locus, cm, yt/nt, probSumT, probSumH[], and prior segment Alpha summaries
+- **Test tracing**: `SHAPEIT5_TEST_TRACE=1` enables verbose, per‑locus console traces. Useful prints include:
+  - Supersite adapter: `[SupersiteEmit] build_view(super)` with anchor id, c0/c1, and lane_class per lane
+  - Emission masks: `build_match_mask locus=…` with donor raw codes and any_match_lane summary
+  - Bial AMB path: `BIAL_RUN_AMB: locus=…` with g0/g1 per‑lane emission vectors and per‑donor emits (first few donors)
+  - Supersite AMB path: `SS_RUN_AMB: locus=…` with expected classes per lane, donor codes, and strict class‑equality per‑donor emits
+  - Cursor diagnostics: `[ss-amb-cursor]` range/advances; sibling bookkeeping via `[SupersiteSibling]`
+- **Underflow diagnostics**: `SHAPEIT5_DEBUG_UNDERFLOW=1` appends forward/transition underflow events to `logs/underflow.tsv` with sample, locus, cm, yt/nt, probSumT, per‑lane probSumH, and prior‑segment Alpha summaries
+- **Targeted supersite debug**: set both `SHAPEIT5_SUPERDEBUG_SAMPLENAME=<sample>` and `SHAPEIT5_SUPERDEBUG_BP=<anchor_locus>` to print compact, focused snapshots around a specific anchor (per‑split hap bits before/after projection, sampled h0/h1, etc.)
+- **Packing trace**: `SHAPEIT5_TRACE_SUPERSITE_PACKING=1` prints panel packing access (unpack indices) for early calls to validate bounds and offsets
+- **Supersite guard checks**: `SHAPEIT5_SUPERSITE_GUARDS=1` (default) enables bounds/consistency checks in supersite accessors; set `0` to disable
+
+### Notes on legacy toggles
+
+- `--ss-anchor-split-emissions` (parity mode) previously forced a temporary biallelic‑like emission at anchors. The final design always uses strict 4‑bit class‑equality at anchors and does not branch emissions. Keep parity mode off for production.
 
 ### Common Implementation Pitfalls
 
@@ -482,23 +493,45 @@ void transposeHaplotypes_H2V() {
 
 ---
 
-## Supersite Extension Implementation Outline
+## Supersites: Intended Algorithm (Final Design)
 
-### Motivation: Invalid Phasing and Imputation
+Supersites collapse all split records at the same `(chr,bp)` position into a single HMM locus (the anchor). The HMM runs once per biological site and projects decisions back to member biallelic splits.
 
-**Problem 1: Invalid Phasing**
-- Haplotypes at multiallelic sites can only have one ALT per haplotype
-- Multiallelic variants are common, especially short tandem repeats
-- Current workflow splits multiallelic into biallelic (e.g., ALT 2/3 → split1: 0/0, split2: 0/1, split3: 0/1)
-- This allows biologically invalid phasing: (0|0, 1|0, 1|0) implies haplotype carries both ALT2 and ALT3
+Key invariants and terminology:
+- c0/c1 (immutable): The two supersite “allele classes” carried by the sample at that locus. They are 4‑bit codes: 0=REF, 1..N=ALT_i. These are snapshotted from the sample at supersite metadata build time and used only for emissions. They are never re‑derived from per‑split hap bits.
+- h0/h1 (mutable, per‑epoch): The sampled classes chosen this epoch for haplotype 0 and 1, derived from the sampled lanes via the Ambiguous mask at the anchor (h0/h1 ∈ {c0,c1} for AMB; sampled from SC at MIS). After sampling, h0/h1 are projected to all member splits and do not affect emissions in subsequent epochs.
+- Projection: Exactly one ALT per hap per biological site is set across member splits (or zero if class is REF), ensuring mutual exclusivity.
 
-**Problem 2: Invalid Imputation**
-- Missing multiallelic calls imputed independently per split
-- Allows biologically invalid calls: (./. → 0/1, 1/1, 0/1) implies three alleles at diploid site
+Supersite data:
+- buildSuperSites() groups split records, chooses an anchor (global_site_id), and packs panel haplotype allele codes into a 4‑bit buffer (two codes per byte). Siblings are anchored to the same supersite id.
+- Siblings never run their own DP; they are bookkeeping only (treated as MIS in HMM) because the anchor encodes the biological site.
 
-**Solution: Atomic Multiallelic Loci**
+Anchor emissions (strict class equality):
+- For each anchor, build `lane_class[h]` by mapping c0/c1 through the Ambiguous mask at that locus (AMB → lanes alternate between c0 and c1; HOM → all lanes=c0).
+- Donor match per lane is `donor_code == lane_class[h]` (4‑bit class equality). This single emission encodes both the multiallelic equality and the implied biallelic anchor bit (lane_class[h] == anchor_class).
+- No “split/amb_mask” emission path is used at anchors.
 
-Supersites treat all split records at the same genomic position (`chr:bp`) as a **single HMM locus**, ensuring the entire multiallelic site is phased and imputed as one atomic unit with exactly one ALT per haplotype.
+Sampling and write‑back:
+- The forward/backward algorithm builds the 8×8 per‑lane emission and transitions. sample() picks a diplotype (hap0_lane, hap1_lane).
+- At an AMB anchor, derive h0/h1 from lanes via the Ambiguous mask into {c0,c1}. Equal lanes are allowed (temporary 0|0 or 1|1 at the anchor), mirroring bial behavior.
+- Project h0/h1 to all member splits, setting exactly one ALT per hap where appropriate; clear others. The anchor’s HET/HOM flag remains unchanged by projection (as in the bial path).
+- After `make(...)`, call `projectSupersites()`; then `H.updateHaplotypes(...); H.transposeHaplotypes_H2V(...)` for the next PBWT.
+
+Missing anchors (multivariant imputation):
+- Backward pass computes SC: `SC[offset + hap*C + c] = P(class_c | hap)` across C classes (REF+ALTs).
+- sample() draws h0/h1 from SC independently (one class per hap); projection writes per‑split hap bits accordingly.
+
+Snapshot timing:
+- After building supersites (initialisation or metadata rebuild), set supersite context on each genotype and snapshot c0/c1. Use this immutable snapshot for all emissions until the next metadata rebuild.
+- h0/h1 are stored per iteration and overwritten by the next sample().
+
+PBWT / siblings:
+- Siblings are masked from PBWT selection (only anchors are allowed in PBWT evaluation sites) to avoid double‑counting states.
+
+Parity with biallelic:
+- The bial path writes only hap bits at AMB and never toggles HET/HOM; supersites mirror this.
+- Supersites allow equal lanes at AMB (temporary 0|0 or 1|1) to match bial’s transient behavior.
+- Emission semantics at anchors are now unified (strict class equality) and do not depend on a parity toggle.
 
 ### High-Level Architecture
 
@@ -524,7 +557,7 @@ Input VCF/BCF (split multiallelic)
 Output Phased VCF/BCF (mutual exclusivity guaranteed)
 ```
 
-### [1] Supersite Data Structures
+### Supersite Data Structures
 
 **Extensions to phase_common structures** (when `--enable-supersites` enabled):
 
@@ -548,7 +581,7 @@ Output Phased VCF/BCF (mutual exclusivity guaranteed)
 - `std::vector<float> SC`: Multivariant posteriors P(class_c | haplotype) for missing supersites
 - `std::vector<bool> anchor_has_missing`: Flags supersites with all members missing
 
-### [3.5] Supersite Preprocessing (`super_site_builder.cpp::buildSuperSites()`)
+### Supersite Preprocessing (`super_site_builder.*`)
 
 Called once per MCMC iteration after PBWT state selection.
 
@@ -559,7 +592,7 @@ Called once per MCMC iteration after PBWT state selection.
 - **Chunking**: Sites with >15 alleles split into multiple SuperSite records
 - **Lookup Tables**: Build `locus_to_super_idx` and flatten `super_site_var_index`
 
-### [5a] Forward Pass: Anchor-Gated Supersite Emissions
+### HMM Emissions at Supersite Anchors
 
 **Supersite Detection & Anchor Gating**:
 ```cpp
@@ -573,7 +606,7 @@ if (ss_idx >= 0) {
 }
 ```
 
-**Sample Classification** (based on both haplotypes, not per-split):
+**Sample Classification** (anchor view):
 ```cpp
 uint8_t c0 = getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, hap0);
 uint8_t c1 = getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, hap1);
@@ -583,14 +616,14 @@ else if (c0 == c1)                  → HOM (even if both are ALT5)
 else                                → AMB
 ```
 
-**Emission Computation** (uses 4-bit codes instead of binary alleles):
-- **HOM**: `emission = (donor_code == c0) ? 1.0 : (ed/ee)`
-- **AMB**: Per-lane expected allele from `amb_code`, compare to `donor_code`
-- **MIS**: `emission = 1.0` (all donors equally likely)
+**Emission Computation** (strict class equality):
+- Build lane_class[h] from immutable c0/c1 using the Ambiguous mask at the anchor.
+- Emission per lane: 1.0 if `donor_code == lane_class[h]`, else `ed/ee`.
+- MIS: use 1.0 (uninformative).
 
-**Implementation**: Cache donor codes and apply same Li & Stephens transition/emission math as biallelic.
+**Implementation**: Cache donor codes; compute class-equality mask per donor×lane; feed per‑lane emissions to the same Li–Stephens transition math as bial.
 
-### [5b] Backward Pass: Multivariant Imputation
+### Backward Pass: Multivariant Imputation
 
 **Standard Operations**: Same INIT/RUN/COLLAPSE as forward pass (see [5a]).
 
@@ -617,11 +650,9 @@ void IMPUTE_SUPERSITE_MULTIVARIANT(SC, ss, ss_idx) {
 
 **Guarantee**: ∑_c SC[h, c] = 1.0 for each haplotype → exactly one class sampled → mutual exclusivity.
 
-### [6] Sampling: Multivariant Sampling & Projection
+### Sampling: Lane Selection → h0/h1 → Projection
 
-**Standard Sampling**: Non-missing supersites use standard biallelic sampling (see phase_common [6]).
-
-**Multivariant Sampling** (for missing supersites):
+**Missing anchors**: use SC to sample classes, then project.
 
 Sample one allele class per haplotype from multivariant distribution, then project to split records:
 
@@ -643,7 +674,7 @@ for (ai in 0..n_alts) {
 }
 ```
 
-**Result**: Each haplotype has exactly 0 or 1 ALT across all member splits.
+**Result**: Each haplotype has exactly 0 or 1 ALT across all member splits; anchor HET/HOM flag is not rewritten.
 
 ### Supersite-Specific Optimizations & Error Handling
 
@@ -654,7 +685,7 @@ for (ai in 0..n_alts) {
 
 **Error Handling**: Same underflow detection and precision fallback as biallelic (see phase_common section).
 
-**Design**: Minimal divergence from biallelic - reuse HMM arrays, transition math, SIMD patterns. Zero overhead when `--enable-supersites` is off.
+**Design**: Minimal divergence from biallelic — reuse HMM arrays, transition math, SIMD patterns. Zero overhead when `--enable-supersites` is off.
 
 ---
 
