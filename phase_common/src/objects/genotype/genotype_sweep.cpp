@@ -22,6 +22,7 @@
 
 #include <objects/genotype/genotype_header.h>
 #include <models/super_site_accessor.h>
+#include <models/supersite_trace_utils.h>
 
 using namespace std;
 
@@ -41,9 +42,33 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 		curr_dipcount = countDiplotypes(Diplotypes[s]);
 		for (unsigned int tabs = toffset + prev_sampled*curr_dipcount, trel = 0 ; trel < curr_dipcount ; ++trel, ++tabs)
 			sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
+
+		// SAMPLE TRACE: Log sampling details before drawing
+		if (supersite_trace_enabled() && s == 0) {
+			std::fprintf(stderr, "[SAMPLE_FWD] sample=%s segment=%u sumProbs=%.15f\n",
+			             name.c_str(), s, sumProbs);
+			double cumulative = 0.0;
+			for (unsigned int i = 0; i < curr_dipcount; i++) {
+				cumulative += currProbs[i];
+				std::fprintf(stderr, "  dip[%u] prob=%.15f norm=%.15f cum=%.15f\n",
+				             i, currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
+			}
+		}
+
 		prev_sampled = rng.sample(currProbs, sumProbs);
+
 		makeDiplotypes(Diplotypes[s]);
-		DipSampled[s] = curr_dipcodes[prev_sampled];
+		unsigned char selected_dipcode = curr_dipcodes[prev_sampled];
+
+		// SAMPLE TRACE: Log selected index after drawing
+		if (supersite_trace_enabled() && s == 0) {
+			unsigned char hap0 = (selected_dipcode >> 3);
+			unsigned char hap1 = (selected_dipcode & 7);
+			std::fprintf(stderr, "  selected_idx=%u dipcode=%u hap0=%u hap1=%u\n",
+			             prev_sampled, (unsigned)selected_dipcode, (unsigned)hap0, (unsigned)hap1);
+		}
+
+		DipSampled[s] = selected_dipcode;
 		toffset += prev_dipcount * curr_dipcount;
 		prev_dipcount = curr_dipcount;
 	}
@@ -94,13 +119,58 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 			currProbs.resize(64);
 			for (unsigned int tabs = toffset+next_sampled, trel = 0 ; trel < curr_dipcount ; ++trel, tabs += next_dipcount)
 				sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
+
+			// SAMPLE TRACE: Log sampling details before drawing
+			if (supersite_trace_enabled() && s == 0) {
+				std::fprintf(stderr, "[SAMPLE_BWD_A] sample=%s segment=%d sumProbs=%.15f\n",
+				             name.c_str(), s, sumProbs);
+				double cumulative = 0.0;
+				for (unsigned int i = 0; i < curr_dipcount; i++) {
+					cumulative += currProbs[i];
+					std::fprintf(stderr, "  dip[%u] prob=%.15f norm=%.15f cum=%.15f\n",
+					             i, currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
+				}
+			}
+
 			next_sampled = rng.sample(currProbs, sumProbs);
+
 			makeDiplotypes(Diplotypes[s]);
-			DipSampled[s] = curr_dipcodes[next_sampled];
+			unsigned char selected_dipcode = curr_dipcodes[next_sampled];
+
+			// SAMPLE TRACE: Log selected index after drawing
+			if (supersite_trace_enabled() && s == 0) {
+				unsigned char hap0 = (selected_dipcode >> 3);
+				unsigned char hap1 = (selected_dipcode & 7);
+				std::fprintf(stderr, "  selected_idx=%d dipcode=%u hap0=%u hap1=%u\n",
+				             next_sampled, (unsigned)selected_dipcode, (unsigned)hap0, (unsigned)hap1);
+			}
+
+			DipSampled[s] = selected_dipcode;
 		} else {
 			for (unsigned int tabs = toffset, trel = 0 ; tabs < n_transitions ; ++trel, ++tabs)
 				sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
+
+			// SAMPLE TRACE: Log sampling details before drawing (initial backward step)
+			if (supersite_trace_enabled()) {
+				std::fprintf(stderr, "[SAMPLE_BWD_INIT] sample=%s segment=%d sumProbs=%.15f\n",
+				             name.c_str(), s, sumProbs);
+				double cumulative = 0.0;
+				unsigned int n_probs = (n_transitions - toffset);
+				for (unsigned int i = 0; i < n_probs && i < 64; i++) {
+					cumulative += currProbs[i];
+					std::fprintf(stderr, "  joint[%u] prob=%.15f norm=%.15f cum=%.15f\n",
+					             i, currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
+				}
+			}
+
 			next_sampled = rng.sample(currProbs, sumProbs);
+
+			// SAMPLE TRACE: Log selected index after drawing
+			if (supersite_trace_enabled()) {
+				std::fprintf(stderr, "  selected_joint_idx=%d -> seg[%d]_idx=%d seg[%d]_idx=%d\n",
+				             next_sampled, s+1, next_sampled % next_dipcount, s, next_sampled / next_dipcount);
+			}
+
 			makeDiplotypes(Diplotypes[s+1]);
 			DipSampled[s+1] = curr_dipcodes[next_sampled % next_dipcount];
 			makeDiplotypes(Diplotypes[s]);

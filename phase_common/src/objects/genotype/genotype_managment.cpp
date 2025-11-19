@@ -492,7 +492,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						// Get the current allele codes from the immutable supersite snapshot
                     uint8_t current_c0 = SUPERSITE_CODE_MISSING;
                     uint8_t current_c1 = SUPERSITE_CODE_MISSING;
-                    getSupersiteClassPair(ss_idx_amb, current_c0, current_c1);
+                    getSupersiteBaseClassPair(ss_idx_amb, current_c0, current_c1);
 						
 						// The Ambiguous array tells us the phase orientation for this site
 						// Use it to determine which allele goes to which lane
@@ -503,6 +503,22 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						// If HAP_GET(amb_code, hap) == 1, this lane gets c1's allele
                     uint8_t h0 = HAP_GET(amb_code, hap0) ? current_c1 : current_c0;
                     uint8_t h1 = HAP_GET(amb_code, hap1) ? current_c1 : current_c0;
+
+					// TRACE: Log amb_code interpretation for burn3 debugging
+					if (supersite_trace_enabled() && vabs == ss.global_site_id && ss.global_site_id == 0) {
+						bool hap0_bit = HAP_GET(amb_code, hap0);
+						bool hap1_bit = HAP_GET(amb_code, hap1);
+						std::fprintf(stderr, "[MAKE_SS_AMB] sample=%s locus=%u ss_idx=%d\n",
+						             name.c_str(), vabs, ss_idx_amb);
+						std::fprintf(stderr, "  sampled_lanes: hap0=%u hap1=%u\n",
+						             (unsigned)hap0, (unsigned)hap1);
+						std::fprintf(stderr, "  amb_code=0x%02x hap0_bit=%u hap1_bit=%u\n",
+						             (unsigned)amb_code, (unsigned)hap0_bit, (unsigned)hap1_bit);
+						std::fprintf(stderr, "  allele_classes: c0=%u c1=%u\n",
+						             (unsigned)current_c0, (unsigned)current_c1);
+						std::fprintf(stderr, "  result: h0=%u h1=%u\n",
+						             (unsigned)h0, (unsigned)h1);
+					}
 
                         // HYPOTHESIS 2 DEBUGGING
                         if (is_superdebug_target) {
@@ -565,6 +581,20 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					          << " amb_code=" << static_cast<int>(Ambiguous[a])
 					          << std::endl;
 				}
+			// TRACE: Log biallelic ambiguous interpretation for burn3 debugging
+			if (supersite_trace_enabled() && vabs == 0) {
+				unsigned char amb_code = Ambiguous[a];
+				bool hap0_bit = HAP_GET(amb_code, hap0);
+				bool hap1_bit = HAP_GET(amb_code, hap1);
+				std::fprintf(stderr, "[MAKE_BIAL_AMB] sample=%s locus=%u\n",
+				             name.c_str(), vabs);
+				std::fprintf(stderr, "  sampled_lanes: hap0=%u hap1=%u\n",
+				             (unsigned)hap0, (unsigned)hap1);
+				std::fprintf(stderr, "  amb_code=0x%02x hap0_bit=%u hap1_bit=%u\n",
+				             (unsigned)amb_code, (unsigned)hap0_bit, (unsigned)hap1_bit);
+				std::fprintf(stderr, "  result: HAP0=%u HAP1=%u\n",
+				             (unsigned)hap0_bit, (unsigned)hap1_bit);
+			}
 				HAP_GET(Ambiguous[a], hap0)?VAR_SET_HAP0(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP0(MOD2(vabs),Variants[DIV2(vabs)]);
 				HAP_GET(Ambiguous[a], hap1)?VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
 				a++;
