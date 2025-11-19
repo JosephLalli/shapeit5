@@ -129,7 +129,7 @@ static hmm_parameters make_hmm_params_5var(size_t n_variants, unsigned int Nhap)
     hmm_parameters M;
     M.ed = 0.01;
     M.ee = 1.0;
-    M.ss_anchor_split_emissions = true;
+    M.ss_anchor_split_emissions = false;
     M.cm = std::vector<float>(n_variants, 0.0f);
     if (n_variants >= 5) {
         M.cm[0] = 0.005f;
@@ -149,7 +149,7 @@ static hmm_parameters make_hmm_params_10var(size_t n_variants, unsigned int Nhap
     hmm_parameters M;
     M.ed = 0.01;
     M.ee = 1.0;
-    M.ss_anchor_split_emissions = true;
+    M.ss_anchor_split_emissions = false;
     M.cm = std::vector<float>(n_variants, 0.0f);
     if (n_variants >= 10) {
         M.cm[0] = 0.005f;
@@ -401,6 +401,8 @@ static MiniContext build_context(bool supersite, unsigned int n_ref_samples) {
                                 nullptr, nullptr, nullptr);
         g0->snapshotSupersiteBaseClasses(ctx.ss_context.super_sites,
                                          ctx.ss_context.super_site_var_index);
+        // Rebuild after setting supersite context to populate supersite_flags
+        g0->build();
     } else {
         ctx.H.setSupersiteAnchorRedirect({});
     }
@@ -424,6 +426,14 @@ static void ensure_dummy_variants_ref(const genotype& G) {
 
 static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned int rng_seed) {
     rng.setSeed(rng_seed);
+
+    // PBWT_SELECT_TRACE: Log context name for debugging
+    const char* pbwt_trace = std::getenv("SHAPEIT5_PBWT_SELECT_TRACE");
+    if (pbwt_trace && pbwt_trace[0] != '\0' && pbwt_trace[0] != '0') {
+        std::fprintf(stderr, "\n[PBWT_CONTEXT] Running %s (stage=%s, seed=%u, n_variants=%zu)\n",
+                     ctx.name.c_str(), stage.label.c_str(), rng_seed, ctx.V.size());
+    }
+
     ctx.H.select();
     if (ctx.enable_supersites && !ctx.ss_context.super_sites.empty()) {
         const std::vector<int> current_anchor_map =

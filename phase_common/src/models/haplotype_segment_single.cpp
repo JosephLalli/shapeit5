@@ -347,6 +347,48 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
         if (super_sites) {
             ss_cached.resize(super_sites->size(), false);
         }
+
+        // Populate static panel code matrix (like Hvar for biallelic)
+        // Take a snapshot of current cond_idx to avoid dynamic dependency
+        if (super_sites && cond_idx) {
+            ss_panel_matrix.resize(super_sites->size());
+
+            // MATRIX_POPULATE_TRACE: Log when and how matrix is populated
+            const char* matrix_trace = std::getenv("SHAPEIT5_MATRIX_POPULATE_TRACE");
+            if (matrix_trace && matrix_trace[0] != '\0' && matrix_trace[0] != '0') {
+                static int constructor_count = 0;
+                constructor_count++;
+                std::fprintf(stderr, "\n[MATRIX_POPULATE] ===== Constructor #%d called =====\n", constructor_count);
+                std::fprintf(stderr, "[MATRIX_POPULATE] Segment=[%d,%d] n_cond_haps=%u n_supersites=%zu\n",
+                             segment_first, segment_last, n_cond_haps, super_sites->size());
+                std::fprintf(stderr, "[MATRIX_POPULATE] cond_idx pointer=%p\n", (void*)cond_idx);
+                std::fprintf(stderr, "[MATRIX_POPULATE] cond_idx values (first 16): ");
+                for (unsigned int k = 0; k < std::min(16u, n_cond_haps); ++k) {
+                    std::fprintf(stderr, "%u ", (*cond_idx)[k]);
+                }
+                std::fprintf(stderr, "\n");
+            }
+
+            for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
+                const SuperSite& ss = (*super_sites)[ss_idx];
+                ss_panel_matrix[ss_idx].resize(n_cond_haps);
+
+                // Unpack panel codes for all conditioning haplotypes at this supersite
+                for (unsigned int k = 0; k < n_cond_haps; ++k) {
+                    unsigned int gh = (*cond_idx)[k];  // Snapshot: read cond_idx ONCE here
+                    ss_panel_matrix[ss_idx][k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+                }
+
+                // Log panel codes for ss_idx 3 (locus 6, the diverging one)
+                if (matrix_trace && matrix_trace[0] != '\0' && matrix_trace[0] != '0' && ss_idx == 3) {
+                    std::fprintf(stderr, "[MATRIX_POPULATE] ss_idx=3 (locus 6) panel_codes: ");
+                    for (unsigned int k = 0; k < std::min(16u, n_cond_haps); ++k) {
+                        std::fprintf(stderr, "%u ", (unsigned)ss_panel_matrix[ss_idx][k]);
+                    }
+                    std::fprintf(stderr, "\n");
+                }
+            }
+        }
     }
 
 	trace_forward_pre_cursor = 0;
@@ -721,6 +763,11 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
 	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
 
+	// Flag: backward pass always starts with initialization; if locus_last is a sibling, defer until first non-sibling
+	bool need_init = true;
+	yt = 0.0f;
+	nt = 1.0f;
+
 	for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
@@ -735,6 +782,23 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		}
 		const bool is_anchor = (site_view.kind == SiteKind::SuperAnchor);
 		const bool is_sibling = (site_view.kind == SiteKind::SuperSibling);
+
+		// Deferred initialization: if we started on a sibling, keep doing INIT_MIS until we hit a non-sibling
+		if (need_init && is_sibling) {
+			if (supersite_trace_enabled()) {
+				std::fprintf(stdout, "[DEFERRED_INIT] locus=%d is_sibling=1, advancing counters and continue\n", curr_abs_locus);
+			}
+			// Minimal interaction: just advance the counters as if this locus was processed, but do no HMM math.
+			// This ensures that when the first anchor is reached, prev_abs_locus is equal to it, making yt=0,
+			// which is correct for the start of a backward pass.
+			        INIT_SIB(site_view);
+			        curr_segment_locus--;			if (curr_segment_locus < 0 && curr_segment_index > 0) {
+				curr_segment_index--;
+				curr_segment_locus = G->Lengths[curr_segment_index] - 1;
+			}
+			continue;
+		}
+
 		const EmitKind emit = site_view.emit_kind;
 		const bool hmm_mis = (emit == EmitKind::Mis);
 		const bool hmm_amb = (emit == EmitKind::Amb);
@@ -743,39 +807,58 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	// imputation for the whole supersite. Sibling positions are bookkeeping-only.
 	const bool data_mis = hmm_mis && !is_sibling;
 	const bool data_amb = hmm_amb && !is_sibling;
-		yt = (curr_abs_locus == locus_last)?0.0:M.getBackwardTransProb(prev_abs_locus, curr_abs_locus);
-		nt = 1.0f - yt;
+		// Guarded transition probability calculation
+		if (supersite_trace_enabled()) {
+			std::fprintf(stderr, "[YT_DEBUG] locus=%d is_sibling=%d is_anchor=%d prev_abs=%d locus_last=%d yt_before=%.10f\n",
+			             curr_abs_locus, is_sibling, is_anchor, prev_abs_locus, locus_last, yt);
+		}
+		if (!is_sibling) {
+			yt = (curr_abs_locus == locus_last || curr_abs_locus == prev_abs_locus) ? 0.0f : M.getBackwardTransProb(prev_abs_locus, curr_abs_locus);
+			nt = 1.0f - yt;
+			if (supersite_trace_enabled()) {
+				std::fprintf(stderr, "[YT_DEBUG] locus=%d COMPUTED yt=%.10f (curr==last:%d curr==prev:%d)\n",
+				             curr_abs_locus, yt, (curr_abs_locus == locus_last), (curr_abs_locus == prev_abs_locus));
+			}
+		} else {
+			if (supersite_trace_enabled()) {
+				std::fprintf(stderr, "[YT_DEBUG] locus=%d SKIPPED (is_sibling=1), yt unchanged=%.10f\n",
+				             curr_abs_locus, yt);
+			}
+		}
 		trace_ambiguous_cursor("bwd_pre", curr_abs_locus, is_sibling, 0);
 
-		if (curr_abs_locus == locus_last) {
-			if (is_anchor) {
-				if (M.ss_anchor_split_emissions) {
-					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/false, init_match_mask);
-					INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
-				} else {
-					switch (emit) {
-						case EmitKind::Hom:
-							SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
-							break;
-						case EmitKind::Amb:
-							SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
-							break;
-						case EmitKind::Mis:
-							SS_INIT_MIS();
-							break;
-					}
-				}
-			} else if (is_sibling) {
-				// Sibling at window end (backward): neutral init but no prev_locus advance
-				INIT_MIS();
-				update_prev_locus = false;
+		// Deferred initialization: first non-sibling after starting on a sibling - use INIT
+		if (need_init && is_anchor) {
+			if (supersite_trace_enabled()) {
+				std::fprintf(stdout, "[DEFERRED_INIT] locus=%d is_anchor=1, need_init=true, using INIT_FROM_MASK\n", curr_abs_locus);
+			}
+			need_init = false;
+			// FIX: Set prev_abs_locus to curr_abs_locus to ensure yt=0 for the first anchor
+			prev_abs_locus = curr_abs_locus;
+			if (M.ss_anchor_split_emissions) {
+				supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/false, init_match_mask);
+				INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
 			} else {
-				if (hmm_mis) {
-					INIT_MIS();
-				} else {
-					bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
-					INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
+				switch (emit) {
+					case EmitKind::Hom:
+						SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						break;
+					case EmitKind::Amb:
+						SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						break;
+					case EmitKind::Mis:
+						SS_INIT_MIS();
+						break;
 				}
+			}
+		} else if (need_init && !is_sibling) {
+			// Deferred initialization: first biallelic after starting on a sibling - use INIT
+			need_init = false;
+			if (hmm_mis) {
+				INIT_MIS();
+			} else {
+				bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
+				INIT_FROM_MASK(init_match_mask, static_cast<float>(M.ed/M.ee));
 			}
 		} else if (curr_segment_locus != G->Lengths[curr_segment_index] - 1) {
 			if (is_anchor) {
@@ -796,7 +879,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 					}
 				}
 			} else if (is_sibling) {
-				// Sibling within window (backward): pure bookkeeping
+				// Sibling within window (backward): apply transition only
 				RUN_SIB(site_view);
 				update_prev_locus = false;
 			} else {
@@ -833,8 +916,18 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			}
 		}
 		if (curr_segment_locus == 0) SUMK();
-		prev_abs_locus=update_prev_locus?curr_abs_locus:prev_abs_locus;
-		const int prev_after = prev_abs_locus;
+		const int prev_after = update_prev_locus ? curr_abs_locus : prev_abs_locus;
+		if (supersite_trace_enabled()) {
+			fprintf(stderr, "[SIBLING_SKIP_TRACE] loc=%d, prev_loc_in=%d, kind=%d, is_sib=%d, update_prev=%d, yt=%.8f, prev_loc_out=%d\n",
+					curr_abs_locus,
+					prev_before,
+					(int)site_view.kind,
+					(int)is_sibling,
+					(int)update_prev_locus,
+					yt,
+					prev_after);
+		}
+		prev_abs_locus = prev_after;
 		trace_log_backward_state(curr_abs_locus,
 		                         prev_before,
 		                         prev_after,

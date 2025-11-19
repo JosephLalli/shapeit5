@@ -568,6 +568,9 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
 	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
 
+	// Flag: backward pass always starts with initialization; if locus_last is a sibling, defer until first non-sibling
+	bool need_init = true;
+
 	for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
@@ -581,6 +584,15 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		}
 		const bool is_anchor = (site_view.kind == SiteKind::SuperAnchor);
 		const bool is_sibling = (site_view.kind == SiteKind::SuperSibling);
+
+		// Deferred initialization: if we started on a sibling, keep doing INIT_SIB until we hit a non-sibling
+		if (need_init && is_sibling) {
+			INIT_SIB(site_view);
+			update_prev_locus = false;
+			trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, 0);
+			prev_abs_locus = update_prev_locus ? curr_abs_locus : prev_abs_locus;
+			continue;
+		}
 		const EmitKind emit = site_view.emit_kind;
 		const bool hmm_mis = (emit == EmitKind::Mis);
 		const bool hmm_amb = (emit == EmitKind::Amb);
@@ -592,29 +604,27 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		yt = (curr_abs_locus == locus_last)?0.0:M.getBackwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
 
-		if (curr_abs_locus == locus_last) {
-			if (is_anchor) {
-				if (M.ss_anchor_split_emissions) {
-					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-					INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
-				} else {
-					switch (emit) {
-						case EmitKind::Hom: SS_INIT_HOM(); break;
-						case EmitKind::Amb: SS_INIT_AMB(); break;
-						case EmitKind::Mis: SS_INIT_MIS(); break;
-					}
-				}
-			} else if (is_sibling) {
-				// Sibling at window end: neutral init; do not advance prev_abs_locus
-				INIT_SIB(site_view);
-				update_prev_locus = false;
+		// Deferred initialization: first non-sibling after starting on a sibling - use INIT
+		if (need_init && is_anchor) {
+			need_init = false;
+			if (M.ss_anchor_split_emissions) {
+				supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
+				INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
 			} else {
-				if (hmm_mis) {
-					INIT_MIS();
-				} else {
-					bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
-					INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
+				switch (emit) {
+					case EmitKind::Hom: SS_INIT_HOM(); break;
+					case EmitKind::Amb: SS_INIT_AMB(); break;
+					case EmitKind::Mis: SS_INIT_MIS(); break;
 				}
+			}
+		} else if (need_init && !is_sibling) {
+			// Deferred initialization: first biallelic after starting on a sibling - use INIT
+			need_init = false;
+			if (hmm_mis) {
+				INIT_MIS();
+			} else {
+				bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
+				INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
 			}
 		} else if (curr_segment_locus != G->Lengths[curr_segment_index] - 1) {
 			if (is_anchor) {

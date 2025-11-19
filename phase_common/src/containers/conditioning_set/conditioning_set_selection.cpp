@@ -208,6 +208,18 @@ void conditioning_set::select() {
 		}
 	}
 
+	// PBWT_SELECT_TRACE: Log selected loci
+	const char* pbwt_trace = std::getenv("SHAPEIT5_PBWT_SELECT_TRACE");
+	if (pbwt_trace && pbwt_trace[0] != '\0' && pbwt_trace[0] != '0') {
+		std::fprintf(stderr, "[PBWT_SELECT] Selected loci (depth=%d, n_hap=%d): ", depth, n_hap);
+		for (int l = 0; l < n_site && l < 20; ++l) {
+			if (sites_pbwt_selection[l]) {
+				std::fprintf(stderr, "%d ", l);
+			}
+		}
+		std::fprintf(stderr, "\n");
+	}
+
 	//Clean up previous selected states
 	fill(indexes_pbwt_neighbour.begin(), indexes_pbwt_neighbour.end() , -1);
 
@@ -223,6 +235,39 @@ void conditioning_set::select() {
 
 	//Transpose matrix with selected states
 	transposePBWTneighbours();
+
+	// PBWT_SELECT_TRACE: Log conditioning neighbors for sample haplotypes
+	if (pbwt_trace && pbwt_trace[0] != '\0' && pbwt_trace[0] != '0') {
+		unsigned long addr_offset = sites_pbwt_ngroups * n_ind * 2UL;
+		std::fprintf(stderr, "[PBWT_NEIGHBORS] Conditioning haplotypes for sample haps (showing first selected locus):\n");
+
+		// Find first selected locus
+		int first_sel_locus = -1;
+		for (int l = 0; l < n_site; ++l) {
+			if (sites_pbwt_selection[l]) {
+				first_sel_locus = l;
+				break;
+			}
+		}
+
+		if (first_sel_locus >= 0) {
+			int grouping = sites_pbwt_grouping[first_sel_locus];
+			std::fprintf(stderr, "[PBWT_NEIGHBORS] Locus=%d grouping=%d\n", first_sel_locus, grouping);
+
+			// Show conditioning neighbors for first 4 sample haplotypes (haps 0-3)
+			for (int h = 0; h < std::min(4, static_cast<int>(n_ind * 2)); ++h) {
+				std::fprintf(stderr, "[PBWT_NEIGHBORS]   sample_hap=%d neighbors: ", h);
+				for (int d = 0; d < std::min(depth, 8); ++d) {
+					unsigned long idx = d * addr_offset + h * sites_pbwt_ngroups + grouping;
+					if (idx < indexes_pbwt_neighbour.size()) {
+						int donor = indexes_pbwt_neighbour[idx];
+						std::fprintf(stderr, "%d ", donor);
+					}
+				}
+				std::fprintf(stderr, "\n");
+			}
+		}
+	}
 
 	vrb.bullet("PBWT selection (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
 	trace_pbwt_neighbours(*this);

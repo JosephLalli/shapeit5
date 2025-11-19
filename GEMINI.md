@@ -202,3 +202,18 @@ A code review confirmed that this bug has been fixed. The codebase now contains 
 
 These changes ensure that the reference panel remains consistent and biologically correct throughout the MCMC iterations, resolving the root cause of the accuracy degradation. A final call to `projectSupersites` in `phaser_finalise.cpp` also ensures the final output file is consistent.
 
+## 11. Debugging the `test_supersite_expansion_epochs` Divergence
+
+This section tracks the progress of debugging a persistent accuracy divergence between the biallelic and supersite HMM pathways, observed in the `test_supersite_expansion_epochs` test.
+
+### 11.1. Initial Bug: `yt=0` Transition Probability [RESOLVED]
+
+*   **Symptom:** The initial investigation revealed that for supersite anchors, the backward pass was using a transition probability `yt` of `0.0`. This effectively turned off the model's ability to account for recombination between haplotypes for supersites, causing a major divergence in probability calculations.
+*   **Root Cause:** The `DEFERRED_INIT` block within the `backward()` method of `haplotype_segment_single.cpp` and `haplotype_segment_double.cpp` contained a logical flaw. When the backward pass started on a sibling variant, this block would incorrectly decrement `prev_abs_locus`. As a result, when the HMM reached the anchor, `prev_abs_locus` pointed to the adjacent sibling, which has a genetic distance of zero, leading to `yt=0`.
+*   **Resolution:** The erroneous `prev_abs_locus--` line was removed from the `DEFERRED_INIT` block in both files. This corrected the sibling-skipping logic and resolved the `yt=0` issue.
+
+### 11.2. Current Bug: "Shift-by-2" Lane Probability Error
+
+*   **Symptom:** After fixing the `yt` bug, tests still fail. The `test_supersite_expansion_epochs` test now provides a clear diagnostic sign: all supersite sumH values are the same as biallelic values, but shifted by 2 positions. This indicates that while the total probability is conserved, it is being incorrectly distributed across the 8 SIMD lanes. `probSumH` (the array of per-lane probabilities) in the supersite path is a shifted version of the correct biallelic result.
+*   **Current Hypothesis:** This is a logical indexing error, not a floating-point issue. The error is almost certainly located in the handling of ambiguous heterozygous sites (`AMB` path), specifically in how the 8-bit `amb_mask` is used to assign phasing hypotheses to the 8 SIMD lanes in `SS_RUN_AMB`. A simple off-by-two error or an incorrect bit-shift operation when processing this mask could explain the observed perfect 2-position shift.
+*   **Next Steps:** The immediate goal is to pinpoint the source of this shift. This requires adding detailed, per-lane instrumentation to both `RUN_AMB` (biallelic) and `SS_RUN_AMB` (supersite) to trace how the `amb_mask` is interpreted and how the final emission vectors are constructed for each lane. Comparing the trace output from the two paths will reveal the exact line of code where the logic diverges.

@@ -109,7 +109,13 @@ private:
 	const std::vector<int>* super_site_var_index;
 	const std::vector<unsigned int>* cond_idx;
 	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets (set during backward)
-	aligned_vector32<uint8_t> ss_cond_codes;
+
+	// Static panel code matrix: [supersite_idx][cond_hap_relative_idx] -> panel_code
+	// Populated once during initialization using cond_idx snapshot
+	// Similar to Hvar for biallelic, avoids dynamic cond_idx dependency
+	std::vector<aligned_vector32<uint8_t>> ss_panel_matrix;
+
+	aligned_vector32<uint8_t> ss_cond_codes;  // Temporary workspace for current supersite
 	aligned_vector32<float> ss_emissions;
 	aligned_vector32<float> ss_emissions_h1;
 	std::vector<bool> ss_cached; // Track which supersites have cached donor codes
@@ -343,32 +349,51 @@ public:
 // Cache donor codes for a supersite to avoid repeated unpacking
 inline
 void haplotype_segment_single::ss_load_cond_codes(const SuperSite& ss, int ss_idx) {
-	// Check cache
-	if (ss_idx >= 0 && ss_idx < (int)ss_cached.size() && ss_cached[ss_idx]) {
-		return; // Already cached
-	}
-	
-	// Return if panel codes not available (no supersites built)
-	if (panel_codes == nullptr) return;
+	// NEW APPROACH: Use static panel matrix populated during initialization
+	// This avoids dynamic dependency on cond_idx, fixing the forward/backward divergence bug
 
-    if (!supersite_debug::validate_panel_span(ss, panel_codes_size, ss_idx, "haplotype_segment_single::ss_load_cond_codes")) {
-        std::abort();
-    }
-	
-	// Unpack and cache all donor codes for this supersite
+	if (ss_idx < 0 || ss_idx >= (int)ss_panel_matrix.size()) {
+		std::fprintf(stderr, "ERROR: ss_load_cond_codes called with invalid ss_idx=%d (matrix size=%zu)\n",
+		             ss_idx, ss_panel_matrix.size());
+		std::abort();
+	}
+
+	// LOAD_TRACE: Log when codes are loaded and what we're reading
+	const char* load_trace = std::getenv("SHAPEIT5_LOAD_TRACE");
+	bool trace_this_call = false;
+	if (load_trace && load_trace[0] != '\0' && load_trace[0] != '0') {
+		// Only trace ss_idx 3 (the one showing different codes) at locus 6
+		if (ss_idx == 3 && curr_abs_locus == 6) {
+			trace_this_call = true;
+			std::fprintf(stderr, "[LOAD_TRACE] ss_load_cond_codes called: ss_idx=%d locus=%d\n",
+			             ss_idx, curr_abs_locus);
+			std::fprintf(stderr, "[LOAD_TRACE] ss_panel_matrix[%d] address=%p\n",
+			             ss_idx, (void*)&ss_panel_matrix[ss_idx]);
+			std::fprintf(stderr, "[LOAD_TRACE] Matrix panel codes (first 16): ");
+			for (unsigned int k = 0; k < std::min(16u, n_cond_haps); ++k) {
+				std::fprintf(stderr, "%u ", (unsigned)ss_panel_matrix[ss_idx][k]);
+			}
+			std::fprintf(stderr, "\n");
+		}
+	}
+
+	// Simply copy from static matrix using relative indices (like biallelic Hvar)
 	ss_cond_codes.resize(n_cond_haps);
-	for (int k = 0; k < (int)n_cond_haps; ++k) {
-		unsigned int gh = (*cond_idx)[k];
-        if (!supersite_debug::validate_panel_byte(ss, gh, ss_idx, "haplotype_segment_single::ss_load_cond_codes")) {
-            std::abort();
-        }
-		ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+	for (unsigned int k = 0; k < n_cond_haps; ++k) {
+		ss_cond_codes[k] = ss_panel_matrix[ss_idx][k];
 	}
-	
-	// Mark as cached
-	if (ss_idx >= 0 && ss_idx < (int)ss_cached.size()) {
-		ss_cached[ss_idx] = true;
+
+	// Verify what was loaded
+	if (trace_this_call) {
+		std::fprintf(stderr, "[LOAD_TRACE] Loaded ss_cond_codes (first 16): ");
+		for (unsigned int k = 0; k < std::min(16u, n_cond_haps); ++k) {
+			std::fprintf(stderr, "%u ", (unsigned)ss_cond_codes[k]);
+		}
+		std::fprintf(stderr, "\n");
 	}
+
+	// Note: ss_cached mechanism is now obsolete since we're not unpacking dynamically
+	// The static matrix is our "cache" and it's always valid
 }
 
 inline
@@ -496,27 +521,97 @@ inline
 bool haplotype_segment_single::SS_RUN_HOM(const SuperSite& ss, int ss_idx, uint8_t sample_code) {
 	// Load cached conditioning haplotype codes
 	ss_load_cond_codes(ss, ss_idx);
-	
+
+	// DETAILED BACKWARD TRACING
+	const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+	bool trace_enabled = (tr && tr[0] != '\0' && tr[0] != '0');
+	if (trace_enabled) {
+		std::fprintf(stdout, "[SS_RUN_HOM_TRACE] locus=%d ss_idx=%d sample_code=%u n_cond=%u\n",
+		             curr_abs_locus, ss_idx, (unsigned)sample_code, n_cond_haps);
+		std::fprintf(stdout, "  Input probSumT=%.10f\n", (double)probSumT);
+		std::fprintf(stdout, "  Input probSumH=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+		             (double)probSumH[0], (double)probSumH[1], (double)probSumH[2], (double)probSumH[3],
+		             (double)probSumH[4], (double)probSumH[5], (double)probSumH[6], (double)probSumH[7]);
+		std::fprintf(stdout, "  Transition: yt=%.10f nt=%.10f\n", yt, nt);
+		std::fprintf(stdout, "  Panel codes: ");
+		for (unsigned int k = 0; k < n_cond_haps; ++k) {
+			std::fprintf(stdout, "%u ", (unsigned)ss_cond_codes[k]);
+		}
+		std::fprintf(stdout, "\n  Match counts: ");
+		unsigned int matches = 0, mismatches = 0;
+		for (unsigned int k = 0; k < n_cond_haps; ++k) {
+			if (ss_cond_codes[k] == sample_code) matches++; else mismatches++;
+		}
+		std::fprintf(stdout, "match=%u mismatch=%u\n", matches, mismatches);
+	}
+
 	// Precompute emissions
 	precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0f, (float)(M.ed/M.ee), ss_emissions);
-	
+
+	if (trace_enabled) {
+		std::fprintf(stdout, "  Panel codes and emissions:\n");
+		std::fprintf(stdout, "  SS_DETAILED: _factor=%.10f _nt=%.10f\n",
+		             yt / (n_cond_haps * probSumT), nt / probSumT);
+		alignas(32) float tfreq_arr[HAP_NUMBER];
+		_mm256_store_ps(tfreq_arr, _mm256_load_ps(&probSumH[0]));
+		std::fprintf(stdout, "  SS_DETAILED: probSumH_before=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+		             tfreq_arr[0], tfreq_arr[1], tfreq_arr[2], tfreq_arr[3],
+		             tfreq_arr[4], tfreq_arr[5], tfreq_arr[6], tfreq_arr[7]);
+	}
+
 	// Update probabilities with transitions
 	__m256 _sum = _mm256_set1_ps(0.0f);
 	__m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
 	__m256 _tFreq = _mm256_load_ps(&probSumH[0]);
 	_tFreq = _mm256_mul_ps(_tFreq, _factor);
 	__m256 _nt = _mm256_set1_ps(nt / probSumT);
-	
+
+	if (trace_enabled) {
+		alignas(32) float tfreq_arr2[HAP_NUMBER];
+		_mm256_store_ps(tfreq_arr2, _tFreq);
+		std::fprintf(stdout, "  SS_DETAILED: _tFreq=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+		             tfreq_arr2[0], tfreq_arr2[1], tfreq_arr2[2], tfreq_arr2[3],
+		             tfreq_arr2[4], tfreq_arr2[5], tfreq_arr2[6], tfreq_arr2[7]);
+	}
+
 	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
 		__m256 _emit = _mm256_set1_ps(ss_emissions[k]);
 		__m256 _prob = _mm256_load_ps(&prob[i]);
+		if (trace_enabled && k == 0) {
+			alignas(32) float prob_before[HAP_NUMBER];
+			_mm256_store_ps(prob_before, _prob);
+			std::fprintf(stdout, "  SS_DETAILED k=0 prob_before=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+			             prob_before[0], prob_before[1], prob_before[2], prob_before[3],
+			             prob_before[4], prob_before[5], prob_before[6], prob_before[7]);
+		}
 		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+		if (trace_enabled && k == 0) {
+			alignas(32) float prob_after_fma[HAP_NUMBER];
+			_mm256_store_ps(prob_after_fma, _prob);
+			std::fprintf(stdout, "  SS_DETAILED k=0 prob_after_FMA=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+			             prob_after_fma[0], prob_after_fma[1], prob_after_fma[2], prob_after_fma[3],
+			             prob_after_fma[4], prob_after_fma[5], prob_after_fma[6], prob_after_fma[7]);
+		}
 		_prob = _mm256_mul_ps(_prob, _emit);
 		_sum = _mm256_add_ps(_sum, _prob);
 		_mm256_store_ps(&prob[i], _prob);
+
+		if (trace_enabled) {
+			std::fprintf(stdout, "    k=%u code=%u match=%d emission=%.6f\n",
+			             k, (unsigned)ss_cond_codes[k], (ss_cond_codes[k] == sample_code), ss_emissions[k]);
+		}
 	}
 	_mm256_store_ps(&probSumH[0], _sum);
 	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
+	// DETAILED BACKWARD TRACING - OUTPUT
+	if (trace_enabled) {
+		std::fprintf(stdout, "  Output probSumT=%.10f\n", (double)probSumT);
+		std::fprintf(stdout, "  Output probSumH=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+		             (double)probSumH[0], (double)probSumH[1], (double)probSumH[2], (double)probSumH[3],
+		             (double)probSumH[4], (double)probSumH[5], (double)probSumH[6], (double)probSumH[7]);
+	}
+
 	return true;
 }
 
@@ -626,7 +721,7 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
                 std::cout << "[SUPERDEBUG] H1: k=" << k << " donor_code=" << (int)ss_cond_codes[k] << " (strict) first-lane emit=" << ((float*)&emit)[0] << std::endl;
             }
 
-            if (trace_enabled && k < 4) {
+            if (trace_enabled) {
                 std::fprintf(stdout, "    SS_donor_%d dc=%d strict per-lane emit:", k, (int)ss_cond_codes[k]);
                 alignas(32) float emit_arr_dbg[HAP_NUMBER];
                 _mm256_store_ps(emit_arr_dbg, emit);
@@ -986,22 +1081,73 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
     // Biallelic path
     bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
     if (rare_allele < 0 || ag == rare_allele) {
+        // EMISSION TRACING
+        const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+        bool trace_enabled = (tr && tr[0] != '\0' && tr[0] != '0');
+        if (trace_enabled) {
+            std::fprintf(stdout, "[BIAL_RUN_HOM_TRACE] locus=%d sample_allele=%u n_cond=%u\n",
+                         curr_abs_locus, (unsigned)ag, n_cond_haps);
+            std::fprintf(stdout, "  Input probSumT=%.10f\n", (double)probSumT);
+            std::fprintf(stdout, "  Input probSumH=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+                         (double)probSumH[0], (double)probSumH[1], (double)probSumH[2], (double)probSumH[3],
+                         (double)probSumH[4], (double)probSumH[5], (double)probSumH[6], (double)probSumH[7]);
+            std::fprintf(stdout, "  Transition: yt=%.10f nt=%.10f\n", yt, nt);
+        }
+
         __m256 _sum = _mm256_set1_ps(0.0f);
         __m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
         __m256 _tFreq = _mm256_load_ps(&probSumH[0]);
         _tFreq = _mm256_mul_ps(_tFreq, _factor);
         __m256 _nt = _mm256_set1_ps(nt / probSumT);
 		__m256 _mismatch = _mm256_set1_ps(M.ed/M.ee);
+
+		if (trace_enabled) {
+		    std::fprintf(stdout, "  Panel alleles and emissions:\n");
+		    std::fprintf(stdout, "  DETAILED: _factor=%.10f _nt=%.10f\n",
+		                 yt / (n_cond_haps * probSumT), nt / probSumT);
+		    alignas(32) float tfreq_arr[HAP_NUMBER];
+		    _mm256_store_ps(tfreq_arr, _tFreq);
+		    std::fprintf(stdout, "  DETAILED: _tFreq=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+		                 tfreq_arr[0], tfreq_arr[1], tfreq_arr[2], tfreq_arr[3],
+		                 tfreq_arr[4], tfreq_arr[5], tfreq_arr[6], tfreq_arr[7]);
+		}
 		for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
 			bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
 			__m256 _prob = _mm256_load_ps(&prob[i]);
+			if (trace_enabled && k == 0) {
+			    alignas(32) float prob_before[HAP_NUMBER];
+			    _mm256_store_ps(prob_before, _prob);
+			    std::fprintf(stdout, "  DETAILED k=0 prob_before=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+			                 prob_before[0], prob_before[1], prob_before[2], prob_before[3],
+			                 prob_before[4], prob_before[5], prob_before[6], prob_before[7]);
+			}
 			_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+			if (trace_enabled && k == 0) {
+			    alignas(32) float prob_after_fma[HAP_NUMBER];
+			    _mm256_store_ps(prob_after_fma, _prob);
+			    std::fprintf(stdout, "  DETAILED k=0 prob_after_FMA=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+			                 prob_after_fma[0], prob_after_fma[1], prob_after_fma[2], prob_after_fma[3],
+			                 prob_after_fma[4], prob_after_fma[5], prob_after_fma[6], prob_after_fma[7]);
+			}
+			float emission = (ag != ah) ? (float)(M.ed/M.ee) : 1.0f;
 			if (ag!=ah) _prob = _mm256_mul_ps(_prob, _mismatch);
 			_sum = _mm256_add_ps(_sum, _prob);
 			_mm256_store_ps(&prob[i], _prob);
+
+			if (trace_enabled) {
+			    std::fprintf(stdout, "    k=%u ah=%u match=%d emission=%.6f\n",
+			                 k, (unsigned)ah, (ag==ah), emission);
+			}
 		}
 		_mm256_store_ps(&probSumH[0], _sum);
 		probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
+		if (trace_enabled) {
+		    std::fprintf(stdout, "  Output probSumT=%.10f\n", (double)probSumT);
+		    std::fprintf(stdout, "  Output probSumH=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+		                 (double)probSumH[0], (double)probSumH[1], (double)probSumH[2], (double)probSumH[3],
+		                 (double)probSumH[4], (double)probSumH[5], (double)probSumH[6], (double)probSumH[7]);
+		}
 		return true;
 	}
 	return false;
@@ -1162,6 +1308,11 @@ void haplotype_segment_single::RUN_AMB() {
         }
         std::fprintf(stdout, "\n");
     }
+    if (supersite_trace_enabled()) {
+        std::fprintf(stdout, "[BIAL_AMB_TRACE] loc=%d amb_code=0x%02x\n", curr_abs_locus, (unsigned)amb_code);
+        std::fprintf(stdout, "  g0:"); for(int h=0; h<HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", g0[h]); std::fprintf(stdout, "\n");
+        std::fprintf(stdout, "  g1:"); for(int h=0; h<HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", g1[h]); std::fprintf(stdout, "\n");
+    }
 	__m256 _sum = _mm256_set1_ps(0.0f);
 	__m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
 	__m256 _tFreq = _mm256_load_ps(&probSumH[0]);
@@ -1174,8 +1325,8 @@ void haplotype_segment_single::RUN_AMB() {
 		_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
 		_prob = _mm256_mul_ps(_prob, _emit[ah]);
 		
-		// DEBUG: Log detailed emission calculations for first few donors
-		if (trace_enabled && k < 4) {
+		// DEBUG: Log detailed emission calculations for all donors
+		if (trace_enabled) {
 		    alignas(32) float emit_vals[HAP_NUMBER];
 		    _mm256_store_ps(emit_vals, _emit[ah]);
 		    std::fprintf(stdout, "    Bial_donor_%d ah=%d per-lane emit:", k, (int)ah);

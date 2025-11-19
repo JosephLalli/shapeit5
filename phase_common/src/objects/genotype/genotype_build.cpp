@@ -58,10 +58,15 @@ void genotype::build() {
 			for (uint32_t offset = 0; offset < ss.var_count; ++offset) {
 				int v_idx = (*super_site_var_index)[ss.var_start + offset];
 				unsigned char v_code = Variants[DIV2(v_idx)];
-				any_het |= VAR_GET_HET(MOD2(v_idx), v_code);
+				bool is_het = VAR_GET_HET(MOD2(v_idx), v_code);
+				any_het |= is_het;
 				any_sca |= VAR_GET_SCA(MOD2(v_idx), v_code);
 				if (!VAR_GET_MIS(MOD2(v_idx), v_code)) {
 					all_missing = false;
+				}
+				if (std::getenv("SHAPEIT5_TEST_TRACE")) {
+					std::fprintf(stderr, "[build] ss_idx=%zu offset=%u v_idx=%d byte=0x%02x is_het=%d\n",
+					            ss_idx, offset, v_idx, v_code, (int)is_het);
 				}
 			}
 			uint8_t flags = 0u;
@@ -69,6 +74,10 @@ void genotype::build() {
 			if (any_sca) flags |= SS_FLAG_SCA;
 			if (all_missing) flags |= SS_FLAG_ALL_MIS;
 			supersite_flags[ss_idx] = flags;
+			if (std::getenv("SHAPEIT5_TEST_TRACE")) {
+				std::fprintf(stderr, "[build] ss_idx=%zu any_het=%d flags=0x%02x\n",
+				            ss_idx, (int)any_het, flags);
+			}
 		}
 	} else {
 		supersite_flags.clear();
