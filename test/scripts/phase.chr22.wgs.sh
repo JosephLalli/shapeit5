@@ -32,7 +32,7 @@ if [[ 'x' == 'y' ]]; then
   --thread 64 &
 #fi
 
-/usr/bin/time ../phase_common/bin/phase_common \
+/usr/bin/time ${TEST_DIR}/../phase_common/bin/phase_common \
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \
@@ -41,7 +41,7 @@ if [[ 'x' == 'y' ]]; then
   --thread 64 &
 fi
 # SHAPEIT5_TEST_TRACE=1 \
-../phase_common/bin/phase_common \
+${TEST_DIR}/../phase_common/bin/phase_common \
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \
@@ -53,7 +53,7 @@ fi
 #fi
 wait
 exit 0
-../switch/bin/switch \
+${TEST_DIR}/../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
   --estimation "$scaffold_bcf_prefix.og.small.bcf" \
   --region $comparison_region \

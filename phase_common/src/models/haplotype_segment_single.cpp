@@ -52,6 +52,20 @@ static void ensure_logs_dir() {
     }
 }
 
+static bool trans_trace_enabled_s() {
+	static int flag = -1;
+	if (flag < 0) {
+		const char* env = std::getenv("SHAPEIT5_TRANS_TRACE");
+		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+	}
+	return flag == 1;
+}
+
+static const char* trans_trace_sample_s() {
+	static const char* sample = std::getenv("SHAPEIT5_TRANS_TRACE_SAMPLE");
+	return sample && sample[0] ? sample : nullptr;
+}
+
 } // namespace
 
 // Sibling bookkeeping: update trace, maintain cursor/index sanity, no DP math
@@ -758,6 +772,8 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	trace_forward_active = false;
 	trace_backward_active = true;
 	trace_backward_table_header_emitted = false;
+	const bool trans_trace = trans_trace_enabled_s();
+	const char* trans_trace_sample = trans_trace_sample_s();
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
@@ -791,8 +807,24 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			// Minimal interaction: just advance the counters as if this locus was processed, but do no HMM math.
 			// This ensures that when the first anchor is reached, prev_abs_locus is equal to it, making yt=0,
 			// which is correct for the start of a backward pass.
-			        INIT_SIB(site_view);
-			        curr_segment_locus--;			if (curr_segment_locus < 0 && curr_segment_index > 0) {
+			INIT_SIB(site_view);
+			// CRITICAL: Check for segment boundary BEFORE decrementing, since we'll skip the normal check with continue
+			if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
+				if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
+					unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
+					unsigned int prev_dipcount = (curr_segment_index > 0) ? G->countDiplotypes(G->Diplotypes[curr_segment_index-1]) : 0;
+					unsigned int n_trans = curr_dipcount * prev_dipcount;
+					std::fprintf(stdout,
+					             "[TRANS_TRACE][single][skip-sib] sample=%s curr_abs_locus=%d seg_idx=%d n_trans=%u curr_abs_transition=%d buf_size=%zu\n",
+					             G->name.c_str(), curr_abs_locus, curr_segment_index, n_trans, curr_abs_transition, transition_probabilities.size());
+					std::fflush(stdout);
+				}
+				int ret = SET_OTHER_TRANS(transition_probabilities);
+				if (ret < 0) return ret;
+				else n_underflow_recovered += ret;
+			}
+			curr_segment_locus--;
+			if (curr_segment_locus < 0 && curr_segment_index > 0) {
 				curr_segment_index--;
 				curr_segment_locus = G->Lengths[curr_segment_index] - 1;
 			}
@@ -942,8 +974,26 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 			// Only emit transition probabilities if caller provided storage
 			if (!transition_probabilities.empty()) {
-				if (curr_abs_locus == 0) SET_FIRST_TRANS(transition_probabilities);
+				if (curr_abs_locus == 0) {
+					if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
+						unsigned int n_trans = G->countDiplotypes(G->Diplotypes[0]);
+						std::fprintf(stdout,
+						             "[TRANS_TRACE][single][first] sample=%s curr_abs_locus=%d seg_idx=%d n_trans=%u curr_abs_transition=%d buf_size=%zu\n",
+						             G->name.c_str(), curr_abs_locus, curr_segment_index, n_trans, curr_abs_transition, transition_probabilities.size());
+						std::fflush(stdout);
+					}
+					SET_FIRST_TRANS(transition_probabilities);
+				}
 				if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
+					if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
+						unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
+						unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
+						unsigned int n_trans = curr_dipcount * prev_dipcount;
+						std::fprintf(stdout,
+						             "[TRANS_TRACE][single][other] sample=%s curr_abs_locus=%d seg_idx=%d n_trans=%u curr_abs_transition=%d buf_size=%zu\n",
+						             G->name.c_str(), curr_abs_locus, curr_segment_index, n_trans, curr_abs_transition, transition_probabilities.size());
+						std::fflush(stdout);
+					}
 					int ret = SET_OTHER_TRANS(transition_probabilities);
 					if (ret < 0) return ret;
 					else n_underflow_recovered += ret;

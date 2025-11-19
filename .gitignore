@@ -31,3 +31,5 @@ gha-creds-*.json
 .github/workflows/gemini-triage.yml
 1
 *.logging.md
+test/tmp
+test/tmp/*

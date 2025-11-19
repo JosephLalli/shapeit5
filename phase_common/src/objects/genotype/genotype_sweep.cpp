@@ -23,6 +23,7 @@
 #include <objects/genotype/genotype_header.h>
 #include <models/super_site_accessor.h>
 #include <models/supersite_trace_utils.h>
+#include <cstdlib>
 
 using namespace std;
 
@@ -37,11 +38,20 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 	unsigned int curr_dipcount = 0, prev_dipcount = 1;
 	vector < double > currProbs = vector < double > (64, 0.0);
 	vector < unsigned char > DipSampled = vector < unsigned char >(n_segments, 0);
+	const size_t trans_buf_size = CurrentTransProbabilities.size();
 	for (unsigned int s = 0, toffset = 0 ; s < n_segments ; s ++) {
 		sumProbs = 0.0;
 		curr_dipcount = countDiplotypes(Diplotypes[s]);
-		for (unsigned int tabs = toffset + prev_sampled*curr_dipcount, trel = 0 ; trel < curr_dipcount ; ++trel, ++tabs)
+		for (unsigned int tabs = toffset + prev_sampled*curr_dipcount, trel = 0 ; trel < curr_dipcount ; ++trel, ++tabs) {
+			if (tabs >= trans_buf_size) {
+				std::fprintf(stderr,
+				             "[TRANS_READ_OOB][sampleForward] sample=%s segment=%u tabs=%u buf_size=%zu toffset=%u prev_sampled=%u curr_dipcount=%u prev_dipcount=%u n_segments=%u n_transitions=%u\n",
+				             name.c_str(), s, tabs, trans_buf_size, toffset, prev_sampled, curr_dipcount, prev_dipcount, n_segments, n_transitions);
+				std::fflush(stderr);
+				std::abort();
+			}
 			sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
+		}
 
 		// SAMPLE TRACE: Log sampling details before drawing
 		if (supersite_trace_enabled() && s == 0) {
@@ -69,6 +79,14 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 		}
 
 		DipSampled[s] = selected_dipcode;
+		if (!DIP_GET(Diplotypes[s], selected_dipcode)) {
+			std::fprintf(stderr,
+			             "[SAMPLE_DIPC_INVALID][forward] sample=%s seg=%u dipcode=%u dipcount=%u mask=0x%016llx\n",
+			             name.c_str(), s, static_cast<unsigned>(selected_dipcode), countDiplotypes(Diplotypes[s]),
+			             static_cast<unsigned long long>(Diplotypes[s]));
+			std::fflush(stderr);
+			std::abort();
+		}
 		toffset += prev_dipcount * curr_dipcount;
 		prev_dipcount = curr_dipcount;
 	}
@@ -107,8 +125,9 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 	double sumProbs = 0.0;
 	int next_sampled = -1;
 	unsigned int curr_dipcount = 0, next_dipcount = countDiplotypes(Diplotypes[n_segments - 1]);
-	vector < double > currProbs = vector < double > (64 * 64, 0.0);
+	vector < double > currProbs;
 	vector < unsigned char > DipSampled = vector < unsigned char >(n_segments, 0);
+	const size_t trans_buf_size = CurrentTransProbabilities.size();
 
 	for (int s = n_segments - 2, toffset = n_transitions ; s >= 0 ; s --) {
 		sumProbs = 0.0;
@@ -116,9 +135,26 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 		toffset -= next_dipcount * curr_dipcount;
 
 		if (next_sampled >= 0) {
-			currProbs.resize(64);
-			for (unsigned int tabs = toffset+next_sampled, trel = 0 ; trel < curr_dipcount ; ++trel, tabs += next_dipcount)
+			currProbs.assign(curr_dipcount, 0.0);
+			for (unsigned int tabs = toffset+next_sampled, trel = 0 ; trel < curr_dipcount && tabs < trans_buf_size ; ++trel, tabs += next_dipcount) {
+				if (tabs >= trans_buf_size) {
+					std::fprintf(stderr,
+					             "[TRANS_READ_OOB][sampleBackward] sample=%s segment=%d tabs=%u buf_size=%zu toffset=%d next_sampled=%d curr_dipcount=%u next_dipcount=%u n_segments=%u n_transitions=%u\n",
+					             name.c_str(), s, tabs, trans_buf_size, toffset, next_sampled, curr_dipcount, next_dipcount, n_segments, n_transitions);
+					std::fflush(stderr);
+					std::abort();
+				}
 				sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
+			}
+
+			next_sampled = rng.sample(currProbs, sumProbs);
+			if (next_sampled >= (int)curr_dipcount) {
+				std::fprintf(stderr,
+				             "[SAMPLE_IDX_OOB][sampleBackward] sample=%s segment=%d sampled_idx=%d curr_dipcount=%u next_dipcount=%u toffset=%d trans_buf_size=%zu\n",
+				             name.c_str(), s, next_sampled, curr_dipcount, next_dipcount, toffset, trans_buf_size);
+				std::fflush(stderr);
+				std::abort();
+			}
 
 			// SAMPLE TRACE: Log sampling details before drawing
 			if (supersite_trace_enabled() && s == 0) {
@@ -131,8 +167,6 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 					             i, currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
 				}
 			}
-
-			next_sampled = rng.sample(currProbs, sumProbs);
 
 			makeDiplotypes(Diplotypes[s]);
 			unsigned char selected_dipcode = curr_dipcodes[next_sampled];
@@ -147,8 +181,18 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 
 			DipSampled[s] = selected_dipcode;
 		} else {
-			for (unsigned int tabs = toffset, trel = 0 ; tabs < n_transitions ; ++trel, ++tabs)
+			const unsigned int n_joint = curr_dipcount * next_dipcount;
+			currProbs.assign(n_joint, 0.0);
+			for (unsigned int tabs = toffset, trel = 0 ; trel < n_joint && tabs < n_transitions ; ++trel, ++tabs) {
+				if (tabs >= trans_buf_size) {
+					std::fprintf(stderr,
+					             "[TRANS_READ_OOB][sampleBackward] sample=%s segment=%d tabs=%u buf_size=%zu toffset=%d curr_dipcount=%u next_dipcount=%u n_segments=%u n_transitions=%u\n",
+					             name.c_str(), s, tabs, trans_buf_size, toffset, curr_dipcount, next_dipcount, n_segments, n_transitions);
+					std::fflush(stderr);
+					std::abort();
+				}
 				sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
+			}
 
 			// SAMPLE TRACE: Log sampling details before drawing (initial backward step)
 			if (supersite_trace_enabled()) {
@@ -164,6 +208,13 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 			}
 
 			next_sampled = rng.sample(currProbs, sumProbs);
+			if (next_sampled >= static_cast<int>(n_joint)) {
+				std::fprintf(stderr,
+				             "[SAMPLE_IDX_OOB][sampleBackward-init] sample=%s segment=%d sampled_idx=%d n_joint=%u curr_dipcount=%u next_dipcount=%u toffset=%d trans_buf_size=%zu\n",
+				             name.c_str(), s, next_sampled, n_joint, curr_dipcount, next_dipcount, toffset, trans_buf_size);
+				std::fflush(stderr);
+				std::abort();
+			}
 
 			// SAMPLE TRACE: Log selected index after drawing
 			if (supersite_trace_enabled()) {
@@ -175,7 +226,22 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 			DipSampled[s+1] = curr_dipcodes[next_sampled % next_dipcount];
 			makeDiplotypes(Diplotypes[s]);
 			next_sampled = next_sampled / next_dipcount;
+			if (next_sampled >= (int)curr_dipcount) {
+				std::fprintf(stderr,
+				             "[SAMPLE_IDX_OOB][sampleBackward] sample=%s segment=%d sampled_idx=%d curr_dipcount=%u next_dipcount=%u toffset=%d trans_buf_size=%zu (post-divide)\n",
+				             name.c_str(), s, next_sampled, curr_dipcount, next_dipcount, toffset, trans_buf_size);
+				std::fflush(stderr);
+				std::abort();
+			}
 			DipSampled[s] = curr_dipcodes[next_sampled];
+			if (!DIP_GET(Diplotypes[s+1], DipSampled[s+1]) || !DIP_GET(Diplotypes[s], DipSampled[s])) {
+				std::fprintf(stderr,
+				             "[SAMPLE_DIPC_INVALID][backward] sample=%s seg=%d dip_s=%u dip_s1=%u mask_s=0x%016llx mask_s1=0x%016llx\n",
+				             name.c_str(), s, static_cast<unsigned>(DipSampled[s]), static_cast<unsigned>(DipSampled[s+1]),
+				             static_cast<unsigned long long>(Diplotypes[s]), static_cast<unsigned long long>(Diplotypes[s+1]));
+				std::fflush(stderr);
+				std::abort();
+			}
 		}
 		next_dipcount = curr_dipcount;
 	}
@@ -261,4 +327,3 @@ void genotype::store(vector < double > & CurrentTransProbabilities, vector < flo
 	for (unsigned int m = 0 ; m < (n_missing * HAP_NUMBER) ; m ++) ProbMissing[m] += CurrentMissingProbabilities[m];
 	n_storage_events ++;
 }
-

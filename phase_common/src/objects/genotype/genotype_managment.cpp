@@ -255,7 +255,22 @@ genotype::SuperSiteContext genotype::getSuperSiteContext(unsigned int locus) con
 }
 
 void genotype::make(vector < unsigned char > & DipSampled, vector < float > & CurrentMissingProbabilities) {
+	if (DipSampled.size() != n_segments) {
+		std::fprintf(stderr,
+		             "[MAKE_OOB] sample=%s DipSampled.size()=%zu n_segments=%u\n",
+		             name.c_str(), DipSampled.size(), n_segments);
+		std::fflush(stderr);
+		std::abort();
+	}
 	for (unsigned int s = 0, vabs = 0, a = 0, m = 0 ; s < n_segments ; s ++) {
+		if (!DIP_GET(Diplotypes[s], DipSampled[s])) {
+			std::fprintf(stderr,
+			             "[MAKE_OOB] sample=%s seg=%u dipcode=%u not in mask dipcount=%u mask=0x%016llx\n",
+			             name.c_str(), s, static_cast<unsigned>(DipSampled[s]), countDiplotypes(Diplotypes[s]),
+			             static_cast<unsigned long long>(Diplotypes[s]));
+		std::fflush(stderr);
+		std::abort();
+	}
 		unsigned char hap0 = DIP_HAP0(DipSampled[s]);
 		unsigned char hap1 = DIP_HAP1(DipSampled[s]);
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel++, vabs++) {
@@ -605,7 +620,22 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 }
 
 void genotype::make(vector < unsigned char > & DipSampled) {
+	if (DipSampled.size() != n_segments) {
+		std::fprintf(stderr,
+		             "[MAKE_OOB] sample=%s DipSampled.size()=%zu n_segments=%u (no missing probs)\n",
+		             name.c_str(), DipSampled.size(), n_segments);
+		std::fflush(stderr);
+		std::abort();
+	}
 	for (unsigned int s = 0, vabs = 0, a = 0, m = 0 ; s < n_segments ; s ++) {
+		if (!DIP_GET(Diplotypes[s], DipSampled[s])) {
+			std::fprintf(stderr,
+			             "[MAKE_OOB] sample=%s seg=%u dipcode=%u not in mask dipcount=%u mask=0x%016llx (no missing probs)\n",
+			             name.c_str(), s, static_cast<unsigned>(DipSampled[s]), countDiplotypes(Diplotypes[s]),
+			             static_cast<unsigned long long>(Diplotypes[s]));
+		std::fflush(stderr);
+		std::abort();
+	}
 		unsigned char hap0 = DIP_HAP0(DipSampled[s]);
 		unsigned char hap1 = DIP_HAP1(DipSampled[s]);
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel++, vabs++) {

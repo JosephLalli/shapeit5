@@ -50,12 +50,26 @@ static void ensure_logs_dir_d() {
 }
 
 static bool supersite_trace_enabled_d() {
-    static int flag = -1;
-    if (flag < 0) {
-        const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
-        flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-    }
-    return flag == 1;
+	static int flag = -1;
+	if (flag < 0) {
+		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
+		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+	}
+	return flag == 1;
+}
+
+static bool trans_trace_enabled_d() {
+	static int flag = -1;
+	if (flag < 0) {
+		const char* env = std::getenv("SHAPEIT5_TRANS_TRACE");
+		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+	}
+	return flag == 1;
+}
+
+static const char* trans_trace_sample_d() {
+	static const char* sample = std::getenv("SHAPEIT5_TRANS_TRACE_SAMPLE");
+	return sample && sample[0] ? sample : nullptr;
 }
 
 } // namespace
@@ -217,6 +231,7 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
 	trace_backward_pre_valid = false;
 	trace_forward_active = false;
 	trace_backward_active = false;
+
 }
 
 haplotype_segment_double::~haplotype_segment_double() {
@@ -256,7 +271,6 @@ void haplotype_segment_double::forward() {
 	prev_abs_locus = locus_first;
 	trace_forward_active = true;
 	trace_backward_active = false;
-
 	// Diagnostics: track ambiguous-site bookkeeping counts to verify cursor correctness
 	int diag_expected_amb_sites = 0; // number of data_amb sites (excluding siblings) encountered
 	int diag_advanced_amb = 0;      // number of times we actually advanced the ambiguous cursor
@@ -571,6 +585,12 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 	// Flag: backward pass always starts with initialization; if locus_last is a sibling, defer until first non-sibling
 	bool need_init = true;
 
+	// DIAGNOSTIC: Track actual transition storage count vs expected
+	unsigned int debug_transitions_written = 0;
+	const bool debug_track_transitions = !transition_probabilities.empty();
+	const bool trans_trace = trans_trace_enabled_d();
+	const char* trans_trace_sample = trans_trace_sample_d();
+
 	for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
@@ -591,6 +611,33 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			update_prev_locus = false;
 			trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, 0);
 			prev_abs_locus = update_prev_locus ? curr_abs_locus : prev_abs_locus;
+			// CRITICAL: Check for segment boundary BEFORE decrementing, since we'll skip the normal check with continue
+			if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
+				if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
+					unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
+					unsigned int prev_dipcount = (curr_segment_index > 0) ? G->countDiplotypes(G->Diplotypes[curr_segment_index-1]) : 0;
+					unsigned int n_trans = curr_dipcount * prev_dipcount;
+					std::fprintf(stdout,
+					             "[TRANS_TRACE][double][skip-sib] sample=%s curr_abs_locus=%d seg_idx=%d n_trans=%u curr_abs_transition=%d stored_so_far=%d/%u buf_size=%zu\n",
+					             G->name.c_str(), curr_abs_locus, curr_segment_index, n_trans, curr_abs_transition, debug_transitions_written, G->n_transitions, transition_probabilities.size());
+					std::fflush(stdout);
+				}
+				unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
+				unsigned int prev_dipcount = (curr_segment_index > 0) ? G->countDiplotypes(G->Diplotypes[curr_segment_index-1]) : 0;
+				unsigned int n_trans = curr_dipcount * prev_dipcount;
+				int ret = SET_OTHER_TRANS(transition_probabilities);
+				if (debug_track_transitions) debug_transitions_written += n_trans;
+				if (ret < 0) return ret;
+				else n_underflow_recovered += ret;
+			}
+			// CRITICAL: Decrement curr_segment_locus even for skipped siblings
+			// Otherwise segments ending on siblings will never hit curr_segment_locus==0
+			// and SET_OTHER_TRANS() will never be called, causing vector size mismatch
+			curr_segment_locus--;
+			if (curr_segment_locus < 0 && curr_segment_index > 0) {
+				curr_segment_index--;
+				curr_segment_locus = G->Lengths[curr_segment_index] - 1;
+			}
 			continue;
 		}
 		const EmitKind emit = site_view.emit_kind;
@@ -678,9 +725,33 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		if (curr_segment_locus == 0) SUMK();
 		prev_abs_locus=update_prev_locus?curr_abs_locus:prev_abs_locus;
 
-		if (curr_abs_locus == 0) SET_FIRST_TRANS(transition_probabilities);
+		if (curr_abs_locus == 0) {
+			unsigned int n_trans = G->countDiplotypes(G->Diplotypes[0]);
+			if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
+				std::fprintf(stdout,
+				             "[TRANS_TRACE][double][first] sample=%s curr_abs_locus=%d seg_idx=%d n_trans=%u curr_abs_transition=%d stored_so_far=%d/%u buf_size=%zu\n",
+				             G->name.c_str(), curr_abs_locus, curr_segment_index, n_trans, curr_abs_transition, debug_transitions_written, G->n_transitions, transition_probabilities.size());
+				std::fflush(stdout);
+			}
+			SET_FIRST_TRANS(transition_probabilities);
+			if (debug_track_transitions) debug_transitions_written += n_trans;
+		}
 		if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
+			if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
+				unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
+				unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
+				unsigned int n_trans = curr_dipcount * prev_dipcount;
+				std::fprintf(stdout,
+				             "[TRANS_TRACE][double][other] sample=%s curr_abs_locus=%d seg_idx=%d n_trans=%u curr_abs_transition=%d stored_so_far=%d/%u buf_size=%zu\n",
+				             G->name.c_str(), curr_abs_locus, curr_segment_index, n_trans, curr_abs_transition, debug_transitions_written, G->n_transitions, transition_probabilities.size());
+				std::fflush(stdout);
+			}
 			int ret = SET_OTHER_TRANS(transition_probabilities);
+			if (debug_track_transitions) {
+				unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
+				unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
+				debug_transitions_written += curr_dipcount * prev_dipcount;
+			}
 			if (ret < 0) return ret;
 			else n_underflow_recovered += ret;
 		}
@@ -742,12 +813,32 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		}
 	}
 	trace_backward_active = false;
+
+	// DIAGNOSTIC: Check if transitions_stored matches expected
+	if (debug_track_transitions && debug_transitions_written != G->n_transitions) {
+		std::fprintf(stderr, "[TRANS_MISMATCH_ERROR] Sample=%s: Backward pass stored %u transitions but expected %u\n",
+		             G->name.c_str(), debug_transitions_written, G->n_transitions);
+		std::fprintf(stderr, "  Vector size=%zu, locus_range=[%d,%d], n_segments=%u\n",
+		             transition_probabilities.size(), locus_first, locus_last, G->n_segments);
+		std::fprintf(stderr, "  This will cause out-of-bounds access in sampleBackward!\n");
+	}
 	return n_underflow_recovered;
 }
 
 void haplotype_segment_double::SET_FIRST_TRANS(vector < double > & transition_probabilities) {
 	const unsigned int n_transitions = G->countDiplotypes(G->Diplotypes[0]);
 	std::vector<double> cprobs(n_transitions, 0.0);
+
+	// Guard: caller must provision at least n_transitions slots.
+	if (transition_probabilities.size() < n_transitions) {
+		std::fprintf(stderr,
+		             "[TRANS_BOUNDS][double][first] sample=%s n_transitions=%u buf_size=%zu "
+		             "seg_first=%d seg_last=%d locus_first=%d locus_last=%d\n",
+		             G->name.c_str(), n_transitions, transition_probabilities.size(),
+		             segment_first, segment_last, locus_first, locus_last);
+		std::fflush(stderr);
+		assert(false && "transition_probabilities buffer too small in SET_FIRST_TRANS(double)");
+	}
 
 	double lane_probs[HAP_NUMBER];
 	bool use_outer = supersites_enabled_flag && !AlphaSum.empty();
@@ -851,6 +942,22 @@ int haplotype_segment_double::SET_OTHER_TRANS(vector < double > & transition_pro
 	unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
 	unsigned int n_transitions = curr_dipcount * prev_dipcount;
 	double scaleDip = 1.0 / sumDProbs;
+
+	// Bounds check before writing into transition_probabilities.
+	const long long start_idx = static_cast<long long>(curr_abs_transition) - static_cast<long long>(n_transitions) + 1;
+	const size_t buf_size = transition_probabilities.size();
+	if (start_idx < 0 || (static_cast<size_t>(start_idx) + n_transitions) > buf_size) {
+		std::fprintf(stderr,
+		             "[TRANS_BOUNDS][double][other] sample=%s start_idx=%lld n_transitions=%u buf_size=%zu "
+		             "curr_abs_transition=%d curr_segment_index=%d curr_segment_locus=%d "
+		             "segment_first=%d segment_last=%d locus_first=%d locus_last=%d\n",
+		             G->name.c_str(), start_idx, n_transitions, buf_size,
+		             curr_abs_transition, curr_segment_index, curr_segment_locus,
+		             segment_first, segment_last, locus_first, locus_last);
+		std::fflush(stderr);
+		assert(false && "transition_probabilities buffer too small / index underflow in SET_OTHER_TRANS(double)");
+	}
+
 	curr_abs_transition -= (n_transitions - 1);
 	for (int t = 0 ; t < n_transitions ; t ++) transition_probabilities[curr_abs_transition + t] = DProbs[t] * scaleDip;
 	curr_abs_transition --;
