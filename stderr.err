@@ -1,0 +1,440 @@
+[PBWTTrace] locus=2 grouping=0 depth=16
+  depth=0 h0:2 h1:129
+  depth=1 h0:5 h1:123
+  depth=2 h0:8 h1:121
+[PBWTTrace] Kbanned groups=1
+[WindowAmbRange] w=0 seg=[0,0] locus=[0,4] amb_range=[0,1] mis_range=[0,-1]
+  [WindowAmbLocus] w=0 locus=0 is_amb=1 is_mis=0
+  [WindowAmbLocus] w=0 locus=1 is_amb=1 is_mis=0
+  [WindowAmbLocus] w=0 locus=2 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=3 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=4 is_amb=0 is_mis=0
+FWD0
+FWD1 seg=0 lf=0 ll=4
+FWD2 after adapters
+FWD3 loop enter abs=0 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+FWD3 loop enter abs=1 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+FWD3 loop enter abs=2 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+[SupersiteEmit] build_view(biallelic) locus=2 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD3 loop enter abs=3 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+[SupersiteEmit] build_view(biallelic) locus=3 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD3 loop enter abs=4 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+[SupersiteEmit] build_view(biallelic) locus=4 emit=0 allele=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteEmit] build_view(biallelic) locus=4 emit=0 allele=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteEmit] build_view(biallelic) locus=3 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_view(biallelic) locus=2 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[PBWTTrace] locus=4 grouping=0 depth=16
+  depth=0 h0:2 h1:129
+  depth=1 h0:5 h1:123
+  depth=2 h0:8 h1:121
+[PBWTTrace] Kbanned groups=1
+[WindowAmbRange] w=0 seg=[0,0] locus=[0,9] amb_range=[0,-1] mis_range=[0,-1]
+  [WindowAmbLocus] w=0 locus=0 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=1 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=2 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=3 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=4 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=5 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=6 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=7 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=8 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=9 is_amb=0 is_mis=0
+[SupersiteSC] sample=supersite_sample anchors_missing=0/5
+[SupersiteSC] sample=supersite_sample no missing supersite anchors (SC cleared)
+FWD0
+FWD1 seg=0 lf=0 ll=9
+FWD2 after adapters
+FWD3 loop enter abs=0 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=0 ss_idx=0 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:1 2:0 3:1 4:0 5:1 6:0 7:1
+FWD5 after build_view has_ss=1 kind=1 emit=1
+[SupersiteEmit] build_match_mask locus=0 use_split=0 n_cond=32
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=1 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=1 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=2 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=2 ss_idx=1 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:1 2:0 3:1 4:0 5:1 6:0 7:1
+FWD5 after build_view has_ss=1 kind=1 emit=1
+[SupersiteEmit] build_match_mask locus=2 use_split=0 n_cond=32
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=3 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=3 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=4 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=4 ss_idx=2 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD5 after build_view has_ss=1 kind=1 emit=0
+[SupersiteEmit] build_match_mask locus=4 use_split=0 n_cond=32
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=5 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=5 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=6 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=6 ss_idx=3 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD5 after build_view has_ss=1 kind=1 emit=0
+[SupersiteEmit] build_match_mask locus=6 use_split=0 n_cond=32
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=7 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=7 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=8 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=8 ss_idx=4 emit=0 anchor_class=1 c0=1 c1=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD5 after build_view has_ss=1 kind=1 emit=0
+[SupersiteEmit] build_match_mask locus=8 use_split=0 n_cond=32
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=9 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=9 kind=2 curr_abs_amb=0 curr_abs_mis=0
+[SupersiteEmit] build_view(super) locus=8 ss_idx=4 emit=0 anchor_class=1 c0=1 c1=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteEmit] build_match_mask locus=8 use_split=0 n_cond=32
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=7 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=6 ss_idx=3 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=6 use_split=0 n_cond=32
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=5 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=4 ss_idx=2 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=4 use_split=0 n_cond=32
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=3 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=2 ss_idx=1 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=2 use_split=0 n_cond=32
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=1 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=0 ss_idx=0 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=0 use_split=0 n_cond=32
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteProject] sample=supersite_sample ss_idx=0 locus=0 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=1 locus=2 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=2 locus=4 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=3 locus=6 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=4 locus=8 h0=1 h1=1
+[PBWTTrace] locus=1 grouping=0 depth=16
+  depth=0 h0:4 h1:4
+  depth=1 h0:6 h1:6
+  depth=2 h0:7 h1:7
+[PBWTTrace] Kbanned groups=1
+[WindowAmbRange] w=0 seg=[0,0] locus=[0,4] amb_range=[0,1] mis_range=[0,-1]
+  [WindowAmbLocus] w=0 locus=0 is_amb=1 is_mis=0
+  [WindowAmbLocus] w=0 locus=1 is_amb=1 is_mis=0
+  [WindowAmbLocus] w=0 locus=2 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=3 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=4 is_amb=0 is_mis=0
+FWD0
+FWD1 seg=0 lf=0 ll=4
+FWD2 after adapters
+FWD3 loop enter abs=0 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+FWD3 loop enter abs=1 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+FWD3 loop enter abs=2 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+[SupersiteEmit] build_view(biallelic) locus=2 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD3 loop enter abs=3 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+[SupersiteEmit] build_view(biallelic) locus=3 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD3 loop enter abs=4 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+[SupersiteEmit] build_view(biallelic) locus=4 emit=0 allele=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteEmit] build_view(biallelic) locus=4 emit=0 allele=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteEmit] build_view(biallelic) locus=3 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_view(biallelic) locus=2 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[PBWTTrace] locus=2 grouping=0 depth=16
+  depth=0 h0:4 h1:4
+  depth=1 h0:6 h1:6
+  depth=2 h0:7 h1:7
+[PBWTTrace] Kbanned groups=1
+[WindowAmbRange] w=0 seg=[0,0] locus=[0,9] amb_range=[0,-1] mis_range=[0,-1]
+  [WindowAmbLocus] w=0 locus=0 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=1 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=2 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=3 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=4 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=5 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=6 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=7 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=8 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=9 is_amb=0 is_mis=0
+[SupersiteSC] sample=supersite_sample anchors_missing=0/5
+[SupersiteSC] sample=supersite_sample no missing supersite anchors (SC cleared)
+FWD0
+FWD1 seg=0 lf=0 ll=9
+FWD2 after adapters
+FWD3 loop enter abs=0 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=0 ss_idx=0 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:1 2:0 3:1 4:0 5:1 6:0 7:1
+FWD5 after build_view has_ss=1 kind=1 emit=1
+[SupersiteEmit] build_match_mask locus=0 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:0 2:1 3:0 4:1 5:0 6:1 7:0
+FWD3 loop enter abs=1 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=1 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=2 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=2 ss_idx=1 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:1 2:0 3:1 4:0 5:1 6:0 7:1
+FWD5 after build_view has_ss=1 kind=1 emit=1
+[SupersiteEmit] build_match_mask locus=2 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:0 2:1 3:0 4:1 5:0 6:1 7:0
+FWD3 loop enter abs=3 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=3 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=4 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=4 ss_idx=2 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD5 after build_view has_ss=1 kind=1 emit=0
+[SupersiteEmit] build_match_mask locus=4 use_split=0 n_cond=16
+  any_match_lane: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD3 loop enter abs=5 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=5 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=6 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=6 ss_idx=3 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD5 after build_view has_ss=1 kind=1 emit=0
+[SupersiteEmit] build_match_mask locus=6 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=7 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=7 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=8 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=8 ss_idx=4 emit=0 anchor_class=1 c0=1 c1=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD5 after build_view has_ss=1 kind=1 emit=0
+[SupersiteEmit] build_match_mask locus=8 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=9 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=9 kind=2 curr_abs_amb=0 curr_abs_mis=0
+[SupersiteEmit] build_view(super) locus=8 ss_idx=4 emit=0 anchor_class=1 c0=1 c1=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteEmit] build_match_mask locus=8 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=7 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=6 ss_idx=3 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=6 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=5 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=4 ss_idx=2 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=4 use_split=0 n_cond=16
+  any_match_lane: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteSibling] stage=BWD locus=3 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=2 ss_idx=1 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=2 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=1 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=0 ss_idx=0 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=0 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteProject] sample=supersite_sample ss_idx=0 locus=0 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=1 locus=2 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=2 locus=4 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=3 locus=6 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=4 locus=8 h0=1 h1=1
+[PBWTTrace] locus=0 grouping=0 depth=16
+  depth=0 h0:3 h1:3
+  depth=1 h0:4 h1:4
+  depth=2 h0:6 h1:6
+[PBWTTrace] Kbanned groups=1
+[WindowAmbRange] w=0 seg=[0,0] locus=[0,4] amb_range=[0,1] mis_range=[0,-1]
+  [WindowAmbLocus] w=0 locus=0 is_amb=1 is_mis=0
+  [WindowAmbLocus] w=0 locus=1 is_amb=1 is_mis=0
+  [WindowAmbLocus] w=0 locus=2 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=3 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=4 is_amb=0 is_mis=0
+FWD0
+FWD1 seg=0 lf=0 ll=4
+FWD2 after adapters
+FWD3 loop enter abs=0 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+FWD3 loop enter abs=1 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+FWD3 loop enter abs=2 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+[SupersiteEmit] build_view(biallelic) locus=2 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD3 loop enter abs=3 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+[SupersiteEmit] build_view(biallelic) locus=3 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD3 loop enter abs=4 rel_off=0
+FWD4 before build_view supersites_enabled=0
+FWD5 after build_view has_ss=0 kind=0 emit=0
+[SupersiteEmit] build_view(biallelic) locus=4 emit=0 allele=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteEmit] build_view(biallelic) locus=4 emit=0 allele=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteEmit] build_view(biallelic) locus=3 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_view(biallelic) locus=2 emit=0 allele=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[PBWTTrace] locus=0 grouping=0 depth=16
+  depth=0 h0:3 h1:3
+  depth=1 h0:4 h1:4
+  depth=2 h0:6 h1:6
+[PBWTTrace] Kbanned groups=1
+[WindowAmbRange] w=0 seg=[0,0] locus=[0,9] amb_range=[0,-1] mis_range=[0,-1]
+  [WindowAmbLocus] w=0 locus=0 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=1 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=2 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=3 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=4 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=5 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=6 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=7 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=8 is_amb=0 is_mis=0
+  [WindowAmbLocus] w=0 locus=9 is_amb=0 is_mis=0
+[SupersiteSC] sample=supersite_sample anchors_missing=0/5
+[SupersiteSC] sample=supersite_sample no missing supersite anchors (SC cleared)
+FWD0
+FWD1 seg=0 lf=0 ll=9
+FWD2 after adapters
+FWD3 loop enter abs=0 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=0 ss_idx=0 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:1 2:0 3:1 4:0 5:1 6:0 7:1
+FWD5 after build_view has_ss=1 kind=1 emit=1
+[SupersiteEmit] build_match_mask locus=0 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:0 2:1 3:0 4:1 5:0 6:1 7:0
+FWD3 loop enter abs=1 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=1 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=2 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=2 ss_idx=1 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:1 2:0 3:1 4:0 5:1 6:0 7:1
+FWD5 after build_view has_ss=1 kind=1 emit=1
+[SupersiteEmit] build_match_mask locus=2 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=3 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=3 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=4 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=4 ss_idx=2 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD5 after build_view has_ss=1 kind=1 emit=0
+[SupersiteEmit] build_match_mask locus=4 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=5 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=5 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=6 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=6 ss_idx=3 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+FWD5 after build_view has_ss=1 kind=1 emit=0
+[SupersiteEmit] build_match_mask locus=6 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=7 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=7 kind=2 curr_abs_amb=0 curr_abs_mis=0
+FWD3 loop enter abs=8 rel_off=0
+FWD4 before build_view supersites_enabled=1
+[SupersiteEmit] build_view(super) locus=8 ss_idx=4 emit=0 anchor_class=1 c0=1 c1=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD5 after build_view has_ss=1 kind=1 emit=0
+[SupersiteEmit] build_match_mask locus=8 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+FWD3 loop enter abs=9 rel_off=0
+FWD4 before build_view supersites_enabled=1
+FWD5 after build_view has_ss=1 kind=2 emit=2
+[SupersiteSibling] stage=FWD locus=9 kind=2 curr_abs_amb=0 curr_abs_mis=0
+[SupersiteEmit] build_view(super) locus=8 ss_idx=4 emit=0 anchor_class=1 c0=1 c1=1
+  lane_class: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteEmit] build_match_mask locus=8 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=7 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=6 ss_idx=3 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=6 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=5 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=4 ss_idx=2 emit=0 anchor_class=1 c0=0 c1=0
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=4 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=3 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=2 ss_idx=1 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=2 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteSibling] stage=BWD locus=1 kind=2 curr_abs_amb=-1 curr_abs_mis=-1
+[SupersiteEmit] build_view(super) locus=0 ss_idx=0 emit=1 anchor_class=1 c0=0 c1=1
+  lane_class: 0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0
+[SupersiteEmit] build_match_mask locus=0 use_split=0 n_cond=16
+  any_match_lane: 0:1 1:1 2:1 3:1 4:1 5:1 6:1 7:1
+[SupersiteProject] sample=supersite_sample ss_idx=0 locus=0 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=1 locus=2 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=2 locus=4 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=3 locus=6 h0=0 h1=0
+[SupersiteProject] sample=supersite_sample ss_idx=4 locus=8 h0=1 h1=1
+Anchor mismatch at locus 0: bial (0|1) vs supersite (0|0)
+Anchor haplotypes diverged during burn3
