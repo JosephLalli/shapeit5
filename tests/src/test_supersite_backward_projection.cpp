@@ -75,7 +75,8 @@ int main() {
     G.double_precision = false; G.haploid = false;
     G.Variants.assign((V.size() + 1) / 2, 0);
     G.Lengths.assign(1, (unsigned short)V.size());
-    G.Diplotypes.assign(1, 1ull);
+    // For missing data: allow all 4 diplotypes (00, 01, 10, 11) = dipcodes 0, 1, 8, 9
+    G.Diplotypes.assign(1, 0x303ull);  // (1<<0) | (1<<1) | (1<<8) | (1<<9)
     VAR_SET_MIS(0, G.Variants[0]);
     VAR_SET_MIS(1, G.Variants[0]);
 
