@@ -604,6 +604,15 @@ int main() {
     // =====================================================================
     SuperSiteContext ctx5 = build_supersites(V5, H5);
     SuperSiteContext ctx10 = build_supersites(V10, H10);
+
+    // Attach supersite context and snapshot immutable base classes (c0/c1) to
+    // mirror production initialization, which emissions now rely on.
+    G5.setSuperSiteContext(&ctx5.super_sites, &ctx5.locus_to_super_idx,
+                            &ctx5.super_site_var_index, nullptr, nullptr, nullptr);
+    G5.snapshotSupersiteBaseClasses(ctx5.super_sites, ctx5.super_site_var_index);
+    G10.setSuperSiteContext(&ctx10.super_sites, &ctx10.locus_to_super_idx,
+                             &ctx10.super_site_var_index, nullptr, nullptr, nullptr);
+    G10.snapshotSupersiteBaseClasses(ctx10.super_sites, ctx10.super_site_var_index);
     
     std::cout << "  5-variant dataset: " << ctx5.super_sites.size() << " supersites detected" << std::endl;
     std::cout << "  10-variant dataset: " << ctx10.super_sites.size() << " supersites detected" << std::endl;

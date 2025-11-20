@@ -310,6 +310,16 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), panel_codes_size(_panel_codes_size), super_site_var_index(_super_site_var_index), cond_idx(&idxH),
     supersite_sc_offset(nullptr),
     supersites_enabled_flag(_super_sites && _locus_to_super_idx && _super_site_var_index && _panel_codes) {
+	// Tests may forget to attach supersite context; do it defensively so emissions
+	// always see immutable base classes (c0/c1) even without explicit setup.
+	if (G && supersites_enabled_flag) {
+		if (!G->super_sites || !G->locus_to_super_idx || !G->super_site_var_index) {
+			G->setSuperSiteContext(super_sites, locus_to_super_idx, super_site_var_index, nullptr, nullptr, nullptr);
+		}
+		if (G->supersite_class_pairs_base.empty()) {
+			G->snapshotSupersiteBaseClasses(*super_sites, *super_site_var_index);
+		}
+	}
 	segment_first = W.start_segment;
 	segment_last = W.stop_segment;
 	locus_first = W.start_locus;
