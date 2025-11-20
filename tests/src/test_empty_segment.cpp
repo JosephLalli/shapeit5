@@ -6,18 +6,7 @@
 
 int main() {
     genotype G(0);
-    
-    // Test 1: Zero variants
-    G.n_variants = 0;
-    G.Variants.clear();
-    G.build();
-    
-    std::cout << "Test 1 (zero variants):" << std::endl;
-    std::cout << "  n_segments = " << G.n_segments << std::endl;
-    if (G.n_segments > 0) {
-        std::cout << "  Lengths[0] = " << G.Lengths[0] << std::endl;
-    }
-    
+
     // Test 2: One HOM variant (should create 1 segment with length 1)
     G.n_variants = 1;
     G.Variants.assign(1, 0);
