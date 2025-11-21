@@ -587,6 +587,13 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 	prev_abs_locus = locus_last;
 	trace_forward_active = false;
 	trace_backward_active = true;
+	const bool has_transition_buffer = !transition_probabilities.empty();
+	const size_t expected_transitions = static_cast<size_t>(G->n_transitions);
+	if (!has_transition_buffer) {
+		assert(expected_transitions == 0);
+	} else {
+		assert(transition_probabilities.size() >= expected_transitions);
+	}
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
@@ -840,17 +847,9 @@ void haplotype_segment_double::SET_FIRST_TRANS(vector < double > & transition_pr
 	const unsigned int n_transitions = G->countDiplotypes(G->Diplotypes[0]);
 	std::vector<double> cprobs(n_transitions, 0.0);
 
-	// Guard: caller must provision at least n_transitions slots.
-	if (transition_probabilities.size() < n_transitions) {
-		if (supersite_trace_enabled_d()) {
-			std::fprintf(stdout,
-			             "SET_FIRST_TRANS double: skip write (insufficient buffer) n_transitions=%u buf_size=%zu\n",
-			             n_transitions, transition_probabilities.size());
-		}
-		curr_abs_transition -= (n_transitions - 1);
-		curr_abs_transition --;
-		return;
-	}
+	// Loudly enforce buffer sizing instead of skipping writes.
+	assert(n_transitions > 0);
+	assert(transition_probabilities.size() >= n_transitions);
 
 	double lane_probs[HAP_NUMBER];
 	bool use_outer = supersites_enabled_flag && !AlphaSum.empty();
@@ -967,20 +966,12 @@ int haplotype_segment_double::SET_OTHER_TRANS(vector < double > & transition_pro
 	unsigned int n_transitions = curr_dipcount * prev_dipcount;
 	double scaleDip = 1.0 / sumDProbs;
 
-	// Bounds check before writing into transition_probabilities.
+	// Loudly enforce buffer sizing instead of skipping writes.
 	const long long start_idx = static_cast<long long>(curr_abs_transition) - static_cast<long long>(n_transitions) + 1;
 	const size_t buf_size = transition_probabilities.size();
-	if (transition_probabilities.empty() ||
-	    start_idx < 0 ||
-	    (static_cast<size_t>(start_idx) + n_transitions) > buf_size) {
-		if (supersite_trace_enabled_d()) {
-			std::fprintf(stdout, "SET_OTHER_TRANS double: skip write (insufficient buffer) start_idx=%lld n_transitions=%u buf_size=%zu\n",
-			             start_idx, n_transitions, buf_size);
-		}
-		curr_abs_transition -= (n_transitions - 1);
-		curr_abs_transition --;
-		return underflow_recovered;
-	}
+	assert(!transition_probabilities.empty());
+	assert(start_idx >= 0);
+	assert(static_cast<size_t>(start_idx) + n_transitions <= buf_size);
 
 	curr_abs_transition -= (n_transitions - 1);
 	for (int t = 0 ; t < n_transitions ; t ++) transition_probabilities[curr_abs_transition + t] = DProbs[t] * scaleDip;

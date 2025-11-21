@@ -782,6 +782,13 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	prev_abs_locus = locus_last;
 	trace_forward_active = false;
 	trace_backward_active = true;
+	const bool has_transition_buffer = !transition_probabilities.empty();
+	const size_t expected_transitions = static_cast<size_t>(G->n_transitions);
+	if (!has_transition_buffer) {
+		assert(expected_transitions == 0);
+	} else {
+		assert(transition_probabilities.size() >= expected_transitions);
+	}
 	trace_backward_table_header_emitted = false;
 	const bool trans_trace = trans_trace_enabled_s();
 	const char* trans_trace_sample = trans_trace_sample_s();
@@ -1101,18 +1108,9 @@ void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_pr
 					 n_transitions, transition_probabilities.size());
 	}
 
-	// Guard: some tests pass an empty transition_probabilities buffer when
-	// they are not inspecting transitions. Avoid out-of-bounds writes.
-	// Nothing to emit if there are no diplotypes in first segment
-	if (n_transitions == 0) {
-		return;
-	}
-	if (transition_probabilities.size() < n_transitions) {
-		if (supersite_trace_enabled()) {
-			std::fprintf(stdout, "SET_FIRST_TRANS single: skip write (insufficient buffer)\n");
-		}
-		return;
-	}
+	// Loudly enforce buffer sizing instead of skipping writes.
+	assert(n_transitions > 0);
+	assert(transition_probabilities.size() >= n_transitions);
 
 	double lane_probs[HAP_NUMBER];
 	bool use_outer = supersites_enabled_flag && !AlphaSum.empty();
@@ -1232,20 +1230,13 @@ int haplotype_segment_single::SET_OTHER_TRANS(vector < double > & transition_pro
 					 curr_abs_transition, n_transitions, transition_probabilities.size());
 	}
 
-	// Guard: avoid out-of-bounds writes if caller did not allocate the
-	// transition buffer (some unit tests do not inspect transitions).
-	if (transition_probabilities.empty() ||
-	    (curr_abs_transition + 1) < 0 ||
-	    (static_cast<size_t>(curr_abs_transition) + n_transitions) > transition_probabilities.size()) {
-		if (supersite_trace_enabled()) {
-			std::fprintf(stdout, "SET_OTHER_TRANS single: skip write (insufficient buffer)\n");
-		}
-		// Maintain internal counters but skip writing.
-		curr_abs_transition -= (n_transitions - 1);
-		curr_abs_transition --;
-		return underflow_recovered;
-	}
-	curr_abs_transition -= (n_transitions - 1);
+	// Loudly enforce buffer sizing instead of silently skipping writes.
+	assert(n_transitions > 0);
+	const int start = curr_abs_transition - static_cast<int>(n_transitions - 1);
+	assert(start >= 0);
+	assert(static_cast<size_t>(start + n_transitions) <= transition_probabilities.size());
+
+	curr_abs_transition = start;
 	for (int t = 0 ; t < n_transitions ; t ++) transition_probabilities[curr_abs_transition + t] = DProbs[t] * scaleDip;
 	curr_abs_transition --;
 	return underflow_recovered;

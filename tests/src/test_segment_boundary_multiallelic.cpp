@@ -76,7 +76,7 @@ void create_test_genotype(genotype& G, int n_variants) {
 // Helper: Create SuperSite structure for testing
 SuperSite create_test_supersite(uint32_t anchor_id, uint32_t var_start, 
                                 uint32_t var_count, uint8_t n_alts) {
-    SuperSite ss;
+    SuperSite ss{};  // zero-initialize to satisfy guard checks (panel_span_bytes, etc.)
     ss.global_site_id = anchor_id;
     ss.panel_offset = 0;  // Will be set properly when needed
     ss.var_start = var_start;
