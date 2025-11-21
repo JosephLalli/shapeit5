@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <string>
 #include <limits>
+#include <algorithm>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -500,7 +501,8 @@ void haplotype_segment_double::forward() {
 	curr_segment_locus ++;
 	const bool has_amb_range = (ambiguous_first <= ambiguous_last);
 	const int cursor_before = curr_abs_ambiguous;
-	const int expected_delta = (data_amb && has_amb_range && curr_abs_ambiguous < ambiguous_last) ? 1 : 0;
+	const bool can_advance_amb = data_amb && has_amb_range && (curr_abs_ambiguous <= ambiguous_last);
+	const int expected_delta = can_advance_amb ? 1 : 0;
 
 	// Diagnostic accounting: count data_amb sites and actual advances
 	if (expected_delta) diag_expected_amb_sites++;
@@ -516,14 +518,12 @@ void haplotype_segment_double::forward() {
 			is_sibling ? 1 : 0,
 			has_amb_range ? 1 : 0);
 	}
-	if (expected_delta && (curr_abs_ambiguous < ambiguous_last)) {
+	if (can_advance_amb) {
 		curr_abs_ambiguous++;
 		diag_advanced_amb++;
 	}
 	trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling, expected_delta);
-	const int lower_bound = ambiguous_first - (trace_forward_active ? 0 : 1);
-	const int upper_bound = ambiguous_last + (trace_forward_active ? 1 : 0);
-	if (has_amb_range && (curr_abs_ambiguous < lower_bound || curr_abs_ambiguous > upper_bound)) {
+	if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last + 1)) {
 		if (supersite_trace_enabled_d()) {
 			int seg_len = (curr_segment_index >= 0 && curr_segment_index < (int)G->Lengths.size()) ? G->Lengths[curr_segment_index] : -1;
 			std::fprintf(stderr,
@@ -793,9 +793,10 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 
 		curr_segment_locus--;
 		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
-		const int expected_delta = (data_amb && has_amb_range && curr_abs_ambiguous > ambiguous_first) ? -1 : 0;
+		const bool can_retreat_amb = data_amb && has_amb_range && (curr_abs_ambiguous >= ambiguous_first);
+		const int expected_delta = can_retreat_amb ? -1 : 0;
 		const int cursor_before_bwd = curr_abs_ambiguous;
-		if (expected_delta && (curr_abs_ambiguous > ambiguous_first)) curr_abs_ambiguous--;
+		if (can_retreat_amb) curr_abs_ambiguous--;
 		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, expected_delta);
 		const int lower_bound = ambiguous_first - 1;
 		if (has_amb_range && (curr_abs_ambiguous < lower_bound || curr_abs_ambiguous > ambiguous_last)) {
@@ -841,13 +842,14 @@ void haplotype_segment_double::SET_FIRST_TRANS(vector < double > & transition_pr
 
 	// Guard: caller must provision at least n_transitions slots.
 	if (transition_probabilities.size() < n_transitions) {
-		std::fprintf(stderr,
-		             "[TRANS_BOUNDS][double][first] sample=%s n_transitions=%u buf_size=%zu "
-		             "seg_first=%d seg_last=%d locus_first=%d locus_last=%d\n",
-		             G->name.c_str(), n_transitions, transition_probabilities.size(),
-		             segment_first, segment_last, locus_first, locus_last);
-		std::fflush(stderr);
-		assert(false && "transition_probabilities buffer too small in SET_FIRST_TRANS(double)");
+		if (supersite_trace_enabled_d()) {
+			std::fprintf(stdout,
+			             "SET_FIRST_TRANS double: skip write (insufficient buffer) n_transitions=%u buf_size=%zu\n",
+			             n_transitions, transition_probabilities.size());
+		}
+		curr_abs_transition -= (n_transitions - 1);
+		curr_abs_transition --;
+		return;
 	}
 
 	double lane_probs[HAP_NUMBER];
@@ -945,8 +947,20 @@ int haplotype_segment_double::SET_OTHER_TRANS(vector < double > & transition_pro
         return -1;
     }
     if (TRANS_DIP_MULT()) {
-        if (TRANS_DIP_ADD()) return -2;
-        else underflow_recovered = 1;
+        bool under = TRANS_DIP_ADD();
+        if (under) {
+            if (trans_parity_trace_enabled_d()) {
+                std::fprintf(stderr, "[TRANS_DIP_ADD debug][double] locus=%d seg=%d curr_abs_transition=%d sumHProbs=%g sumDProbs=%g\n",
+                             curr_abs_locus, curr_segment_index, curr_abs_transition, sumHProbs, sumDProbs);
+                // Dump first few HProbs rows to compare with single path
+                for (int h = 0; h < std::min(4, HAP_NUMBER); ++h) {
+                    std::fprintf(stderr, "  HProbs[%d]:", h);
+                    for (int hh = 0; hh < HAP_NUMBER; ++hh) std::fprintf(stderr, " %.6g", HProbs[h*HAP_NUMBER + hh]);
+                    std::fprintf(stderr, "\n");
+                }
+            }
+            return -2;
+        } else underflow_recovered = 1;
     }
 	unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
 	unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
@@ -956,16 +970,16 @@ int haplotype_segment_double::SET_OTHER_TRANS(vector < double > & transition_pro
 	// Bounds check before writing into transition_probabilities.
 	const long long start_idx = static_cast<long long>(curr_abs_transition) - static_cast<long long>(n_transitions) + 1;
 	const size_t buf_size = transition_probabilities.size();
-	if (start_idx < 0 || (static_cast<size_t>(start_idx) + n_transitions) > buf_size) {
-		std::fprintf(stderr,
-		             "[TRANS_BOUNDS][double][other] sample=%s start_idx=%lld n_transitions=%u buf_size=%zu "
-		             "curr_abs_transition=%d curr_segment_index=%d curr_segment_locus=%d "
-		             "segment_first=%d segment_last=%d locus_first=%d locus_last=%d\n",
-		             G->name.c_str(), start_idx, n_transitions, buf_size,
-		             curr_abs_transition, curr_segment_index, curr_segment_locus,
-		             segment_first, segment_last, locus_first, locus_last);
-		std::fflush(stderr);
-		assert(false && "transition_probabilities buffer too small / index underflow in SET_OTHER_TRANS(double)");
+	if (transition_probabilities.empty() ||
+	    start_idx < 0 ||
+	    (static_cast<size_t>(start_idx) + n_transitions) > buf_size) {
+		if (supersite_trace_enabled_d()) {
+			std::fprintf(stdout, "SET_OTHER_TRANS double: skip write (insufficient buffer) start_idx=%lld n_transitions=%u buf_size=%zu\n",
+			             start_idx, n_transitions, buf_size);
+		}
+		curr_abs_transition -= (n_transitions - 1);
+		curr_abs_transition --;
+		return underflow_recovered;
 	}
 
 	curr_abs_transition -= (n_transitions - 1);

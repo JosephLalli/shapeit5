@@ -38,6 +38,15 @@
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
 
+inline bool trans_parity_trace_enabled_d() {
+	static int flag = -1;
+	if (flag < 0) {
+		const char* env = std::getenv("SHAPEIT5_DEBUG_TRANS_PARITY");
+		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+	}
+	return flag == 1;
+}
+
 class haplotype_segment_double {
 private:
 	//EXTERNAL DATA
@@ -1472,16 +1481,25 @@ inline
 bool haplotype_segment_double::TRANS_DIP_MULT() {
 	sumDProbs= 0.0;
 	double scaling = 1.0 / sumHProbs;
+	int pd_hits = 0, nd_hits = 0, t_hits = 0;
 	for (int pd = 0, t = 0 ; pd < 64 ; ++pd) {
 		if (DIP_GET(G->Diplotypes[curr_segment_index-1], pd)) {
+			pd_hits++;
 			for (int nd = 0 ; nd < 64 ; ++nd) {
 				if (DIP_GET(G->Diplotypes[curr_segment_index], nd)) {
+					if (pd_hits == 1) nd_hits++;
 					DProbs[t] = (((double)HProbs[DIP_HAP0(pd)*HAP_NUMBER+DIP_HAP0(nd)]) * scaling) * ((double)(HProbs[DIP_HAP1(pd)*HAP_NUMBER+DIP_HAP1(nd)]) * scaling);
 					sumDProbs += DProbs[t];
+					t_hits++;
 					t++;
 				}
 			}
 		}
+	}
+	if (trans_parity_trace_enabled_d()) {
+		std::fprintf(stderr, "[TRANS_DIP_MULT debug][double] seg=%d sumHProbs=%g scaling=%g pd_hits=%d nd_hits_first_pd=%d t_hits=%d sumDProbs=%g firstD=%g\n",
+		             curr_segment_index, sumHProbs, scaling, pd_hits, nd_hits, t_hits, sumDProbs, (t_hits>0?DProbs[0]:-1.0));
+		std::fflush(stderr);
 	}
 	return (std::isnan(sumDProbs) || std::isinf(sumDProbs) || sumDProbs < std::numeric_limits<double>::min());
 }

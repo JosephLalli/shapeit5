@@ -29,6 +29,7 @@
 #include <cstdio>
 #include <string>
 #include <limits>
+#include <algorithm>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -1216,6 +1217,16 @@ int haplotype_segment_single::SET_OTHER_TRANS(vector < double > & transition_pro
 	unsigned int n_transitions = curr_dipcount * prev_dipcount;
 	double scaleDip = 1.0 / sumDProbs;
 
+	if (trans_parity_trace_enabled_s()) {
+		std::fprintf(stderr, "[TRANS_DIP_ADD debug][single] locus=%d seg=%d curr_abs_transition=%d sumHProbs=%g sumDProbs=%g\n",
+		             curr_abs_locus, curr_segment_index, curr_abs_transition, sumHProbs, sumDProbs);
+		for (int h = 0; h < std::min(4, HAP_NUMBER); ++h) {
+			std::fprintf(stderr, "  HProbs[%d]:", h);
+			for (int hh = 0; hh < HAP_NUMBER; ++hh) std::fprintf(stderr, " %.6g", HProbs[h*HAP_NUMBER + hh]);
+			std::fprintf(stderr, "\n");
+		}
+		std::fflush(stderr);
+	}
 	if (supersite_trace_enabled()) {
 		std::fprintf(stdout, "SET_OTHER_TRANS single: curr_abs_transition=%d n_transitions=%u buf_size=%zu\n",
 					 curr_abs_transition, n_transitions, transition_probabilities.size());

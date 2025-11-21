@@ -44,6 +44,8 @@ static void init_genotype(genotype& G,
     G.Lengths.assign(G.n_segments, 0);
     for (size_t i = 0; i < segment_lengths.size(); ++i) {
         G.Lengths[i] = segment_lengths[i];
+        // Production builds seed each segment with a full diplotype mask; mirror that to exercise transitions.
+        G.Diplotypes[i] = 0xFFFFFFFFFFFFFFFFULL;
     }
     G.ProbMask.clear();
     G.ProbStored.clear();
@@ -224,6 +226,7 @@ int main() {
     std::vector<float> missing_double(G.n_missing * HAP_NUMBER, 0.0f);
     int recover_double = HD.backward(trans_double, missing_double);
 
+    std::cerr << "recover_single=" << recover_single << " recover_double=" << recover_double << std::endl;
     assert(recover_single == recover_double);
     assert(trans_single.size() == trans_double.size());
     for (size_t i = 0; i < trans_single.size(); ++i) {
