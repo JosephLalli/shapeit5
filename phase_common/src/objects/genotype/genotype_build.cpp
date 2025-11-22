@@ -141,9 +141,8 @@ void genotype::build() {
 	//2. Build Segments (same logic as loop 1, with same sibling boundary fix)
 	n_rel_unf = 0; n_rel_var = 0; n_rel_sca = 0; n_abs_seg = 0; n_abs_amb = 0; n_rel_amb = 0; n_abs_mis = 0;
 	unsigned int n_rel_var_eff = 0; // effective biological length (anchors count as 1)
-	unsigned int n_rel_var_real = 0; // real span including siblings
-	Lengths = vector < unsigned short > (n_segments, 0U);
-	std::vector<unsigned short> Lengths_real(n_segments, 0U);
+	Lengths = vector < unsigned short > (n_segments, 0U);      // raw variant span
+	Lengths_bio = vector < unsigned short > (n_segments, 0U);  // biological span
 
 	for (unsigned int v = 0 ; v < n_variants ;) {
 		unsigned char var_code = Variants[DIV2(v)];
@@ -178,8 +177,16 @@ void genotype::build() {
 		unsigned int predicted_unfold = n_rel_unf + f_het_for_boundary + (n_rel_sca||f_sca_for_boundary);
 		if (predicted_unfold == 4 || (n_rel_var_eff >= (std::numeric_limits<unsigned short>::max() - eff_len + 1)) || (n_rel_amb == MAX_AMB)) {
 			// Segment boundary
-			Lengths[n_abs_seg] = n_rel_var_eff;        // biological span (anchors=1)
-			Lengths_real[n_abs_seg] = n_rel_var;       // real span (includes siblings)
+#if !defined(__OPTIMIZE__)
+			if (n_rel_var > std::numeric_limits<unsigned short>::max()) {
+				std::fprintf(stderr, "[SEGMENT_OVERFLOW] Sample=%s: raw segment length=%u exceeds uint16_t at v=%u\n",
+				             name.c_str(), n_rel_var, v);
+				std::fflush(stderr);
+				std::abort();
+			}
+#endif
+			Lengths[n_abs_seg] = n_rel_var;            // raw span (includes siblings)
+			Lengths_bio[n_abs_seg] = n_rel_var_eff;    // biological span (anchors=1)
 			// ASSERTION: Detect empty segment creation that would cause underflow
 			if (n_rel_var == 0 && n_abs_seg > 0) {
 				std::fprintf(stderr, "[EMPTY_SEGMENT_ERROR] Sample=%s: Created empty segment %u at variant v=%u\n",
@@ -196,7 +203,6 @@ void genotype::build() {
 			n_rel_sca = 0;
 			n_rel_var = 0;
 			n_rel_var_eff = 0;
-			n_rel_var_real = 0;
 			n_rel_amb = 0;
 			n_abs_seg++;
 		} else {
@@ -207,12 +213,19 @@ void genotype::build() {
 			n_abs_mis += f_mis;
 			n_rel_var += var_len;       // real span for storage and indexing
 			n_rel_var_eff += eff_len;   // effective span for boundary decisions
-			n_rel_var_real += var_len;
 			v += var_len;
 		}
 	}
-	Lengths[n_abs_seg] = n_rel_var_eff;
-	Lengths_real[n_abs_seg] = n_rel_var;
+	Lengths[n_abs_seg] = n_rel_var;
+	Lengths_bio[n_abs_seg] = n_rel_var_eff;
+#if !defined(__OPTIMIZE__)
+	if (n_rel_var > std::numeric_limits<unsigned short>::max()) {
+		std::fprintf(stderr, "[SEGMENT_OVERFLOW] Sample=%s: final raw segment length=%u exceeds uint16_t (n_variants=%u)\n",
+		             name.c_str(), n_rel_var, n_variants);
+		std::fflush(stderr);
+		std::abort();
+	}
+#endif
 	// ASSERTION: Detect final empty segment creation
 	if (n_rel_var == 0 && n_abs_seg > 0) {
 		std::fprintf(stderr, "[EMPTY_SEGMENT_ERROR] Sample=%s: Created final empty segment %u (total n_variants=%u)\n",
@@ -229,7 +242,7 @@ void genotype::build() {
 	Ambiguous = vector < unsigned char >(n_ambiguous, 0U);
 	vector < unsigned char > orderedSegments = vector < unsigned char >(n_segments, 0);
 	for (unsigned int s = 0, a0 = 0, a1 = 0, a2 = 0, vabs = 0 ; s < n_segments ; s ++) {
-		for (unsigned int vrel = 0 ; vrel < Lengths_real[s] ; vrel ++) {
+		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
 			unsigned int v_idx = vabs + vrel;
 			unsigned char var_code = Variants[DIV2(v_idx)];
 			bool f_sca = VAR_GET_SCA(MOD2(v_idx), var_code);
@@ -251,7 +264,7 @@ void genotype::build() {
 			a0 += (f_sca||f_het);
 		}
 		unsigned int n_unf = orderedSegments[s];
-		for (unsigned int vrel = 0 ; vrel < Lengths_real[s] ; vrel ++) {
+		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
 			unsigned int v_idx = vabs + vrel;
 			unsigned char var_code = Variants[DIV2(v_idx)];
 			bool f_sca = VAR_GET_SCA(MOD2(v_idx), var_code);
@@ -272,15 +285,15 @@ void genotype::build() {
 			}
 			a1 += (f_sca||f_het);
 		}
-		vabs += Lengths_real[s];
+		vabs += Lengths[s];
 	}
 
 	//4. Build Diplotypes
 	Diplotypes = vector < unsigned long > (n_segments);
 	for (unsigned int s = 0, vabs = 0, a = 0 ; s < n_segments ; s ++) {
 		unsigned int n_unf = orderedSegments[s];
-		Diplotypes[s]=n_unf?MASK_SCAF:MASK_INIT;
-		for (unsigned int vrel = 0 ; vrel < Lengths_real[s] ; vrel ++) {
+		Diplotypes[s] = n_unf ? MASK_SCAF : MASK_INIT;
+		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
 			unsigned int v_idx = vabs + vrel;
 			unsigned char var_code = Variants[DIV2(v_idx)];
 			bool f_het = VAR_GET_HET(MOD2(v_idx), var_code);
@@ -299,7 +312,7 @@ void genotype::build() {
 			}
 			n_unf += f_het;
 		}
-		for (unsigned int vrel = 0 ; vrel < Lengths_real[s] ; vrel ++) {
+		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
 			unsigned int v_idx = vabs + vrel;
 			unsigned char var_code = Variants[DIV2(v_idx)];
 			SuperSiteContext ctx = getSuperSiteContext(v_idx);
@@ -311,7 +324,7 @@ void genotype::build() {
 			a += is_amb;
 		}
 
-		vabs += Lengths_real[s];
+		vabs += Lengths[s];
 	}
 
 	//5. Count transitions

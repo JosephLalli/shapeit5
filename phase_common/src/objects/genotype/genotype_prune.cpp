@@ -148,10 +148,12 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 	vector < unsigned char > Ambiguous2 = vector < unsigned char > (Ambiguous.size(), 0);
 	vector < unsigned long > Diplotypes2;
 	vector < unsigned short > Lengths2;
+	vector < unsigned short > Lengths_bio2;
 	unsigned int n_segments2 = n_segments;
 	for (int s = 0 ; s < flagMerges.size() ; s++) n_segments2 -= flagMerges[s];
 	Diplotypes2.reserve(n_segments2);
 	Lengths2.reserve(n_segments2);
+	Lengths_bio2.reserve(n_segments2);
 
 	//Step1: initialize cursors
 	unsigned int prev_dipcount = countDiplotypes(Diplotypes[0]);
@@ -182,6 +184,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		if (flagMerges[s]) {
 			//cout << name << " M " << aoffset << endl;
 			Lengths2.push_back(Lengths[s-1]+Lengths[s]);
+			Lengths_bio2.push_back(Lengths_bio[s-1]+Lengths_bio[s]);
 			Diplotypes2.push_back(0x0000000000000000UL);
 			for (int t = 0 ; t < n_curr_transitions ; t ++) { vecTransitions[t].prob = currProbs[toffset + t]; vecTransitions[t].idx = t; }
 			sort(vecTransitions.begin(), vecTransitions.begin() + n_curr_transitions);
@@ -233,6 +236,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 				}
 			}
 			Lengths2.push_back(Lengths[s-1]);
+			Lengths_bio2.push_back(Lengths_bio[s-1]);
 			Diplotypes2.push_back(Diplotypes[s-1]);
 		}
 
@@ -251,6 +255,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 			}
 		}
 		Lengths2.push_back(Lengths.back());
+		Lengths_bio2.push_back(Lengths_bio.back());
 		Diplotypes2.push_back(Diplotypes.back());
 	}
 
@@ -258,6 +263,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 	Ambiguous = Ambiguous2;
 	Diplotypes = Diplotypes2;
 	Lengths = Lengths2;
+	Lengths_bio = Lengths_bio2;
 	n_segments = n_segments2;
 	n_transitions = countTransitions();
 

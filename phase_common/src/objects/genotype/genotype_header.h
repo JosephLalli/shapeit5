@@ -126,7 +126,8 @@ public:
 	std::vector < unsigned char > Variants;		// 0.5 byte per variant
 	std::vector < unsigned char > Ambiguous;	// 1 byte per ambiguous variant
 	std::vector < unsigned long > Diplotypes;	// 8 bytes per segment
-	std::vector < unsigned short > Lengths;		// 2 bytes per segment
+	std::vector < unsigned short > Lengths;		// Raw variant span per segment (anchors count all splits)
+	std::vector < unsigned short > Lengths_bio;	// Biological span per segment (anchors=1)
 
 	//PHASE PROBS
 	std::vector < bool > ProbMask;

@@ -128,6 +128,7 @@ void genotype::free() {
 	vector < unsigned char > ().swap(Ambiguous);
 	vector < unsigned long > ().swap(Diplotypes);
 	vector < unsigned short > ().swap(Lengths);
+	vector < unsigned short > ().swap(Lengths_bio);
 	vector < uint8_t > ().swap(supersite_flags);
 	vector < uint8_t > ().swap(supersite_class_pairs);
 	vector < uint8_t > ().swap(supersite_class_pairs_base);

@@ -41,9 +41,12 @@ int window_set::size() {
 	return W.size();
 }
 
-bool window_set::split(double min_length_cm, int left_index, int right_index, vector < int > & idx_sta, vector < int > & idx_sto, vector < double > & ccm_sta, vector < double > & ccm_sto, vector < int > & output) {
+bool window_set::split(double min_length_cm, int left_index, int right_index,
+                       vector < int > & idx_sta, vector < int > & idx_sto,
+                       vector < int > & bio_idx_sta, vector < int > & bio_idx_sto,
+                       vector < double > & ccm_sta, vector < double > & ccm_sto, vector < int > & output) {
 	int number_of_segments = right_index-left_index+1;
-	int number_of_variants = idx_sto[right_index] - idx_sta[left_index] + 1;
+	int number_of_variants = bio_idx_sto[right_index] - bio_idx_sta[left_index] + 1;
 	double length_of_region = ccm_sto[right_index] - ccm_sta[left_index];
 
 	//A phasing window must (i) span >=4 segments, (ii) contain >= 100 variants and (iii) span more than "min_length_cm" cM
@@ -51,8 +54,8 @@ bool window_set::split(double min_length_cm, int left_index, int right_index, ve
 	else {
 		int split_point = rng.getInt(number_of_segments/2) + number_of_segments/4 + 1;
 		vector <  int > left_output, right_output;
-		bool ret1 = split(min_length_cm, left_index, left_index + split_point, idx_sta, idx_sto, ccm_sta, ccm_sto, left_output);
-		bool ret2 = split(min_length_cm, left_index + split_point, right_index, idx_sta, idx_sto, ccm_sta, ccm_sto, right_output);
+		bool ret1 = split(min_length_cm, left_index, left_index + split_point, idx_sta, idx_sto, bio_idx_sta, bio_idx_sto, ccm_sta, ccm_sto, left_output);
+		bool ret2 = split(min_length_cm, left_index + split_point, right_index, idx_sta, idx_sto, bio_idx_sta, bio_idx_sto, ccm_sta, ccm_sto, right_output);
 
 		if (ret1 && ret2) {
 			//succesful split, so operate it
@@ -95,6 +98,8 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 	//1. Mapping coordinates of each segment
 	vector < unsigned int > loc_idx = vector < unsigned int >(g->n_segments, 0);
 	vector < unsigned int > loc_siz = vector < unsigned int >(g->n_segments, 0);
+	vector < unsigned int > bio_loc_idx = vector < unsigned int >(g->n_segments, 0);
+	vector < unsigned int > bio_loc_siz = vector < unsigned int >(g->n_segments, 0);
 	vector < unsigned int > amb_idx = vector < unsigned int >(g->n_segments, 0);
 	vector < unsigned int > amb_siz = vector < unsigned int >(g->n_segments, 0);
 	vector < unsigned int > mis_idx = vector < unsigned int >(g->n_segments, 0);
@@ -105,9 +110,11 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 	vector < double > ccm_sto = vector < double >(g->n_segments, 0);
 	vector < int > idx_sta = vector < int >(g->n_segments, 0);
 	vector < int > idx_sto = vector < int >(g->n_segments, 0);
+	vector < int > bio_idx_sta = vector < int >(g->n_segments, 0);
+	vector < int > bio_idx_sto = vector < int >(g->n_segments, 0);
 
 	unsigned int prev_dipcounts = 1, curr_dipcounts = 0;
-	for (unsigned int s = 0, a = 0, t = 0, v = 0, m = 0 ; s < g->n_segments ; s ++) {
+	for (unsigned int s = 0, a = 0, t = 0, v = 0, vb = 0, m = 0 ; s < g->n_segments ; s ++) {
 		//update a
 		amb_idx[s] = a;
 		for (unsigned int vrel = 0 ; vrel < g->Lengths[s] ; vrel ++) {
@@ -126,9 +133,15 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 		loc_idx[s] = v;
 		loc_siz[s] = g->Lengths[s];
 		v += loc_siz[s];
+		//update bio v
+		bio_loc_idx[s] = vb;
+		bio_loc_siz[s] = g->Lengths_bio.empty() ? g->Lengths[s] : g->Lengths_bio[s];
+		vb += bio_loc_siz[s];
 		//update idx
 		idx_sta[s] = loc_idx[s];
 		idx_sto[s] = loc_idx[s]+loc_siz[s]-1;
+		bio_idx_sta[s] = bio_loc_idx[s];
+		bio_idx_sto[s] = bio_loc_idx[s] + bio_loc_siz[s] - 1;
 		//update ccm
 		ccm_sta[s] = V.vec_pos[idx_sta[s]]->cm;
 		ccm_sto[s] = V.vec_pos[idx_sto[s]]->cm;
@@ -144,7 +157,7 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 	vector < int > output;
 	output.push_back(0);
 	output.push_back(g->n_segments-1);
-	split(min_window_size, 0, g->n_segments-1, idx_sta, idx_sto, ccm_sta, ccm_sto, output);
+	split(min_window_size, 0, g->n_segments-1, idx_sta, idx_sto, bio_idx_sta, bio_idx_sto, ccm_sta, ccm_sto, output);
 	int n_windows = output.size()/2;
 
 	//3. Update coordinates
