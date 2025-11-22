@@ -58,7 +58,8 @@ int main() {
     G.haploid = false;
     G.Variants.assign((V.size() + 1)/2, 0);
     G.Lengths.assign(1, (unsigned short)V.size());
-    G.Diplotypes.assign(1, 0);
+    // Allow all diplotypes so DipSampled=1 is valid without running build()
+    G.Diplotypes.assign(1, 0xFFFFFFFFFFFFFFFFULL);
     VAR_SET_MIS(0, G.Variants[0]);
     VAR_SET_MIS(1, G.Variants[0]);
 
@@ -107,4 +108,3 @@ int main() {
     std::cout << "✓ SUCCESS: Mutual exclusivity enforced across split records" << std::endl;
     return 0;
 }
-

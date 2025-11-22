@@ -28,7 +28,16 @@
 using namespace std;
 
 void genotype::sample(vector < double > & CurrentTransProbabilities, vector < float > & CurrentMissingProbabilities) {
-	if (rng.getDouble() < 0.5f) sampleForward(CurrentTransProbabilities, CurrentMissingProbabilities);
+	const bool use_forward = (rng.getDouble() < 0.5f);
+	const bool trace_sample = []() {
+		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
+		return env && env[0] != '\0' && env[0] != '0';
+	}();
+	if (trace_sample) {
+		std::fprintf(stderr, "[SAMPLE_PATH] sample=%s direction=%s n_segments=%u\n",
+		             name.c_str(), use_forward ? "forward" : "backward", n_segments);
+	}
+	if (use_forward) sampleForward(CurrentTransProbabilities, CurrentMissingProbabilities);
 	else sampleBackward(CurrentTransProbabilities, CurrentMissingProbabilities);
 }
 
@@ -38,6 +47,10 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 	unsigned int curr_dipcount = 0, prev_dipcount = 1;
 	vector < double > currProbs = vector < double > (64, 0.0);
 	vector < unsigned char > DipSampled = vector < unsigned char >(n_segments, 0);
+	const bool trace_sample = []() {
+		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
+		return env && env[0] != '\0' && env[0] != '0';
+	}();
 	const size_t trans_buf_size = CurrentTransProbabilities.size();
 	for (unsigned int s = 0, toffset = 0 ; s < n_segments ; s ++) {
 		sumProbs = 0.0;
@@ -64,18 +77,54 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 				             i, currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
 			}
 		}
+		// Targeted transition dump for segment 3 divergence
+		if (trace_sample && n_segments > 1 && s == 3) {
+			std::array<unsigned char, 64> prev_codes{};
+			if (s >= 1) {
+				unsigned int idx = 0;
+				for (unsigned int d = 0; d < 64; ++d) {
+					if (DIP_GET(Diplotypes[s-1], d)) prev_codes[idx++] = static_cast<unsigned char>(d);
+				}
+			}
+			unsigned char prev_dipcode = (s>=1 && prev_sampled < prev_dipcount) ? prev_codes[prev_sampled] : 0;
+			std::fprintf(stderr, "[SAMPLE_DEBUG_TRANS] sample=%s dir=forward seg=%u prev_seg_code=%u prev_sampled=%u prev_dipcount=%u toffset=%u dip_mask=0x%016llx\n",
+			             name.c_str(), s, (unsigned)prev_dipcode, prev_sampled, prev_dipcount, toffset,
+			             static_cast<unsigned long long>(Diplotypes[s]));
+			for (unsigned int i = 0; i < curr_dipcount; ++i) {
+				unsigned int tabs = toffset + prev_sampled * curr_dipcount + i;
+				std::fprintf(stderr, "  trans[%u] code=%u prob=%.15f\n",
+				             tabs, static_cast<unsigned>(curr_dipcodes[i]), CurrentTransProbabilities[tabs]);
+			}
+		}
 
 		prev_sampled = rng.sample(currProbs, sumProbs);
 
 		makeDiplotypes(Diplotypes[s]);
 		unsigned char selected_dipcode = curr_dipcodes[prev_sampled];
 
-		// SAMPLE TRACE: Log selected index after drawing
-		if (supersite_trace_enabled() && s == 0) {
+		// Targeted debug for dipcode divergence (burn3, repeat_factor=8, segment 3)
+		if (trace_sample && n_segments > 1 && s == 3) {
+			std::fprintf(stderr, "[SAMPLE_DEBUG_DIP] sample=%s dir=forward seg=%u dipcount=%u toffset=%u dip_mask=0x%016llx\n",
+			             name.c_str(), s, curr_dipcount, toffset, static_cast<unsigned long long>(Diplotypes[s]));
+			double cumulative = 0.0;
+			for (unsigned int i = 0; i < curr_dipcount; ++i) {
+				cumulative += currProbs[i];
+				std::fprintf(stderr, "  dip[%u] code=%u prob=%.15f norm=%.15f cum=%.15f\n",
+				             i, static_cast<unsigned>(curr_dipcodes[i]), currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
+			}
 			unsigned char hap0 = (selected_dipcode >> 3);
 			unsigned char hap1 = (selected_dipcode & 7);
 			std::fprintf(stderr, "  selected_idx=%u dipcode=%u hap0=%u hap1=%u\n",
 			             prev_sampled, (unsigned)selected_dipcode, (unsigned)hap0, (unsigned)hap1);
+		}
+
+		// SAMPLE TRACE: Log selected index after drawing (all segments when tracing)
+		if (trace_sample) {
+			unsigned char hap0 = (selected_dipcode >> 3);
+			unsigned char hap1 = (selected_dipcode & 7);
+			std::fprintf(stderr, "[SAMPLE_FWD_PICK] sample=%s seg=%u selected_idx=%u dipcode=%u hap0=%u hap1=%u\n",
+			             name.c_str(), s, prev_sampled, static_cast<unsigned>(selected_dipcode),
+			             static_cast<unsigned>(hap0), static_cast<unsigned>(hap1));
 		}
 
 		DipSampled[s] = selected_dipcode;
@@ -89,6 +138,13 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 		}
 		toffset += prev_dipcount * curr_dipcount;
 		prev_dipcount = curr_dipcount;
+	}
+	if (trace_sample) {
+		std::fprintf(stderr, "[SAMPLE_DEBUG] sample=%s direction=forward n_segments=%u dip_mask=0x%016llx DipSampled0=%u\n",
+		             name.c_str(),
+		             n_segments,
+		             static_cast<unsigned long long>(n_segments ? Diplotypes[0] : 0),
+		             n_segments ? static_cast<unsigned>(DipSampled[0]) : 0);
 	}
 	make(DipSampled, CurrentMissingProbabilities);
 
@@ -128,6 +184,52 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 	vector < double > currProbs;
 	vector < unsigned char > DipSampled = vector < unsigned char >(n_segments, 0);
 	const size_t trans_buf_size = CurrentTransProbabilities.size();
+
+	const bool trace_sample = []() {
+		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
+        return env && env[0] != '\0' && env[0] != '0';
+	}();
+	if (trace_sample) {
+		std::fprintf(stdout, "[SAMPLE_BWD_ENTRY] sample=%s n_segments=%u\n", name.c_str(), n_segments);
+		std::fflush(stdout);
+	}
+
+	if (n_segments == 1) {
+		// Single-segment genotypes skip the backward loop entirely. Sample directly
+		// from the first transition block so make() receives a valid dipcode instead
+		// of the default zero (which is often disallowed by the diplotype mask).
+		curr_dipcount = countDiplotypes(Diplotypes[0]);
+		currProbs.assign(curr_dipcount, 0.0);
+		for (unsigned int tabs = 0; tabs < curr_dipcount; ++tabs) {
+			if (tabs >= trans_buf_size) {
+				std::fprintf(stderr,
+				             "[TRANS_READ_OOB][sampleBackward] sample=%s segment=0 tabs=%u buf_size=%zu curr_dipcount=%u n_segments=%u n_transitions=%u\n",
+				             name.c_str(), tabs, trans_buf_size, curr_dipcount, n_segments, n_transitions);
+				std::fflush(stderr);
+				std::abort();
+			}
+			sumProbs += (currProbs[tabs] = CurrentTransProbabilities[tabs]);
+		}
+		next_sampled = rng.sample(currProbs, sumProbs);
+		if (next_sampled < 0 || next_sampled >= static_cast<int>(curr_dipcount)) {
+			std::fprintf(stderr,
+			             "[SAMPLE_IDX_OOB][sampleBackward-single] sample=%s sampled_idx=%d curr_dipcount=%u buf_size=%zu\n",
+			             name.c_str(), next_sampled, curr_dipcount, trans_buf_size);
+			std::fflush(stderr);
+			std::abort();
+		}
+		makeDiplotypes(Diplotypes[0]);
+		DipSampled[0] = curr_dipcodes[next_sampled];
+		if (trace_sample) {
+			std::fprintf(stderr, "[SAMPLE_DEBUG] sample=%s direction=backward-single n_segments=%u dip_mask=0x%016llx DipSampled0=%u\n",
+			             name.c_str(),
+			             n_segments,
+			             static_cast<unsigned long long>(n_segments ? Diplotypes[0] : 0),
+			             n_segments ? static_cast<unsigned>(DipSampled[0]) : 0);
+		}
+		make(DipSampled, CurrentMissingProbabilities);
+		return;
+	}
 
 	for (int s = n_segments - 2, toffset = n_transitions ; s >= 0 ; s --) {
 		sumProbs = 0.0;
@@ -171,12 +273,13 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 			makeDiplotypes(Diplotypes[s]);
 			unsigned char selected_dipcode = curr_dipcodes[next_sampled];
 
-			// SAMPLE TRACE: Log selected index after drawing
-			if (supersite_trace_enabled() && s == 0) {
+			// SAMPLE TRACE: Log selected index after drawing (all segments when tracing)
+			if (trace_sample) {
 				unsigned char hap0 = (selected_dipcode >> 3);
 				unsigned char hap1 = (selected_dipcode & 7);
-				std::fprintf(stderr, "  selected_idx=%d dipcode=%u hap0=%u hap1=%u\n",
-				             next_sampled, (unsigned)selected_dipcode, (unsigned)hap0, (unsigned)hap1);
+				std::fprintf(stderr, "[SAMPLE_BWD_PICK] sample=%s seg=%d selected_idx=%d dipcode=%u hap0=%u hap1=%u\n",
+				             name.c_str(), s, next_sampled, static_cast<unsigned>(selected_dipcode),
+				             static_cast<unsigned>(hap0), static_cast<unsigned>(hap1));
 			}
 
 			DipSampled[s] = selected_dipcode;
@@ -244,6 +347,13 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 			}
 		}
 		next_dipcount = curr_dipcount;
+	}
+	if (trace_sample) {
+		std::fprintf(stderr, "[SAMPLE_DEBUG] sample=%s direction=backward n_segments=%u dip_mask=0x%016llx DipSampled0=%u\n",
+		             name.c_str(),
+		             n_segments,
+		             static_cast<unsigned long long>(n_segments ? Diplotypes[0] : 0),
+		             n_segments ? static_cast<unsigned>(DipSampled[0]) : 0);
 	}
 	make(DipSampled, CurrentMissingProbabilities);
 

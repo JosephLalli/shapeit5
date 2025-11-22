@@ -189,6 +189,7 @@ void genotype::getSupersiteBaseClassPair(int ss_idx, uint8_t& class0, uint8_t& c
 		if (offset + 1 < supersite_class_pairs_base.size()) {
 			class0 = supersite_class_pairs_base[offset];
 			class1 = supersite_class_pairs_base[offset + 1];
+            canonicalize_class_pair(class0, class1);
 			return;
 		}
 	}
@@ -196,6 +197,7 @@ void genotype::getSupersiteBaseClassPair(int ss_idx, uint8_t& class0, uint8_t& c
 	const SuperSite& ss = (*super_sites)[ss_idx];
 	class0 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 0);
 	class1 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 1);
+    canonicalize_class_pair(class0, class1);
 }
 
 bool genotype::supersiteIsAmbiguous(int ss_idx) const {
@@ -233,6 +235,7 @@ void genotype::snapshotSupersiteBaseClasses(const std::vector<SuperSite>& super_
 		const SuperSite& ss = super_sites_ref[ss_idx];
 		uint8_t class0 = getSampleSuperSiteAlleleCode(this, ss, super_site_var_index_ref, 0);
 		uint8_t class1 = getSampleSuperSiteAlleleCode(this, ss, super_site_var_index_ref, 1);
+        canonicalize_class_pair(class0, class1);
 		const size_t offset = supersite_pair_offset(static_cast<int>(ss_idx));
 		supersite_class_pairs_base[offset] = class0;
 		supersite_class_pairs_base[offset + 1] = class1;
@@ -355,7 +358,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                             break;
                         }
                     }
-                    if (cumsum1 < r1) {
+					if (cumsum1 < r1) {
                         h1 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
                     }
 
@@ -382,21 +385,34 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                     for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
                         unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
                         uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
+                        unsigned char& split_byte = Variants[DIV2(split_vabs)];
                         
                         // Set hap0
                         if (h0 == alt_class) {
-                            VAR_SET_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                            VAR_SET_HAP0(MOD2(split_vabs), split_byte);
                             alt_count_h0++;
                         } else {
-                            VAR_CLR_HAP0(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                            VAR_CLR_HAP0(MOD2(split_vabs), split_byte);
                         }
                         
                         // Set hap1
                         if (h1 == alt_class) {
-                            VAR_SET_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                            VAR_SET_HAP1(MOD2(split_vabs), split_byte);
                             alt_count_h1++;
                         } else {
-                            VAR_CLR_HAP1(MOD2(split_vabs), Variants[DIV2(split_vabs)]);
+                            VAR_CLR_HAP1(MOD2(split_vabs), split_byte);
+                        }
+
+                        // Keep anchor flagged missing if desired for emission semantics; clear MIS on siblings so
+                        // downstream class readers can see the imputed allele.
+                        if (split_vabs != ss.global_site_id) {
+                            if (h0 == alt_class && h1 == alt_class) {
+                                VAR_SET_HOM(MOD2(split_vabs), split_byte);
+                            } else if (h0 == alt_class || h1 == alt_class) {
+                                VAR_SET_HET(MOD2(split_vabs), split_byte);
+                            } else {
+                                VAR_SET_HOM(MOD2(split_vabs), split_byte);
+                            }
                         }
                     }
 					if (supersite_trace_enabled()) {

@@ -110,6 +110,14 @@ private:
 	float g0[HAP_NUMBER], g1[HAP_NUMBER];
 	float nt, yt;
 
+	// Lane weights helpers for first-transition seeding
+	struct LaneWeights {
+		float match[HAP_NUMBER];
+		float neither;
+	};
+	LaneWeights compute_lane_match_weights(const SiteView& site_view) const;
+	void build_lane_priors_first(const SiteView& site_view, double lane_probs[HAP_NUMBER], bool use_outer_prod) const;
+
 	//SUPER-SITE SUPPORT
 	const std::vector<SuperSite>* super_sites;
 	const std::vector<bool>* is_super_site;

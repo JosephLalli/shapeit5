@@ -69,6 +69,20 @@ static const char* trans_trace_sample_s() {
 
 } // namespace
 
+namespace {
+// Map lane -> desired class for supersites; for biallelic, lane_class is 0/1
+inline uint8_t lane_expected_class(const SiteView& sv, int lane) {
+	switch (sv.kind) {
+		case SiteKind::SuperAnchor:
+		case SiteKind::SuperSibling:
+			return sv.lane_class[lane];
+		case SiteKind::Biallelic:
+		default:
+			return sv.lane_class[lane];
+	}
+}
+}
+
 // Sibling bookkeeping: update trace, maintain cursor/index sanity, no DP math
 void haplotype_segment_single::handle_sibling_bookkeeping(const SiteView& site_view) {
 	// Only log ambiguous cursor for a sibling locus using a neutral stage label
@@ -1095,14 +1109,71 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		curr_segment_index = segment_first;
 		curr_segment_locus = 0;
 		curr_abs_locus = locus_first;
-		trace_backward_active = false;
-		return n_underflow_recovered;
+	trace_backward_active = false;
+	return n_underflow_recovered;
+}
+
+haplotype_segment_single::LaneWeights haplotype_segment_single::compute_lane_match_weights(const SiteView& site_view) const {
+	LaneWeights lw{};
+	for (int h = 0; h < HAP_NUMBER; ++h) lw.match[h] = 0.0f;
+	lw.neither = 0.0f;
+
+	for (unsigned int k = 0; k < n_cond_haps; ++k) {
+		const uint8_t donor_code = (site_view.kind == SiteKind::SuperAnchor || site_view.kind == SiteKind::SuperSibling)
+			? ss_cond_codes[k]
+			: Hvar.get(locus_first, k);
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			const uint8_t want = lane_expected_class(site_view, h);
+			if (donor_code == want) {
+				lw.match[h] += 1.0f;
+			} else {
+				lw.neither += 1.0f;
+			}
+		}
+	}
+	return lw;
+}
+
+void haplotype_segment_single::build_lane_priors_first(const SiteView& site_view, double lane_probs[HAP_NUMBER], bool use_outer_prod) const {
+	LaneWeights lw = compute_lane_match_weights(site_view);
+
+	double total = 0.0;
+	const double neither_share = (HAP_NUMBER > 0) ? (0.5 * static_cast<double>(lw.neither) / static_cast<double>(HAP_NUMBER)) : 0.0;
+	for (int h = 0; h < HAP_NUMBER; ++h) {
+		double w = static_cast<double>(lw.match[h]) + neither_share;
+		lane_probs[h] = w;
+		total += w;
+	}
+	if (total <= std::numeric_limits<double>::min()) {
+		for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] = 1.0 / static_cast<double>(HAP_NUMBER);
+	} else {
+		const double inv = 1.0 / total;
+		for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] *= inv;
+	}
+
+	if (use_outer_prod && supersites_enabled_flag && !AlphaSum.empty()) {
+		const int rel_seg = 0;
+		double lane_total = 0.0;
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			double w = lane_probs[h] * static_cast<double>(AlphaSum[rel_seg][h]);
+			lane_probs[h] = w;
+			lane_total += w;
+		}
+		if (lane_total > std::numeric_limits<double>::min()) {
+			const double inv = 1.0 / lane_total;
+			for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] *= inv;
+		}
+	}
 }
 
 void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_probabilities) {
 	const unsigned int n_transitions = G->countDiplotypes(G->Diplotypes[0]);
 	std::vector<double> cprobs(n_transitions, 0.0);
 
+	const bool trace_trans = []() {
+		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
+		return env && env[0] != '\0' && env[0] != '0';
+	}();
 	if (supersite_trace_enabled()) {
 		std::fprintf(stdout, "SET_FIRST_TRANS single: n_transitions=%u buf_size=%zu\n",
 					 n_transitions, transition_probabilities.size());
@@ -1113,29 +1184,33 @@ void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_pr
 	assert(transition_probabilities.size() >= n_transitions);
 
 	double lane_probs[HAP_NUMBER];
-	bool use_outer = supersites_enabled_flag && !AlphaSum.empty();
+	const bool allow_outer = []() {
+		const char* env = std::getenv("SHAPEIT5_SS_USE_OUTER");
+		return env && env[0] != '\0' && env[0] != '0';
+	}();
 
-	if (use_outer) {
-		const int rel_seg = 0; // first segment in this window
-		const float* alpha_lane = AlphaSum[rel_seg].data();
-		double lane_total = 0.0;
-		for (int h = 0; h < HAP_NUMBER; ++h) {
-			double weight = static_cast<double>(alpha_lane[h]) * static_cast<double>(probSumH[h]);
-			lane_probs[h] = weight;
-			lane_total += weight;
-		}
-		if (lane_total <= std::numeric_limits<double>::min()) {
-			use_outer = false;
-		} else {
-			const double inv_total = 1.0 / lane_total;
-			for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] *= inv_total;
-		}
+	// Build SiteView for the first locus to derive lane_class
+	SiteView sv{};
+	bool has_supersite = false;
+	if (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx) {
+		SupersiteEmissionAdapter sup_adapt(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
+		has_supersite = sup_adapt.build_view(locus_first, ambiguous_first, sv);
 	}
+	if (!has_supersite) {
+		BiallelicEmissionAdapter bial_adapt(G, &Hvar);
+		bial_adapt.build_view(locus_first, ambiguous_first, sv);
+	}
+	build_lane_priors_first(sv, lane_probs, allow_outer);
 
-	if (!use_outer) {
-		const double lane_total = probSumT;
-		const double inv_total = (lane_total > std::numeric_limits<double>::min()) ? (1.0 / lane_total) : 0.0;
-		for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] = static_cast<double>(probSumH[h]) * inv_total;
+	if (trace_trans && G && G->n_segments > 1 && (segment_first == 0)) {
+		std::fprintf(stderr, "[SET_FIRST_TRANS_DEBUG] sample=%s use_outer=%d probSumT=%.15f\n",
+		             G->name.c_str(), (int)allow_outer, (double)probSumT);
+		std::fprintf(stderr, "  lane_probs:");
+		for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stderr, " %.9f", lane_probs[h]);
+		std::fprintf(stderr, "\n");
+		std::fprintf(stderr, "  probSumH:");
+		for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stderr, " %.9f", (double)probSumH[h]);
+		std::fprintf(stderr, "\n");
 	}
 
 	double scaleDip = 0.0;

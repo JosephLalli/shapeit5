@@ -72,6 +72,17 @@ inline void report_guard_violation(const char* scope, const char* message) {
 #define SUPERSITE_CODE_MISSING 255
 #define SUPERSITE_CODE_CONFLICT 254
 
+// Enforce a deterministic ordering for class pairs used in emissions.
+// Keeps the lowest non-missing code in c0 so biallelic parity does not
+// depend on hap0/hap1 orientation.
+inline void canonicalize_class_pair(uint8_t& c0, uint8_t& c1) {
+	if (c0 != SUPERSITE_CODE_MISSING && c1 != SUPERSITE_CODE_MISSING && c0 > c1) {
+		uint8_t tmp = c0;
+		c0 = c1;
+		c1 = tmp;
+	}
+}
+
 // ============================================================================
 // Data Structures
 // ============================================================================
@@ -245,6 +256,7 @@ inline SSClass classify_supersite(
 ) {
     c0 = getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, 0);
     c1 = getSampleSuperSiteAlleleCode(G, ss, super_site_var_index, 1);
+    canonicalize_class_pair(c0, c1);
     
     if (c0 == SUPERSITE_CODE_MISSING && c1 == SUPERSITE_CODE_MISSING) 
         return SSClass::MIS;

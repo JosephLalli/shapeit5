@@ -55,6 +55,12 @@ struct StageDef {
     std::string label;
 };
 
+struct Scenario {
+    int repeat_factor;
+    bool require_multiseg;
+    std::string name_suffix;
+};
+
 struct SuperSiteContext {
     std::vector<SuperSite> super_sites;
     std::vector<bool> is_super_site;
@@ -125,48 +131,19 @@ static void compute_t_from_cm(hmm_parameters& M) {
     }
 }
 
-static hmm_parameters make_hmm_params_5var(size_t n_variants, unsigned int Nhap) {
+static hmm_parameters make_hmm_params_from_variant_map(variant_map& V, unsigned int Nhap) {
     hmm_parameters M;
     M.ed = 0.01;
     M.ee = 1.0;
     M.ss_anchor_split_emissions = false;
-    M.cm = std::vector<float>(n_variants, 0.0f);
-    if (n_variants >= 5) {
-        M.cm[0] = 0.005f;
-        M.cm[1] = 0.010f;
-        M.cm[2] = 0.015f;
-        M.cm[3] = 0.020f;
-        M.cm[4] = 0.025f;
+    M.cm = std::vector<float>(V.size(), 0.0f);
+    for (size_t i = 0; i < V.size(); ++i) {
+        M.cm[i] = static_cast<float>(V.vec_pos[i]->cm);
     }
     M.Neff = 10000;
     M.Nhap = static_cast<int>(Nhap);
     compute_t_from_cm(M);
-    M.rare_allele = std::vector<char>(n_variants, -1);
-    return M;
-}
-
-static hmm_parameters make_hmm_params_10var(size_t n_variants, unsigned int Nhap) {
-    hmm_parameters M;
-    M.ed = 0.01;
-    M.ee = 1.0;
-    M.ss_anchor_split_emissions = false;
-    M.cm = std::vector<float>(n_variants, 0.0f);
-    if (n_variants >= 10) {
-        M.cm[0] = 0.005f;
-        M.cm[1] = 0.005f;
-        M.cm[2] = 0.010f;
-        M.cm[3] = 0.010f;
-        M.cm[4] = 0.015f;
-        M.cm[5] = 0.015f;
-        M.cm[6] = 0.020f;
-        M.cm[7] = 0.020f;
-        M.cm[8] = 0.025f;
-        M.cm[9] = 0.025f;
-    }
-    M.Neff = 10000;
-    M.Nhap = static_cast<int>(Nhap);
-    compute_t_from_cm(M);
-    M.rare_allele = std::vector<char>(n_variants, -1);
+    M.rare_allele = std::vector<char>(V.size(), -1);
     return M;
 }
 
@@ -216,6 +193,16 @@ static PanelPatterns make_panel_patterns() {
         std::array<int,8>{0,0, 0,0, 0,0, 0,0}  // v2500_dummy
     };
     return patterns;
+}
+
+template <typename T>
+static std::vector<T> repeat_pattern(const std::vector<T>& base, int repeat) {
+    std::vector<T> out;
+    out.reserve(base.size() * static_cast<size_t>(repeat));
+    for (int r = 0; r < repeat; ++r) {
+        out.insert(out.end(), base.begin(), base.end());
+    }
+    return out;
 }
 
 struct MiniContext {
@@ -312,62 +299,78 @@ static void apply_variant_counts(variant_map& V,
     }
 }
 
-static void init_biallelic_variant_map(variant_map& V) {
-    V.push(make_var("1", 500,  "v500",   "A", "T", 0));
-    V.push(make_var("1", 1000, "v1000",  "A", "C", 1));
-    V.push(make_var("1", 1500, "v1500",  "A", "G", 2));
-    V.push(make_var("1", 2000, "v2000",  "A", "T", 3));
-    V.push(make_var("1", 2500, "v2500",  "A", "T", 4));
+static void init_biallelic_variant_map(variant_map& V, int repeat) {
+    const int base_pos[] = {500, 1000, 1500, 2000, 2500};
+    const int block = 3000; // keep positions separated across repeats
+    int idx = 0;
+    for (int r = 0; r < repeat; ++r) {
+        const int offset = r * block;
+        V.push(make_var("1", base_pos[0] + offset,  "v500",   "A", "T", idx++));
+        V.push(make_var("1", base_pos[1] + offset,  "v1000",  "A", "C", idx++));
+        V.push(make_var("1", base_pos[2] + offset,  "v1500",  "A", "G", idx++));
+        V.push(make_var("1", base_pos[3] + offset,  "v2000",  "A", "T", idx++));
+        V.push(make_var("1", base_pos[4] + offset,  "v2500",  "A", "T", idx++));
+    }
     for (size_t i = 0; i < V.size(); ++i) {
         V.vec_pos[i]->cm = 0.005 * static_cast<double>(i + 1);
     }
 }
 
-static void init_supersite_variant_map(variant_map& V) {
-    V.push(make_var("1", 500,  "v500_main",   "A", "T", 0));
-    V.push(make_var("1", 500,  "v500_dummy",  "A", "C", 1));
-    V.push(make_var("1", 1000, "ss1_A_C",     "A", "C", 2));
-    V.push(make_var("1", 1000, "ss1_dummy",   "A", "G", 3));
-    V.push(make_var("1", 1500, "ss2_A_G",     "A", "G", 4));
-    V.push(make_var("1", 1500, "ss2_dummy",   "A", "T", 5));
-    V.push(make_var("1", 2000, "v2000_main",  "A", "T", 6));
-    V.push(make_var("1", 2000, "v2000_dummy", "A", "C", 7));
-    V.push(make_var("1", 2500, "v2500_main",  "A", "T", 8));
-    V.push(make_var("1", 2500, "v2500_dummy", "A", "C", 9));
+static void init_supersite_variant_map(variant_map& V, int repeat) {
+    const int base_pos[] = {500, 1000, 1500, 2000, 2500};
+    const int block = 3000;
+    int idx = 0;
+    for (int r = 0; r < repeat; ++r) {
+        const int offset = r * block;
+        V.push(make_var("1", base_pos[0] + offset,  "v500_main",   "A", "T", idx++));
+        V.push(make_var("1", base_pos[0] + offset,  "v500_dummy",  "A", "C", idx++));
+        V.push(make_var("1", base_pos[1] + offset,  "ss1_A_C",     "A", "C", idx++));
+        V.push(make_var("1", base_pos[1] + offset,  "ss1_dummy",   "A", "G", idx++));
+        V.push(make_var("1", base_pos[2] + offset,  "ss2_A_G",     "A", "G", idx++));
+        V.push(make_var("1", base_pos[2] + offset,  "ss2_dummy",   "A", "T", idx++));
+        V.push(make_var("1", base_pos[3] + offset,  "v2000_main",  "A", "T", idx++));
+        V.push(make_var("1", base_pos[3] + offset,  "v2000_dummy", "A", "C", idx++));
+        V.push(make_var("1", base_pos[4] + offset,  "v2500_main",  "A", "T", idx++));
+        V.push(make_var("1", base_pos[4] + offset,  "v2500_dummy", "A", "C", idx++));
+    }
     for (size_t i = 0; i < V.size(); ++i) {
+        // Keep anchors identical within each supersite pair; increment per variant
         V.vec_pos[i]->cm = 0.005 * static_cast<double>((i / 2) + 1);
     }
 }
 
-static std::vector<PhaseCode> make_5var_phases() {
-    return {
+static std::vector<PhaseCode> make_5var_phases(int repeat) {
+    std::vector<PhaseCode> base = {
         REF_ALT, // v500
         REF_ALT, // v1000
         REF_REF, // v1500
         REF_REF, // v2000
         ALT_ALT  // v2500
     };
+    return repeat_pattern(base, repeat);
 }
 
-static std::vector<PhaseCode> make_10var_phases() {
-    return {
+static std::vector<PhaseCode> make_10var_phases(int repeat) {
+    std::vector<PhaseCode> base = {
         REF_ALT, REF_REF,
         REF_ALT, REF_REF,
         REF_REF, REF_REF,
         REF_REF, REF_REF,
         ALT_ALT, REF_REF
     };
+    return repeat_pattern(base, repeat);
 }
 
-static MiniContext build_context(bool supersite, unsigned int n_ref_samples) {
+static MiniContext build_context(bool supersite, unsigned int n_ref_samples, int repeat_factor = 1, bool require_multiseg = false, const std::string& name_override = "") {
     const PanelPatterns patterns = make_panel_patterns();
     MiniContext ctx;
-    ctx.name = supersite ? "supersite" : "biallelic";
+    ctx.name = !name_override.empty() ? name_override : (supersite ? "supersite" : "biallelic");
     ctx.enable_supersites = supersite;
-    ctx.panel_pattern = supersite ? patterns.supersite : patterns.bial;
-    if (supersite) init_supersite_variant_map(ctx.V);
-    else init_biallelic_variant_map(ctx.V);
-    const std::vector<PhaseCode> phases = supersite ? make_10var_phases() : make_5var_phases();
+    const auto base_pattern = supersite ? patterns.supersite : patterns.bial;
+    ctx.panel_pattern = repeat_pattern(base_pattern, repeat_factor);
+    if (supersite) init_supersite_variant_map(ctx.V, repeat_factor);
+    else init_biallelic_variant_map(ctx.V, repeat_factor);
+    const std::vector<PhaseCode> phases = supersite ? make_10var_phases(repeat_factor) : make_5var_phases(repeat_factor);
     genotype sample = make_sample_from_phases(phases, supersite ? "supersite_sample" : "bial_sample");
 
     ctx.Gset.allocate(1, ctx.V.size());
@@ -406,10 +409,18 @@ static MiniContext build_context(bool supersite, unsigned int n_ref_samples) {
     } else {
         ctx.H.setSupersiteAnchorRedirect({});
     }
-    ctx.M = supersite ? make_hmm_params_10var(ctx.V.size(), ctx.H.n_hap)
-                      : make_hmm_params_5var(ctx.V.size(), ctx.H.n_hap);
+    ctx.M = make_hmm_params_from_variant_map(ctx.V, ctx.H.n_hap);
     if (ctx.enable_supersites) {
         ctx.M.markSuperSiteSiblings(ctx.ss_context.super_sites, ctx.ss_context.locus_to_super_idx);
+    }
+    if (require_multiseg) {
+        genotype* g0 = ctx.Gset.vecG[0];
+        if (g0->n_segments <= 1) {
+            std::cerr << "[ERROR] Expected >1 segment but found " << g0->n_segments
+                      << " (repeat_factor=" << repeat_factor << ", supersite=" << supersite << ")"
+                      << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
     }
     return ctx;
 }
@@ -559,19 +570,22 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
     return res;
 }
 
-static bool anchor_haplotype_parity(const MiniContext& bial, const MiniContext& supersite) {
-    static const int ss_anchor_indices[5] = {0, 2, 4, 6, 8};
+static bool anchor_haplotype_parity(const MiniContext& bial, const MiniContext& supersite, int repeat_factor) {
     const genotype* gb = bial.Gset.vecG[0];
     const genotype* gs = supersite.Gset.vecG[0];
-    for (int i = 0; i < 5; ++i) {
-        unsigned char bb = gb->Variants[DIV2(i)];
-        unsigned char sb = gs->Variants[DIV2(ss_anchor_indices[i])];
-        bool b_h0 = VAR_GET_HAP0(MOD2(i), bb);
-        bool b_h1 = VAR_GET_HAP1(MOD2(i), bb);
-        bool s_h0 = VAR_GET_HAP0(MOD2(ss_anchor_indices[i]), sb);
-        bool s_h1 = VAR_GET_HAP1(MOD2(ss_anchor_indices[i]), sb);
+    const int anchors_per_block = 5;
+    const int anchors_total = anchors_per_block * repeat_factor;
+    for (int i = 0; i < anchors_total; ++i) {
+        const int b_idx = i;
+        const int ss_idx = i * 2; // anchors at even positions in supersite layout
+        unsigned char bb = gb->Variants[DIV2(b_idx)];
+        unsigned char sb = gs->Variants[DIV2(ss_idx)];
+        bool b_h0 = VAR_GET_HAP0(MOD2(b_idx), bb);
+        bool b_h1 = VAR_GET_HAP1(MOD2(b_idx), bb);
+        bool s_h0 = VAR_GET_HAP0(MOD2(ss_idx), sb);
+        bool s_h1 = VAR_GET_HAP1(MOD2(ss_idx), sb);
         if (b_h0 != s_h0 || b_h1 != s_h1) {
-            std::cerr << "Anchor mismatch at locus " << i << ": "
+            std::cerr << "Anchor mismatch at locus " << b_idx << ": "
                       << "bial (" << b_h0 << "|" << b_h1 << ") vs supersite ("
                       << s_h0 << "|" << s_h1 << ")\n";
             return false;
@@ -607,12 +621,13 @@ int main() {
     std::cout << "======================================================================" << std::endl;
 
     const unsigned int ref_samples = 64; // 128 donor haplotypes
-    MiniContext ctx_bial = build_context(false, ref_samples);
-    MiniContext ctx_ss = build_context(true, ref_samples);
-
-    std::cout << "  Biallelic haplotypes: " << ctx_bial.H.n_hap
-              << " | Supersite haplotypes: " << ctx_ss.H.n_hap << std::endl;
-    std::cout << "  Supersite count: " << ctx_ss.ss_context.super_sites.size() << std::endl;
+    const std::vector<Scenario> scenarios = {
+        {1, false, ""},   // original micro test
+        {2, false, "x2"}, // expanded block to exercise repeated anchors
+        {4, false, "x4"}, // moderate expansion
+        {8, true,  "x8"}, // repeated pattern to force multiple segments
+        {16, true, "x16"} // heavy expansion for deeper epoch coverage
+    };
 
     const std::vector<StageDef> schedule = {
         {StageType::Burn,  "burn1"},
@@ -632,41 +647,65 @@ int main() {
         {StageType::Main,  "main5"}
     };
 
-    const unsigned int seed_base = 20250110;
-    double max_prob_diff_observed = 0.0;
-    std::string max_prob_diff_stage;
-    for (size_t iter = 0; iter < schedule.size(); ++iter) {
-        const StageDef& stage = schedule[iter];
-        std::cout << "Iteration " << (iter + 1) << "/" << schedule.size()
-                  << " [" << stage.label << "]" << std::endl;
+    for (const auto& scenario : scenarios) {
+        const int repeat_factor = scenario.repeat_factor;
+        const bool require_multiseg = scenario.require_multiseg;
+        const auto make_name = [&](bool supersite) {
+            std::string base = supersite ? "supersite" : "biallelic";
+            if (!scenario.name_suffix.empty()) return base + "_" + scenario.name_suffix;
+            if (require_multiseg) return base + "_x" + std::to_string(repeat_factor);
+            return base;
+        };
+        std::cout << "\n--- Scenario: repeat_factor=" << repeat_factor
+                  << (require_multiseg ? " (multi-segment)" : "") << " ---" << std::endl;
 
-        IterationResult res_bial = run_iteration(ctx_bial, stage, seed_base + iter);
-        IterationResult res_sup = run_iteration(ctx_ss, stage, seed_base + iter);
+        MiniContext ctx_bial = build_context(false, ref_samples, repeat_factor, require_multiseg,
+                                             make_name(false));
+        MiniContext ctx_ss = build_context(true, ref_samples, repeat_factor, require_multiseg,
+                                           make_name(true));
 
-        const int k_diff = max_int_diff(res_bial.k_sizes, res_sup.k_sizes);
-        if (k_diff != 0) {
-            std::cerr << "K-state divergence detected during " << stage.label
-                      << " (max delta=" << k_diff << ")" << std::endl;
-            std::exit(EXIT_FAILURE);
+        std::cout << "  Biallelic haplotypes: " << ctx_bial.H.n_hap
+                  << " | Supersite haplotypes: " << ctx_ss.H.n_hap << std::endl;
+        std::cout << "  Supersite count: " << ctx_ss.ss_context.super_sites.size() << std::endl;
+
+        const unsigned int seed_base = 20250110;
+        double max_prob_diff_observed = 0.0;
+        std::string max_prob_diff_stage;
+        for (size_t iter = 0; iter < schedule.size(); ++iter) {
+            const StageDef& stage = schedule[iter];
+            std::cout << "Iteration " << (iter + 1) << "/" << schedule.size()
+                      << " [" << stage.label << "]" << std::endl;
+
+            IterationResult res_bial = run_iteration(ctx_bial, stage, seed_base + iter);
+            IterationResult res_sup = run_iteration(ctx_ss, stage, seed_base + iter);
+
+            const int k_diff = max_int_diff(res_bial.k_sizes, res_sup.k_sizes);
+            if (k_diff != 0) {
+                std::cerr << "K-state divergence detected during " << stage.label
+                          << " (max delta=" << k_diff << ")" << std::endl;
+                std::exit(EXIT_FAILURE);
+            }
+
+            if (!anchor_haplotype_parity(ctx_bial, ctx_ss, repeat_factor)) {
+                std::cerr << "Anchor haplotypes diverged during " << stage.label << std::endl;
+                std::exit(EXIT_FAILURE);
+            }
+
+            const double prob_diff = max_abs_diff(res_bial.window_prob_sum, res_sup.window_prob_sum);
+            if (prob_diff > max_prob_diff_observed) {
+                max_prob_diff_observed = prob_diff;
+                max_prob_diff_stage = stage.label;
+            }
         }
 
-        if (!anchor_haplotype_parity(ctx_bial, ctx_ss)) {
-            std::cerr << "Anchor haplotypes diverged during " << stage.label << std::endl;
-            std::exit(EXIT_FAILURE);
+        if (!max_prob_diff_stage.empty()) {
+            std::cout << "Max probSumT delta observed: " << max_prob_diff_observed
+                      << " during " << max_prob_diff_stage << std::endl;
         }
-
-        const double prob_diff = max_abs_diff(res_bial.window_prob_sum, res_sup.window_prob_sum);
-        if (prob_diff > max_prob_diff_observed) {
-            max_prob_diff_observed = prob_diff;
-            max_prob_diff_stage = stage.label;
-        }
+        std::cout << "Scenario repeat_factor=" << repeat_factor << ": PASS" << std::endl;
     }
 
-    if (!max_prob_diff_stage.empty()) {
-        std::cout << "Max probSumT delta observed: " << max_prob_diff_observed
-                  << " during " << max_prob_diff_stage << std::endl;
-    }
-    std::cout << "All 15 epochs completed without divergence." << std::endl;
+    std::cout << "\nAll scenarios completed without divergence." << std::endl;
     std::cout << "test_supersite_expansion_epochs: PASS" << std::endl;
     return 0;
 }

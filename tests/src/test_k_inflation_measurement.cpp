@@ -282,8 +282,9 @@ int main() {
     conditioning_set H_bial, H_ss;
     // Increase reference panel: 16 reference samples => 32 haplotypes (more realistic)
     const int N_REF_SAMPLES = 16;
-    H_bial.allocate(0, N_REF_SAMPLES, V_bial.size());
-    H_ss.allocate(0, N_REF_SAMPLES, V_ss.size());
+    // Include one main sample (the target genotype) so PBWT indexes have valid bounds
+    H_bial.allocate(1, N_REF_SAMPLES, V_bial.size());
+    H_ss.allocate(1, N_REF_SAMPLES, V_ss.size());
 
     auto set_panel = [](conditioning_set& H, int locus, const std::vector<int>& alt_flags) {
         for (size_t hap = 0; hap < alt_flags.size(); ++hap) {
@@ -308,14 +309,17 @@ int main() {
             int bit = ((h >> (shift % 6)) & 1) ^ ((s & 1) ? 1 : 0);
             // Add some additional periodic toggles for variety
             if (((h + s) % (2 + (s % 4))) == 0) bit = 1;
+            // Keep target sample haplotypes (0/1) reference-only; donors start at hap2
+            if (h < 2) bit = 0;
             pat.push_back(bit);
         }
         patterns.push_back(pat);
     }
 
-    for (int i = 0; i < N_REF_SAMPLES; ++i) {
-        set_panel(H_bial, i, patterns[i]);
-        set_panel(H_ss, i, patterns[i]);
+    for (size_t v = 0; v < V_bial.size(); ++v) {
+        const int pat_idx = static_cast<int>(v % patterns.size());
+        set_panel(H_bial, static_cast<int>(v), patterns[pat_idx]);
+        set_panel(H_ss, static_cast<int>(v), patterns[pat_idx]);
     }
 
     // Create identical target genotypes
