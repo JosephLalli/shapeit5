@@ -601,6 +601,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 
 	// Flag: backward pass always starts with initialization; if locus_last is a sibling, defer until first non-sibling
 	bool need_init = true;
+	bool pending_collapse = false;
 
 	// DIAGNOSTIC: Track actual transition storage count vs expected
 	unsigned int debug_transitions_written = 0;
@@ -609,6 +610,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 	const char* trans_trace_sample = trans_trace_sample_d();
 
 	for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
+		if (curr_segment_locus == G->Lengths[curr_segment_index] - 1) pending_collapse = true;
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
 		char rare_allele = M.rare_allele[curr_abs_locus];
@@ -671,6 +673,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		// Deferred initialization: first non-sibling after starting on a sibling - use INIT
 		if (need_init && is_anchor) {
 			need_init = false;
+			pending_collapse = false;
 			if (M.ss_anchor_split_emissions) {
 				supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
 				INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
@@ -684,13 +687,14 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		} else if (need_init && !is_sibling) {
 			// Deferred initialization: first biallelic after starting on a sibling - use INIT
 			need_init = false;
+			pending_collapse = false;
 			if (hmm_mis) {
 				INIT_MIS();
 			} else {
 				bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
 				INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
 			}
-		} else if (curr_segment_locus != G->Lengths[curr_segment_index] - 1) {
+		} else if (!pending_collapse) {
 			if (is_anchor) {
 				if (M.ss_anchor_split_emissions) {
 					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
@@ -729,6 +733,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 						case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
 					}
 				}
+				pending_collapse = false;
 			} else if (is_sibling) {
 				// Sibling at segment boundary (backward): no-op
 				COLLAPSE_SIB(site_view);
@@ -737,6 +742,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 				if (hmm_hom) COLLAPSE_HOM();
 				else if (hmm_amb) COLLAPSE_AMB();
 				else COLLAPSE_MIS();
+				pending_collapse = false;
 			}
 		}
 		if (curr_segment_locus == 0) SUMK();
