@@ -552,10 +552,20 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
             break;
         case StageType::Prune:
             g->sample(job.T, job.M);
+            if (std::getenv("SHAPEIT5_DETAILED_ITERATION_TRACE")) {
+                unsigned char amb0 = g->Ambiguous.empty() ? 0 : g->Ambiguous[0];
+                std::fprintf(stderr, "[ITER_TRACE] %s prune pre-merge: n_segments=%d n_transitions=%d amb0=0x%02x\n",
+                             ctx.name.c_str(), g->n_segments, g->n_transitions, static_cast<int>(amb0));
+            }
             if (g->n_transitions > 0) {
                 std::vector<bool> merge_flags;
                 g->mapMerges(job.T, 0.95, merge_flags);
                 g->performMerges(job.T, merge_flags);
+            }
+            if (std::getenv("SHAPEIT5_DETAILED_ITERATION_TRACE")) {
+                unsigned char amb0 = g->Ambiguous.empty() ? 0 : g->Ambiguous[0];
+                std::fprintf(stderr, "[ITER_TRACE] %s prune post-merge: n_segments=%d n_transitions=%d amb0=0x%02x\n",
+                             ctx.name.c_str(), g->n_segments, g->n_transitions, static_cast<int>(amb0));
             }
             break;
         case StageType::Main:
@@ -679,6 +689,31 @@ int main() {
             IterationResult res_bial = run_iteration(ctx_bial, stage, seed_base + iter);
             IterationResult res_sup = run_iteration(ctx_ss, stage, seed_base + iter);
 
+            // Iteration-level haplotype tracing for divergence detection
+            if (std::getenv("SHAPEIT5_DETAILED_ITERATION_TRACE")) {
+                std::fprintf(stderr, "\n[ITER_TRACE] Iteration %zu (%s):\n",
+                             iter+1, stage.label.c_str());
+                const genotype* gb = ctx_bial.Gset.vecG[0];
+                const genotype* gs = ctx_ss.Gset.vecG[0];
+
+                // Log first 5 anchor haplotypes
+                const int anchors_to_log = std::min(5, repeat_factor * 5);
+                for (int i = 0; i < anchors_to_log; ++i) {
+                    int b_idx = i;
+                    int ss_idx = i * 2;
+                    unsigned char bb = gb->Variants[DIV2(b_idx)];
+                    unsigned char sb = gs->Variants[DIV2(ss_idx)];
+                    bool b_h0 = VAR_GET_HAP0(MOD2(b_idx), bb);
+                    bool b_h1 = VAR_GET_HAP1(MOD2(b_idx), bb);
+                    bool s_h0 = VAR_GET_HAP0(MOD2(ss_idx), sb);
+                    bool s_h1 = VAR_GET_HAP1(MOD2(ss_idx), sb);
+
+                    std::fprintf(stderr, "  anchor[%d]: bial=%d|%d ss=%d|%d %s\n",
+                                 i, (int)b_h0, (int)b_h1, (int)s_h0, (int)s_h1,
+                                 (b_h0 == s_h0 && b_h1 == s_h1) ? "✓" : "MISMATCH");
+                }
+            }
+
             const int k_diff = max_int_diff(res_bial.k_sizes, res_sup.k_sizes);
             if (k_diff != 0) {
                 std::cerr << "K-state divergence detected during " << stage.label
@@ -696,6 +731,15 @@ int main() {
                 max_prob_diff_observed = prob_diff;
                 max_prob_diff_stage = stage.label;
             }
+
+            // Trace ambiguous mask + segment count after each iteration when detailed tracing is enabled
+            unsigned char amb0_b = ctx_bial.Gset.vecG[0]->Ambiguous.empty() ? 0 : ctx_bial.Gset.vecG[0]->Ambiguous[0];
+            unsigned char amb0_s = ctx_ss.Gset.vecG[0]->Ambiguous.empty() ? 0 : ctx_ss.Gset.vecG[0]->Ambiguous[0];
+            std::fprintf(stderr,
+                         "[ITER_TRACE] amb_state post-%s: bial(seg=%d,amb0=0x%02x) supersite(seg=%d,amb0=0x%02x)\n",
+                         stage.label.c_str(),
+                         ctx_bial.Gset.vecG[0]->n_segments, static_cast<int>(amb0_b),
+                         ctx_ss.Gset.vecG[0]->n_segments, static_cast<int>(amb0_s));
         }
 
         if (!max_prob_diff_stage.empty()) {

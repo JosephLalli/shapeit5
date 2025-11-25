@@ -41,6 +41,7 @@
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
 
+
 inline bool trans_parity_trace_enabled_s() {
 	static int flag = -1;
 	if (flag < 0) {
@@ -655,6 +656,18 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
 		}
 	}
 
+    if (trace_enabled) {
+        std::fprintf(stderr, "DEBUG SS_RUN_AMB: trace_enabled is TRUE. locus=%d\n", curr_abs_locus);
+    }
+
+    if (trace_enabled) {
+        std::fprintf(stderr, "[SS_LANE_DEBUG] amb_mask=%d (0x%02x) c0=%d c1=%d\n", (int)amb_mask, (int)amb_mask, (int)c0, (int)c1);
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            bool bit = ((amb_mask >> h) & 1U);
+            std::fprintf(stderr, "  Lane %d: bit=%d expected=%d\n", h, (int)bit, (int)expected_class[h]);
+        }
+    }
+
     // HYPOTHESIS 1 DEBUGGING
     if (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
         std::cout << "[SUPERDEBUG] H1: ENTER SS_RUN_AMB" << std::endl;
@@ -663,7 +676,7 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
         for (int h=0; h<HAP_NUMBER; ++h) expected_str += std::to_string(expected_class[h]) + " ";
         std::cout << expected_str << std::endl;
     }
-	
+    
 	// DEBUG: Print emission setup
 	if (trace_enabled) {
 		std::fprintf(stdout, "SS_RUN_AMB: locus=%d c0=%u c1=%u amb_mask=0x%02x\n", 
@@ -1254,6 +1267,23 @@ void haplotype_segment_single::INIT_AMB() {
     // Biallelic path
     unsigned char amb_code = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
                              ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+
+    if (std::getenv("SHAPEIT5_TEST_TRACE")) {
+        // Prepare g0, g1 emissions for tracing
+        float g0_trace[HAP_NUMBER], g1_trace[HAP_NUMBER];
+        for (int h = 0 ; h < HAP_NUMBER ; h ++) {
+            g0_trace[h] = HAP_GET(amb_code,h)?M.ed/M.ee:1.0f;
+            g1_trace[h] = HAP_GET(amb_code,h)?1.0f:M.ed/M.ee;
+        }
+        std::fprintf(stdout, "[BIAL_INIT_AMB] locus=%d BIALLELIC PATH amb_code=0x%02x\n", curr_abs_locus, (unsigned)amb_code);
+        std::fprintf(stdout, "  Biallelic emission g0: %f %f %f %f %f %f %f %f\n",
+                     g0_trace[0], g0_trace[1], g0_trace[2], g0_trace[3],
+                     g0_trace[4], g0_trace[5], g0_trace[6], g0_trace[7]);
+        std::fprintf(stdout, "  Biallelic emission g1: %f %f %f %f %f %f %f %f\n",
+                     g1_trace[0], g1_trace[1], g1_trace[2], g1_trace[3],
+                     g1_trace[4], g1_trace[5], g1_trace[6], g1_trace[7]);
+    }
+
     init_match_mask.resize(static_cast<std::size_t>(n_cond_haps) * HAP_NUMBER);
     uint8_t* mask_ptr = init_match_mask.by_donor_lane.data();
     for (unsigned int k = 0; k < n_cond_haps; ++k) {
@@ -1316,15 +1346,11 @@ void haplotype_segment_single::RUN_AMB() {
         g1[h] = HAP_GET(amb_code,h)?1.0f:M.ed/M.ee;
     }
     if (trace_enabled) {
-        std::fprintf(stdout, "  Biallelic emission g0:");
+        std::fprintf(stderr, "[BIAL_LANE_DEBUG] amb_code=%d (0x%02x)\n", (int)amb_code, (int)amb_code);
         for (int h = 0; h < HAP_NUMBER; ++h) {
-            std::fprintf(stdout, " %.6f", g0[h]);
+             bool bit = HAP_GET(amb_code, h);
+             std::fprintf(stderr, "  Lane %d: bit=%d g0=%.4f g1=%.4f\n", h, (int)bit, g0[h], g1[h]);
         }
-        std::fprintf(stdout, "\n  Biallelic emission g1:");
-        for (int h = 0; h < HAP_NUMBER; ++h) {
-            std::fprintf(stdout, " %.6f", g1[h]);
-        }
-        std::fprintf(stdout, "\n");
     }
     if (supersite_trace_enabled()) {
         std::fprintf(stdout, "[BIAL_AMB_TRACE] loc=%d amb_code=0x%02x\n", curr_abs_locus, (unsigned)amb_code);

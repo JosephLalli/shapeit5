@@ -142,6 +142,38 @@ void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass
 }
 
 void genotype::performMerges(vector < double > & currProbs, vector < bool > & flagMerges) {
+	const bool superdebug = !debug::SUPERDEBUG_SAMPLENAME.empty() && name == debug::SUPERDEBUG_SAMPLENAME;
+	if (superdebug) {
+		std::cout << "[PRUNE_DEBUG] " << name << " enter performMerges n_segments=" << n_segments
+		          << " flagMerges.size=" << flagMerges.size()
+		          << " Ambiguous.size=" << Ambiguous.size()
+		          << " Lengths[0]=" << (Lengths.empty()?0:Lengths[0])
+		          << " Lengths_bio[0]=" << (Lengths_bio.empty()?0:Lengths_bio[0])
+		          << " flagM[0]=" << (flagMerges.empty()?0:flagMerges[0])
+		          << std::endl;
+	}
+	auto logAmbiguousSite = [&](const char* ctx, int seg_idx, unsigned int vabs, unsigned int vrel,
+	                            unsigned int arel, unsigned char amb_code, unsigned int l_bio_left,
+	                            unsigned int l_bio_right) {
+		if (!superdebug) return;
+		std::cout << "[PRUNE_DEBUG] " << name
+		          << " ctx=" << ctx
+		          << " seg=" << seg_idx
+		          << " vabs=" << vabs
+		          << " vrel=" << vrel
+		          << " arel=" << arel
+		          << " amb_code=0x" << std::hex << static_cast<int>(amb_code) << std::dec
+		          << " len_bio_left=" << l_bio_left
+		          << " len_bio_right=" << l_bio_right
+		          << std::endl;
+	};
+	auto logFlagVector = [&](const char* ctx, const std::vector<bool>& flags) {
+		if (!superdebug) return;
+		std::cout << "[PRUNE_DEBUG] " << name << " " << ctx << " flagMerges:";
+		for (bool f : flags) std::cout << (f ? "1" : "0");
+		std::cout << std::endl;
+	};
+
 	vector < Transition > vecTransitions = vector < Transition > (4096);
 
 	//Step0: initialize duplicates
@@ -174,6 +206,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		return is_amb;
 	};
 
+	logFlagVector("pre-loop", flagMerges);
 	for (int s = 1 ; s < flagMerges.size() -1 ; s ++) {
 		//Step1: update cursors (1)
 		curr_dipcount = countDiplotypes(Diplotypes[s]);
@@ -182,7 +215,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 
 		//case1: merge to be done
 		if (flagMerges[s]) {
-			//cout << name << " M " << aoffset << endl;
+			logFlagVector("merge-at", flagMerges);
 			Lengths2.push_back(Lengths[s-1]+Lengths[s]);
 			Lengths_bio2.push_back(Lengths_bio[s-1]+Lengths_bio[s]);
 			Diplotypes2.push_back(0x0000000000000000UL);
@@ -199,30 +232,17 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 				unsigned int next_h1 = DIP_HAP1(next_dip);
 				unsigned int merged_h0 = prev_h0 * HAP_NUMBER + next_h0;
 				unsigned int merged_h1 = prev_h1 * HAP_NUMBER + next_h1;
-				bool new_h0 = (Mhaps[merged_h0] < 0);
-				bool new_h1 = ((Mhaps[merged_h1] < 0) && (merged_h0 != merged_h1));
-				if ((n_haps + new_h0 + new_h1) <= HAP_NUMBER) {
-					if (new_h0) {
-						Mhaps[merged_h0] = n_haps;
-						for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++) {
-							if (isAmbiguousAnchor(voffset + vrel)) {
-								if (HAP_GET(Ambiguous[aoffset+arel], (vrel<Lengths[s-1])?prev_h0:next_h0)) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h0]);
-								arel ++;
-							}
-						}
-						n_haps ++;
-					}
-					if (new_h1) {
-						Mhaps[merged_h1] = n_haps;
-						for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++) {
-							if (isAmbiguousAnchor(voffset + vrel)) {
-								if (HAP_GET(Ambiguous[aoffset+arel], (vrel<Lengths[s-1])?prev_h1:next_h1)) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h1]);
-								arel ++;
-							}
-						}
-						n_haps ++;
-					}
-					DIP_SET(Diplotypes2.back(), Mhaps[merged_h0] * HAP_NUMBER + Mhaps[merged_h1]);
+			if (superdebug) {
+				for (unsigned int i = 0; i < total_anchor; ++i) {
+					unsigned char amb_old = Ambiguous[aoffset + i];
+					unsigned char amb_new = Ambiguous2[aoffset + i];
+					std::cout << "[PRUNE_DEBUG] " << name
+					          << " ctx=merge/final seg=" << s
+					          << " anchor_idx=" << i
+					          << " side=" << (i < Lengths_bio[s-1] ? "L" : "R")
+					          << " amb_old=0x" << std::hex << static_cast<int>(amb_old)
+					          << " amb_new=0x" << static_cast<int>(amb_new) << std::dec
+					          << std::endl;
 				}
 			}
 			assert(n_haps == HAP_NUMBER);
@@ -232,6 +252,8 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 			for (unsigned int vrel = 0, arel = 0 ; vrel < Lengths[s-1] ; vrel ++) {
 				if (isAmbiguousAnchor(voffset + vrel)) {
 					Ambiguous2[aoffset+arel] = Ambiguous[aoffset+arel];
+					logAmbiguousSite("copy", s, vabs, anchor_idx, arel,
+					                 Ambiguous[aoffset+arel], Lengths_bio[s-1], 0);
 					arel ++;
 				}
 			}
@@ -257,6 +279,14 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		Lengths2.push_back(Lengths.back());
 		Lengths_bio2.push_back(Lengths_bio.back());
 		Diplotypes2.push_back(Diplotypes.back());
+	}
+	if (superdebug) {
+		std::cout << "[PRUNE_DEBUG] " << name
+		          << " exit performMerges n_segments=" << n_segments2
+		          << " Ambiguous.size=" << Ambiguous2.size()
+		          << " copied_amb=" << Ambiguous.size()
+		          << " Lengths_bio[0]=" << (Lengths_bio2.empty()?0:Lengths_bio2[0])
+		          << std::endl;
 	}
 
 	//free();
