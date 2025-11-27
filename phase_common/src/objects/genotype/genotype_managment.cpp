@@ -673,7 +673,18 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 				}
 				m++;
 			}
-			if (VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)])) {
+			bool is_amb = VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)]);
+
+			// DIAGNOSTIC: Check if siblings are marked as AMB
+			if (supersite_trace_enabled() && s < 3) {
+				int ss_idx = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
+				bool is_ss_anchor = (ss_idx >= 0 && vabs == (*super_sites)[ss_idx].global_site_id);
+				bool is_sibling = (ss_idx >= 0 && vabs != (*super_sites)[ss_idx].global_site_id);
+				std::fprintf(stderr, "[MAKE_AMB_CHECK] sample=%s seg=%u vrel=%u vabs=%u is_amb=%d is_ss_anchor=%d is_sibling=%d a=%u\n",
+				             name.c_str(), s, vrel, vabs, (int)is_amb, (int)is_ss_anchor, (int)is_sibling, a);
+			}
+
+			if (is_amb) {
 				HAP_GET(Ambiguous[a], hap0)?VAR_SET_HAP0(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP0(MOD2(vabs),Variants[DIV2(vabs)]);
 				HAP_GET(Ambiguous[a], hap1)?VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
 				a++;

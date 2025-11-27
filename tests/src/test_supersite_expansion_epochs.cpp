@@ -220,6 +220,7 @@ struct IterationResult {
     StageType stage;
     std::string label;
     std::vector<int> k_sizes;
+    std::vector<std::vector<unsigned int>> Kstates;
     std::vector<double> window_prob_sum;
 };
 
@@ -495,6 +496,9 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
     res.window_prob_sum.reserve(job.Kstates.size());
 
     for (const auto& ks : job.Kstates) res.k_sizes.push_back(static_cast<int>(ks.size()));
+    
+    // Store full Kstates for exact parity check
+    res.Kstates = job.Kstates;
 
     genotype* sample = ctx.Gset.vecG[0];
     int outcome = 0;
@@ -689,6 +693,42 @@ int main() {
             IterationResult res_bial = run_iteration(ctx_bial, stage, seed_base + iter);
             IterationResult res_sup = run_iteration(ctx_ss, stage, seed_base + iter);
 
+            // DIAGNOSTIC: Compare panel haplotypes after prune1
+            if (stage.label == "prune1" && std::getenv("SHAPEIT5_TEST_TRACE")) {
+                std::fprintf(stderr, "\n[PANEL_COMPARE] After prune1: comparing panel haplotypes\n");
+                std::fprintf(stderr, "[PANEL_COMPARE] Biallelic: n_hap=%d, Supersite: n_hap=%d\n",
+                             ctx_bial.H.n_hap, ctx_ss.H.n_hap);
+
+                // Compare panel haplotypes (skip first 2 haplotypes which are test samples)
+                int panel_start = 2;  // Test samples use haplotypes 0-1
+                int max_panel_to_check = std::min(10, (int)(ctx_bial.H.n_hap - panel_start));  // Check first 10 panel samples
+                int max_locus_to_check = std::min(10, (int)(repeat_factor * 5));  // Check first N anchors
+
+                bool panel_diverged = false;
+                for (int panel_idx = 0; panel_idx < max_panel_to_check; ++panel_idx) {
+                    int hap_idx = panel_start + panel_idx;
+                    for (int bio_anchor = 0; bio_anchor < max_locus_to_check; ++bio_anchor) {
+                        int bial_locus = bio_anchor;
+                        int ss_locus = bio_anchor * 2;  // Supersite anchors are at even loci
+
+                        bool bial_allele = ctx_bial.H.H_opt_hap.get(hap_idx, bial_locus);
+                        bool ss_allele = ctx_ss.H.H_opt_hap.get(hap_idx, ss_locus);
+
+                        if (bial_allele != ss_allele) {
+                            std::fprintf(stderr, "[PANEL_DIVERGE] panel_hap=%d bio_anchor=%d: bial=%d ss=%d\n",
+                                         hap_idx, bio_anchor, (int)bial_allele, (int)ss_allele);
+                            panel_diverged = true;
+                        }
+                    }
+                }
+
+                if (!panel_diverged) {
+                    std::fprintf(stderr, "[PANEL_COMPARE] Panel haplotypes IDENTICAL after prune1 ✓\n");
+                } else {
+                    std::fprintf(stderr, "[PANEL_COMPARE] Panel haplotypes DIVERGED after prune1 ❌\n");
+                }
+            }
+
             // Iteration-level haplotype tracing for divergence detection
             if (std::getenv("SHAPEIT5_DETAILED_ITERATION_TRACE")) {
                 std::fprintf(stderr, "\n[ITER_TRACE] Iteration %zu (%s):\n",
@@ -716,9 +756,29 @@ int main() {
 
             const int k_diff = max_int_diff(res_bial.k_sizes, res_sup.k_sizes);
             if (k_diff != 0) {
-                std::cerr << "K-state divergence detected during " << stage.label
+                std::cerr << "K-state size divergence detected during " << stage.label
                           << " (max delta=" << k_diff << ")" << std::endl;
                 std::exit(EXIT_FAILURE);
+            }
+
+            // Check exact K-state parity
+            if (res_bial.Kstates.size() != res_sup.Kstates.size()) {
+                 std::cerr << "K-state window count mismatch: " << res_bial.Kstates.size() 
+                           << " vs " << res_sup.Kstates.size() << std::endl;
+                 std::exit(EXIT_FAILURE);
+            }
+            for(size_t w=0; w<res_bial.Kstates.size(); ++w) {
+                const auto& kb = res_bial.Kstates[w];
+                const auto& ks = res_sup.Kstates[w];
+                if (kb.size() != ks.size() || !std::equal(kb.begin(), kb.end(), ks.begin())) {
+                    std::cerr << "K-state content divergence at window " << w << " during " << stage.label << std::endl;
+                    std::cerr << "  Biallelic: ";
+                    for(auto x : kb) std::cerr << x << " ";
+                    std::cerr << "\n  Supersite: ";
+                    for(auto x : ks) std::cerr << x << " ";
+                    std::cerr << "\n";
+                    std::exit(EXIT_FAILURE);
+                }
             }
 
             if (!anchor_haplotype_parity(ctx_bial, ctx_ss, repeat_factor)) {

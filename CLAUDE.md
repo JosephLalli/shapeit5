@@ -2,177 +2,7 @@
 
 ## Problem Statement
 
-Test `test_supersite_expansion_epochs` was failing with divergent results between biallelic and supersite (multiallelic) representations of the same genetic variants. The test runs 15 iterations of MCMC phasing and expects identical results from both representations.
-
-**Error:**
-```
-Iteration 3/15 [burn3]
-Anchor mismatch at locus 0: bial (0|1) vs supersite (0|0)
-Anchor haplotypes diverged during burn3
-```
-
-## Root Cause IDENTIFIED and FIXED (2025-11-18)
-
-### The Bug: Variable Shadowing in Backward Pass
-
-**Location:** `phase_common/src/models/haplotype_segment_single.cpp:775`
-
-**Issue:** The backward loop declared LOCAL variables that shadowed MEMBER variables:
-
-```cpp
-for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
-    ...
-    float yt = 0.0f, nt = 1.0f;  // ← LOCAL variables shadow member variables!
-    ...
-    yt = M.getBackwardTransProb(...);  // Updates LOCAL yt
-    ...
-    SS_RUN_HOM(...);  // Reads MEMBER this->yt, which is still 0!
-}
-```
-
-**Member variables (header line 101):**
-```cpp
-class haplotype_segment_single {
-    float nt, yt;  // These were never updated in backward pass!
-};
-```
-
-**Result:** All supersite anchors used yt=0 (no transition probability) in backward pass, causing 0.56% divergence that compounded through the HMM.
-
-### The Fix
-
-**File:** `phase_common/src/models/haplotype_segment_single.cpp`
-
-**Removed line 775:**
-```cpp
-float yt = 0.0f, nt = 1.0f;  // Deleted this line
-```
-
-**Added lines 768-769:**
-```cpp
-yt = 0.0f;  // Initialize member variables before loop
-nt = 1.0f;
-```
-
-### Verification: Before vs After Fix
-
-**Before Fix (Supersite locus 6 backward):**
-```
-[SS_RUN_HOM_TRACE] locus=6
-  Input probSumT=80.4800109863
-  Transition: yt=0.0000000000 nt=1.0000000000  ← BUG!
-  Output probSumT=0.9940953255
-```
-
-**After Fix (Supersite locus 6 backward):**
-```
-[SS_RUN_HOM_TRACE] locus=6
-  Input probSumT=80.4800109863
-  Transition: yt=0.0152668795 nt=0.9847331047  ✓ FIXED!
-  Output probSumT=0.9885177016
-```
-
-**Result:** Backward probabilities now IDENTICAL between biallelic and supersite!
-
-| Anchor Pair | Biallelic betaSumT | Supersite (Before) | Supersite (After) |
-|-------------|-------------------|--------------------|-------------------|
-| BI4 ≡ SS8 | 80.480011 | 80.480011 ✓ | 80.480011 ✓ |
-| BI3 ≡ SS6 | 0.988518 | 0.994095 ❌ | 0.988518 ✓ |
-| BI2 ≡ SS4 | 0.698952 | 0.702958 ❌ | 0.698952 ✓ |
-| BI1 ≡ SS2 | 0.505000 | 0.505000 ✓ | 0.505000 ✓ |
-| BI0 ≡ SS0 | 0.505000 | 0.505000 ✓ | 0.505000 ✓ |
-
-## Current Status: PARTIAL FIX
-
-### What's Fixed ✓
-
-1. **Backward pass transition probabilities** - yt now computed correctly for supersite anchors
-2. **Backward pass probabilities** - All betaSumT values now match between biallelic and supersite
-3. **Forward pass probabilities** - Already were matching (confirmed identical)
-4. **Panel haplotype selection** - Already were matching (confirmed identical with full logging)
-
-### Remaining Issue ❌
-
-**Test still fails with same error:**
-```
-Anchor mismatch at locus 0: bial (0|1) vs supersite (0|0)
-```
-
-**Analysis:**
-- ✓ Forward HMM probabilities: IDENTICAL
-- ✓ Backward HMM probabilities: IDENTICAL
-- ✓ Panel codes: IDENTICAL
-- ❌ Final sampled haplotypes: DIFFERENT
-
-**Conclusion:** The core HMM computation bug is FIXED. The divergence is now in the **sampling step** that uses these probabilities.
-
-## Next Investigation Steps
-
-### Hypothesis: Sampling Divergence
-
-Since HMM probabilities are now numerically identical, the issue must be in how these probabilities are converted to sampled haplotypes. Possible causes:
-
-1. **Floating-point normalization differences**
-   - probSumH values might differ at higher precision (beyond 6 decimal places logged)
-   - Normalization to sampling weights might amplify tiny differences
-   - Check: Log probSumH with %.15f precision
-
-2. **Random number generation**
-   - Same probabilities but different RNG draws
-   - Check: Verify RNG seeding is identical
-   - Check: Log the random draws used in sampling
-
-3. **Numerical stability in sampling**
-   - Cumulative probability computation might differ
-   - Underflow/overflow handling might differ
-   - Check: Log cumulative probabilities before sampling
-
-4. **Index calculation differences**
-   - How sampled probability maps to conditioning haplotype index
-   - Check: Log the selected index and the probability that led to it
-
-### Recommended Debugging Approach
-
-**Step 1:** Add sampling trace logging
-```cpp
-// In sampling code (likely in haplotype_segment_single.cpp)
-if (supersite_trace_enabled()) {
-    std::fprintf(stderr, "[SAMPLE_DEBUG] locus=%d probSumT=%.15f\n", locus, probSumT);
-    for (int i = 0; i < HAP_NUMBER; i++) {
-        std::fprintf(stderr, "  lane[%d] prob=%.15f norm=%.15f cum=%.15f\n",
-                     i, probSumH[i], probSumH[i]/probSumT, cumulative[i]);
-    }
-    std::fprintf(stderr, "  rand_draw=%.15f selected_idx=%d\n", rand_val, selected);
-}
-```
-
-**Step 2:** Compare sampling traces at locus 0
-```bash
-SHAPEIT5_TEST_TRACE=1 tests/bin/test_supersite_expansion_epochs 2>&1 > sampling_trace.log
-awk '/Iteration 3\/15/,/Iteration 4\/15/' sampling_trace.log | grep "SAMPLE_DEBUG.*locus=0"
-```
-
-**Step 3:** Look for first sampling divergence
-- If probabilities differ at high precision, trace back to source
-- If RNG differs, check seed initialization
-- If cumulative computation differs, check algorithm
-
-## Investigation History
-
-### 2025-11-18: Full Investigation and Fix
-
-1. **Enhanced trace logging** - Modified 4 locations to log all donors (not just first 4-10)
-2. **Discovered variable shadowing bug** - Found local yt/nt declarations shadowing member variables
-3. **Fixed the bug** - Removed local declarations, initialized members before loop
-4. **Verified HMM fix** - Confirmed all forward/backward probabilities now match
-5. **Identified sampling issue** - Test still fails despite identical HMM probabilities
-
-### Earlier Investigation
-
-1. **Ruled out panel selection** - Confirmed PBWT selection produces identical conditioning haplotypes
-2. **Ruled out emission logic** - Confirmed biallelic and supersite emission calculations are equivalent
-3. **Ruled out transition probabilities** - Confirmed getBackwardTransProb produces correct values
-4. **Pinpointed to yt=0 bug** - Found supersite anchors using yt=0 instead of yt≈0.0153
+Test `test_supersite_expansion_epochs` is failing with divergent results between biallelic and supersite (multiallelic) representations of the same genetic variants. The test runs 15 iterations of MCMC phasing and expects identical results from both representations.
 
 ## Diagnostic Commands
 
@@ -199,14 +29,11 @@ awk '/Iteration 3\/15/,/Iteration 4\/15/' hmm_trace.log | awk '/# Backward.*supe
 
 ## Files Modified
 
-1. **Bug fix:**
-   - `phase_common/src/models/haplotype_segment_single.cpp` (lines 768-769, 775)
-
-2. **Enhanced debugging (can be kept):**
+1. **Enhanced debugging (can be kept):**
    - `phase_common/src/models/haplotype_segment_single.h` (lines 599, 724, 1137, 1329)
    - `phase_common/src/models/haplotype_segment_single.cpp` (lines 810-826)
 
-3. **Documentation:**
+2. **Documentation:**
    - `bug_report_2025-11-18_backward_yt_zero.md` - Initial investigation
    - `bug_fix_2025-11-18_variable_shadowing.md` - Fix documentation
 
@@ -220,144 +47,264 @@ awk '/Iteration 3\/15/,/Iteration 4\/15/' hmm_trace.log | awk '/# Backward.*supe
 
 ---
 
-## Large-Scale Integration Test Failure (2025-11-19)
+## Scenario 8 (8x Replication) Probability Redistribution Bug (2025-11-26)
 
 ### Problem Statement
 
-After fixing the variable shadowing bug, small-scale test `tests/bin/test_supersite_expansion_epochs` works perfectly. However, the large-scale integration test `test/scripts/phase.chr22.wgs.sh` crashes after the first burn-in iteration with:
+Test scenario 8 (40 supersites, 80 total variants, 8 segments) fails at iteration 9 (burn7) with divergent ambiguous masks:
 
 ```
-/mnt/ssd/lalli/.linuxbrew/Cellar/gcc/15.2.0/include/c++/15/bits/stl_vector.h:1263:
-std::vector<_Tp, _Alloc>::reference std::vector<_Tp, _Alloc>::operator[](size_type)
-[with _Tp = double; _Alloc = std::allocator<double>; reference = double&;
-size_type = long unsigned int]: Assertion '__n < this->size()' failed.
+Iteration 8/15 [prune2]
+[ITER_TRACE] amb_state post-prune2: bial(seg=2,amb0=0xaa) supersite(seg=2,amb0=0x6a)
+
+Iteration 9/15 [burn7]
+Anchor mismatch at locus 0: bial (1|0) vs supersite (0|1)
 ```
 
-**Stack trace:**
-```
-#7  genotype::sampleBackward(vector<double>&, vector<float>&)
-#8  genotype::sample(vector<double>&, vector<float>&)
-#9  phaser::phaseWindow(int, int)
-```
+**Status:**
+- ✅ Scenarios 1, 2, 4 (5, 10, 20 supersites) PASS
+- ❌ Scenario 8 (40 supersites, 8 segments) FAILS
 
-**Test details:**
-- 342 super-sites covering 1028 variant positions
-- 3202 samples
-- Real chr22 WGS data (19000000-20000000)
+### Root Cause Investigation (2025-11-26)
 
-### Root Cause: Segment Boundaries Ending on Siblings (2025-11-19)
+#### Timeline of Divergence
 
-**The Bug:** When a segment ends on a supersite sibling variant, the backward pass skips those siblings during initialization (`need_init=true`), but the segment boundary transition check was also being skipped, causing a mismatch between expected and actual transition probability storage.
+Added comprehensive `BWD_PROB_DETAIL` logging to track backward emission probabilities (`prob[]`) at every locus:
 
-#### Variable Indexing Analysis
-
-**Variable X (counts transitions):** `genotype::n_transitions`
-- Calculated by `genotype::countTransitions()` in `genotype_header.h:227-235`
-- Iterates through all segments and counts `prev_dipcount × curr_dipcount` for each boundary
-- Used to size the `CurrentTransProbabilities` vector
-
-**Variable Y (indexes into transitions):** `tabs` in `genotype_sweep.cpp:121,151`
-- Calculated as: `toffset = n_transitions` initially, then `toffset -= next_dipcount * curr_dipcount`
-- Counts backwards through the vector during `sampleBackward()`
-
-**The Mismatch:**
-1. `countTransitions()` counts ALL segment boundaries (including those ending on siblings)
-2. Backward pass skips siblings with `continue` statement when `need_init=true`
-3. The `continue` skips BOTH the sibling processing AND the segment boundary check
-4. Result: `SET_OTHER_TRANS()` never called for segments ending on siblings
-5. Vector ends up smaller than expected: e.g., 27,000 actual vs 27,900 expected
-6. `sampleBackward()` tries to access index 27,900 → crash
-
-#### The Sibling-Skipping Logic
-
-**Location:** `haplotype_segment_double.cpp:589-603` and `haplotype_segment_single.cpp:787-807`
-
-**Original code (buggy):**
 ```cpp
-if (need_init && is_sibling) {
-    INIT_SIB(site_view);
-    update_prev_locus = false;
-    prev_abs_locus = update_prev_locus ? curr_abs_locus : prev_abs_locus;
-    curr_segment_locus--;  // Decrement counter
-    if (curr_segment_locus < 0 && curr_segment_index > 0) {
-        curr_segment_index--;
-        curr_segment_locus = G->Lengths[curr_segment_index] - 1;
-    }
-    continue;  // ← SKIPS the segment boundary check at line 682!
+fprintf(stderr, "[BWD_PROB_DETAIL] sample=%s locus=%d bio_anchor=%d is_sib=%d seg=%d seg_locus=%d probSumT=%.15f\n",
+        G->name.c_str(), curr_abs_locus, bio_anchor_idx, (int)is_sibling,
+        curr_segment_index, curr_segment_locus, (double)probSumT);
+fprintf(stderr, "  prob[0][0-7]= ");
+for (int i = 0; i < std::min(8, (int)prob.size()); i++) {
+    fprintf(stderr, "%.8e ", (double)prob[i]);
 }
 ```
 
-**The problem:** Even though `curr_segment_locus` reaches 0, the `continue` skips the boundary check at line 682:
-```cpp
-if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
-    SET_OTHER_TRANS(transition_probabilities);  // Never reached!
-}
+**Timeline Analysis:**
+
+| Iteration | Phase | Segments | Divergence? | Details |
+|-----------|-------|----------|-------------|---------|
+| 5 | burn5 | 8 | ❌ NO | All prob[] values identical |
+| 6 | prune1 | 8→3 | ❌ NO | After merge: `amb0=0xa6` for BOTH |
+| 7 | burn6 | 3 | ✅ **YES** | **100x divergence first appears** |
+| 8 | prune2 | 3→2 | ✅ YES | Masks diverge: `0xaa` vs `0x6a` |
+| 9 | burn7 | 2 | ✅ YES | Test fails with haplotype mismatch |
+
+**Critical Finding:** Divergence appears AFTER prune1 completes, during the first backward pass of burn6 (iteration 7). This indicates that **prune1's segment merging creates an inconsistent state** that manifests as divergent backward probabilities in scenario 8 (8 segments) but not in scenarios 1-4 (1-4 segments).
+
+#### Divergence Details
+
+**Location:** bio_anchor=36, prob[0] lane 2
+
+**Backward emission probabilities at bio_anchor=36 during burn6:**
+- Biallelic locus=36, seg=2, seg_locus=6: **probSumT=0.505000114440918**
+  ```
+  prob[0][0-7]= 3.90625000e-03 3.90624991e-05 3.90625000e-03 3.90624991e-05
+                3.90624991e-05 3.90624991e-05 3.90625000e-03 3.90625000e-03
+  ```
+
+- Supersite locus=72, seg=2, seg_locus=12: **probSumT=0.505000114440918** (IDENTICAL!)
+  ```
+  prob[0][0-7]= 3.90625000e-03 3.90624991e-05 3.90624991e-05 3.90625000e-03
+                3.90624991e-05 3.90625000e-03 3.90625000e-03 3.90624991e-05
+  ```
+
+**Analysis:**
+- Total probability `probSumT` is **identical** (0.5050001144)
+- But `prob[0][2]` differs by **100x**: biallelic=3.906e-03 vs supersite=3.906e-05
+- Also `prob[0][3]` is swapped: biallelic=3.906e-05 vs supersite=3.906e-03
+- The prob[] distribution pattern is **completely different** despite same total
+
+**Pattern visualization:**
+```
+Biallelic:  [hi, lo, HI, lo, lo, lo, hi, hi]   ← bit 2 is HIGH
+Supersite:  [hi, lo, LO, hi, lo, hi, hi, lo]   ← bit 2 is low, bit 3 is HIGH
 ```
 
-### The Fix (2025-11-19)
+### Root Cause Hypothesis
 
-**Files modified:**
-- `phase_common/src/models/haplotype_segment_double.cpp` (lines 594-599)
-- `phase_common/src/models/haplotype_segment_single.cpp` (lines 795-800)
+This is a **probability redistribution bug**, NOT the 2x accumulation bug seen in scenario 4. The characteristics:
 
-**Solution:** Check for segment boundary INSIDE the sibling-skip block, BEFORE the `continue`:
+1. **Total probability preserved:** probSumT is identical between biallelic and supersite
+2. **Distribution incorrect:** Probability mass is redistributed to different haplotype lanes
+3. **Triggered by pruning:** Appears after prune1 merges 8→3 segments
+4. **Affects merged segments:** bio_anchor=36 is in segment 2 (a merged segment)
+5. **Sibling-related:** Supersite has `seg_locus=12` (includes siblings) vs biallelic `seg_locus=6`
 
-```cpp
-if (need_init && is_sibling) {
-    INIT_SIB(site_view);
-    update_prev_locus = false;
-    prev_abs_locus = update_prev_locus ? curr_abs_locus : prev_abs_locus;
+**Hypothesis:** When prune1 rebuilds ambiguous masks for merged segments using `performMerges()` (genotype_prune.cpp:274-305), the segment membership logic (`vrel < Lengths[s-1]`) correctly identifies which variants belong to which segment, BUT there may be an additional bug in how the **probabilities** are distributed across haplotype lanes when:
+- The merged segment contains multiple supersites (each with siblings)
+- Segment boundaries don't align with supersite anchor/sibling patterns
+- The `Lengths[]` array (which includes siblings) is used inconsistently
 
-    // CRITICAL: Check for segment boundary BEFORE decrementing,
-    // since we'll skip the normal check with continue
-    if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
-        int ret = SET_OTHER_TRANS(transition_probabilities);
-        if (ret < 0) return ret;
-        else n_underflow_recovered += ret;
-    }
+### Segment Structure at bio_anchor=36
 
-    // Then decrement curr_segment_locus
-    curr_segment_locus--;
-    if (curr_segment_locus < 0 && curr_segment_index > 0) {
-        curr_segment_index--;
-        curr_segment_locus = G->Lengths[curr_segment_index] - 1;
-    }
-    continue;
-}
+After prune1 merges 8→3 segments:
+- **Segment 2** (where bio_anchor=36 resides):
+  - Biallelic: `Lengths[2]` includes positions creating `seg_locus=6` for anchor 36
+  - Supersite: `Lengths[2]` includes positions + siblings creating `seg_locus=12` for anchor 36
+  - The 2x difference in `seg_locus` suggests siblings are counted in Lengths[]
+
+**Critical observation:** Despite segment structure differences, the HMM should produce identical prob[] distributions for anchors. The fact that probSumT matches but individual lanes differ suggests a lane-assignment or indexing bug.
+
+### Next Investigation Steps
+
+1. **Trace prune1 merge operation for segment 2:**
+   - Which original segments were merged to create segment 2?
+   - How were Ambiguous masks rebuilt during the merge?
+   - Check `performMerges()` logging for segment 2 in scenario 8
+
+2. **Compare lane assignments before/after prune1:**
+   - Check if conditioning haplotype indices are correct
+   - Verify that merged haplotypes map correctly to lanes
+   - Look for off-by-one errors in lane indexing
+
+3. **Check sibling handling in merged segments:**
+   - Are siblings correctly skipped in ambiguous mask rebuilding?
+   - Does `vrel < Lengths[s-1]` work correctly when Lengths[] includes siblings?
+   - Verify that `arel` (ambiguous anchor counter) increments correctly
+
+4. **Test hypothesis: Force identical Lengths[]:**
+   - Temporarily modify code to use `Lengths_bio[]` instead of `Lengths[]` in segment membership check
+   - If this fixes the divergence, confirms that sibling counting in Lengths[] is the issue
+
+### Files to Investigate
+
+1. **genotype_prune.cpp:274-305** - `performMerges()` ambiguous mask rebuilding
+   - The recent fix (2025-11-25) changed `arel < n_amb_first` to `vrel < Lengths[s-1]`
+   - This fixed scenarios 1-4 but scenario 8 still fails
+   - May need additional logic for multi-segment merges with siblings
+
+2. **haplotype_segment_single.cpp:786-1100** - Backward pass with merged segments
+   - Check if merged segments use correct Lengths[] values
+   - Verify sibling handling doesn't affect prob[] distribution
+
+3. **genotype_build.cpp:86-220** - Initial segment creation and Lengths[] calculation
+   - Confirm Lengths[] includes siblings while Lengths_bio[] counts only anchors
+   - Verify this is consistent across all segment operations
+
+### Diagnostic Commands
+
+**Extract prune1 merge details:**
+```bash
+SHAPEIT5_TEST_TRACE=1 timeout 30 tests/bin/test_supersite_expansion_epochs 2>&1 | \
+  awk '/Scenario: repeat_factor=8/,0' | \
+  awk '/Iteration 6\/15/,/Iteration 7\/15/' | \
+  grep "PRUNE_DEBUG\|performMerges" > /tmp/prune1_merge.log
 ```
 
-**Rationale:**
-- Segments can end on siblings (e.g., `[anchor, sibling1, sibling2]`)
-- During backward initialization, siblings are skipped with `continue`
-- Without the boundary check inside the skip block, `SET_OTHER_TRANS()` would never be called
-- This causes `CurrentTransProbabilities` to be under-sized
-- Adding the check ensures transitions are stored for ALL segment boundaries
+**Compare prob[] at bio_anchor=36 before/after prune1:**
+```bash
+for iter in 5 6 7; do
+  echo "=== Iteration $iter ==="
+  awk "/Iteration $iter\/15/,/Iteration $((iter+1))\/15/" /tmp/scenario8_bwd_detail2.log | \
+    grep "BWD_PROB_DETAIL.*bio_anchor=36" -A1
+done
+```
 
-### Why Small Test Worked But Large Test Failed
+### Status
 
-**Small test (`test_supersite_expansion_epochs`):**
-- Hand-crafted data with few supersites
-- Segments likely don't end on siblings by chance
-- All segment boundaries processed normally
-
-**Large test (`phase.chr22.wgs.sh`):**
-- 342 real supersites from chr22 data
-- Statistically, some segments MUST end on siblings
-- Triggers the bookkeeping bug
-
-### Verification
-
-**Expected behavior after fix:**
-- `SET_OTHER_TRANS()` called for every segment boundary
-- `CurrentTransProbabilities.size() == n_transitions`
-- No out-of-bounds access in `sampleBackward()`
-- Large-scale chr22 test completes successfully
-
-**Build status:**
-- Compiled successfully with fix applied
-- Both single and double precision versions updated
+- ✅ Identified that scenario 8 has a DIFFERENT bug than scenario 4 (100x redistribution vs 2x accumulation)
+- ✅ Pinpointed divergence first appears in burn6 (after prune1)
+- ✅ Confirmed probSumT matches but prob[] distribution differs
+- ✅ Identified bio_anchor=36 in merged segment 2 as divergence point
+- ❌ Root cause in prune1 segment merging not yet identified
+- 🔍 Next: Investigate performMerges() lane assignment logic for multi-segment merges with siblings
 
 ---
 
-**Document Status:** Current as of 2025-11-19 (Evening)
-**Last Updated:** Fixed segment boundary transition bookkeeping bug for segments ending on siblings
+## AMB Indexing Investigation - Hypothesis Disproven (2025-11-26)
+
+### Investigation Goal
+
+Verify whether siblings are incorrectly marked as AMB, causing the `a` counter in make() to increment incorrectly when indexing the Ambiguous[] array.
+
+### Key Findings
+
+**1. Siblings are correctly excluded from AMB counting**
+
+`window_set.cpp:78-86` defines `is_locus_ambiguous()` which explicitly filters siblings:
+
+```cpp
+auto is_locus_ambiguous = [&](unsigned int locus) -> bool {
+    if (ctx.is_member && !ctx.is_anchor) return false;  // SIBLINGS EXCLUDED
+    return ctx.has_het || ctx.has_sca;
+};
+```
+
+**2. Verified with WindowAmbLocus trace**
+
+Scenario 1 supersite_sample shows siblings correctly excluded:
+
+```
+[WindowAmbLocus] locus=0 is_amb=1  ← anchor (het)  ✓
+[WindowAmbLocus] locus=1 is_amb=0  ← sibling ✓ CORRECTLY EXCLUDED
+[WindowAmbLocus] locus=2 is_amb=1  ← anchor (het)  ✓
+[WindowAmbLocus] locus=3 is_amb=0  ← sibling ✓ CORRECTLY EXCLUDED
+```
+
+**3. genotype::build() correctly skips siblings** (genotype_build.cpp:318-319):
+
+```cpp
+if (ctx.is_member && !ctx.is_anchor) continue;  // Skip siblings when counting AMB
+```
+
+### Conclusion
+
+**AMB indexing hypothesis DISPROVEN.** Siblings are correctly excluded throughout. The 100x divergence in scenario 8 must have a different root cause.
+
+---
+
+**Document Status:** 2025-11-26 - AMB indexing hypothesis disproven
+
+---
+
+## Corrected Timeline - Bug is in prune2, NOT burn6 (2025-11-26)
+
+### Investigation Correction
+
+Previous investigation in CLAUDE.md incorrectly identified burn6 as the divergence point. **New findings show the bug is in prune2 (iteration 8).**
+
+### Verified Timeline for Scenario 8
+
+```
+burn1-5:  ✓ Haplotypes IDENTICAL (amb0=0xaa for both)
+prune1:   ✓ Haplotypes IDENTICAL after merge (amb0=0xa6 for both)
+burn6:    ✓ Haplotypes IDENTICAL (amb0=0xa6 for both)
+prune2:   ❌ Haplotypes DIVERGE (bial=0xaa, supersite=0x6a)
+burn7:    ❌ Test FAILS with anchor mismatch at locus 0
+```
+
+### Panel vs Test Sample Analysis
+
+**Panel haplotypes after prune1:** IDENTICAL ✓
+- Verified: First 10 panel samples match across all anchors
+- Conclusion: Panel is not the source of divergence
+
+**Test sample haplotypes:**
+- Through burn6: IDENTICAL
+- After prune2: DIVERGED
+
+### Ambiguous Mask Divergence Detail
+
+**Post-prune2 divergence:**
+- Biallelic: `amb0 = 0xaa = 0b10101010`
+- Supersite: `amb0 = 0x6a = 0b01101010`
+- **Bit difference:** Bit 7 (MSB) - set in biallelic, clear in supersite
+
+### Key Question
+
+Why does prune1 work correctly but prune2 fails? Possible differences:
+1. Different segment structures going into merge
+2. Different number of segments being merged (prune1: 6→3, prune2: 3→2)
+3. Edge case in performMerges() that only triggers in second pruning
+
+### Next Investigation
+
+Add detailed logging to prune2 to trace:
+1. Input segment structure (lengths, amb counts)
+2. Which segments are being merged
+3. Ambiguous mask rebuilding step-by-step
+4. Compare biallelic vs supersite at each merge step
+
+---

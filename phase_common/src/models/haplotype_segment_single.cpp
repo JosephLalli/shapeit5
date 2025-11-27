@@ -996,6 +996,32 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 					(int)update_prev_locus,
 					yt,
 					prev_after);
+
+			// Calculate biological anchor index (for supersites, count only anchors, not siblings)
+			int bio_anchor_idx = curr_abs_locus;
+			if (super_sites && locus_to_super_idx) {
+				int ss_idx = (*locus_to_super_idx)[curr_abs_locus];
+				if (ss_idx >= 0) {
+					// Map to biological anchor index (count only anchors, not siblings)
+					bio_anchor_idx = 0;
+					for (int i = 0; i < curr_abs_locus; i++) {
+						int check_ss = (*locus_to_super_idx)[i];
+						if (check_ss < 0 || i == (*super_sites)[check_ss].global_site_id) {
+							bio_anchor_idx++;
+						}
+					}
+				}
+			}
+
+			// Enhanced BWD_PROB_DETAIL logging with bio_anchor, segment info, and first 8 prob[] values
+			fprintf(stderr, "[BWD_PROB_DETAIL] sample=%s locus=%d bio_anchor=%d is_sib=%d seg=%d seg_locus=%d probSumT=%.15f\n",
+			        G->name.c_str(), curr_abs_locus, bio_anchor_idx, (int)is_sibling,
+			        curr_segment_index, curr_segment_locus, (double)probSumT);
+			fprintf(stderr, "  prob[0][0-7]= ");
+			for (int i = 0; i < std::min(8, (int)prob.size()); i++) {
+				fprintf(stderr, "%.8e ", (double)prob[i]);
+			}
+			fprintf(stderr, "\n");
 		}
 		prev_abs_locus = prev_after;
 		trace_log_backward_state(curr_abs_locus,
@@ -1305,6 +1331,34 @@ int haplotype_segment_single::SET_OTHER_TRANS(vector < double > & transition_pro
 			std::fprintf(stderr, "\n");
 		}
 		std::fflush(stderr);
+	}
+	bool enable_debug = (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME) ||
+						(G->name.find("_sample") != std::string::npos);
+	if (enable_debug) {
+		// Determine biological anchor index (for supersites, map to anchor; for biallelic, locus = anchor)
+		int bio_anchor_idx = curr_abs_locus;
+		bool is_supersite_anchor = false;
+		if (super_sites && locus_to_super_idx) {
+			int ss_idx = (*locus_to_super_idx)[curr_abs_locus];
+			if (ss_idx >= 0) {
+				const SuperSite& ss = (*super_sites)[ss_idx];
+				is_supersite_anchor = (curr_abs_locus == ss.global_site_id);
+				// Map to biological anchor index (count only anchors, not siblings)
+				bio_anchor_idx = 0;
+				for (int i = 0; i < curr_abs_locus; i++) {
+					int check_ss = (*locus_to_super_idx)[i];
+					if (check_ss < 0 || i == (*super_sites)[check_ss].global_site_id) {
+						bio_anchor_idx++;
+					}
+				}
+			}
+		}
+		std::fprintf(stderr, "[SET_OTHER_TRANS] sample=%s locus=%d bio_anchor=%d seg=%d is_ss_anchor=%d n_trans=%u sumHProbs=%.15f sumDProbs=%.15f\n",
+					 G->name.c_str(), curr_abs_locus, bio_anchor_idx, curr_segment_index, (int)is_supersite_anchor, n_transitions, sumHProbs, sumDProbs);
+		// Show first 8 transition probabilities
+		for (unsigned int t = 0; t < std::min(8u, n_transitions); t++) {
+			std::fprintf(stderr, "  trans[%u] DProb=%.15f final=%.15f\n", t, DProbs[t], DProbs[t] * scaleDip);
+		}
 	}
 	if (supersite_trace_enabled()) {
 		std::fprintf(stdout, "SET_OTHER_TRANS single: curr_abs_transition=%d n_transitions=%u buf_size=%zu\n",

@@ -1211,3 +1211,15 @@ At genotype-graph segment boundaries in `phase_common`, stop broadcasting only t
 
 ### Why
 Broadcasting row marginals flattens the second-chain prior (column side) and erases per-lane class skew created by the previous segment—this is harmless-ish for biallelic ref|alt but can be materially wrong for supersite hets like alt1|alt2. Carrying `probSumH` fixes this with negligible overhead and unchanged vectorization.
+
+---
+
+## Current prune divergence plan (repeat_factor=4, prune2)
+- Symptom: Supersite ambiguous mask flips to `0xa9` during prune1, while bial stays `0x55`, leading to anchor mismatch at prune2.
+- Reproduction: `SHAPEIT5_SUPERDEBUG_SAMPLENAME=supersite_sample SHAPEIT5_SUPERDEBUG_BP=0 SHAPEIT5_TRACE_SUPERSITE_PACKING=1 SHAPEIT5_DETAILED_ITERATION_TRACE=1 ./tests/bin/test_supersite_expansion_epochs` (repeat_factor=4 scenario).
+- Immediate action: Revert debug instrumentation and partial remap tweaks in `phase_common/src/objects/genotype/genotype_prune.cpp` and `tests/src/test_supersite_expansion_epochs.cpp` to a clean baseline.
+- Fix to implement: Rewrite `performMerges` remap to mirror `genotype::build()`:
+  - Maintain `vabs` over stored loci but `anchor_idx`/`anchor_offset` over anchors only; siblings never increment anchor counters.
+  - Decide left/right for ambiguous copies via `anchor_idx < Lengths_bio[s-1]` (biological counts), not stored-length offsets.
+  - Advance `anchor_offset += Lengths_bio[s-1]` after processing each segment; for copy/merge loops, iterate until `anchor_idx` reaches the biological length, skipping siblings.
+  - Goal: identical locus→ambiguous-index mapping as build() for mixed bial/supersite layouts, eliminating the supersite-only mask flip.
