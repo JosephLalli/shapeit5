@@ -1,0 +1,517 @@
+======================================================================
+Supersite Expansion 15-Epoch Parity Test
+======================================================================
+
+--- Scenario: repeat_factor=4 ---
+[AMB_ASSIGN] sample=bial_sample locus=0 seg=0 vrel=0 n_unf=0 mask_idx=0 assigned=0x55
+[AMB_ASSIGN] sample=bial_sample locus=0 seg=0 vrel=0 n_unf=0 mask_idx=0 assigned=0x55
+  * HAP update (0.00s)
+  * PBWT initialization [#eval=20 / #select=1 / #chunk=1] (0.00s)
+[AMB_ASSIGN] sample=supersite_sample locus=0 seg=0 vrel=0 n_unf=0 mask_idx=0 assigned=0x55
+[AMB_ASSIGN] sample=supersite_sample locus=0 seg=0 vrel=0 n_unf=0 mask_idx=0 assigned=0x55
+  * HAP update (0.00s)
+  * PBWT initialization [#eval=40 / #select=1 / #chunk=1] (0.00s)
+[AMB_ASSIGN] sample=supersite_sample locus=0 seg=0 vrel=0 n_unf=0 mask_idx=0 assigned=0x55
+  Biallelic haplotypes: 130 | Supersite haplotypes: 130
+  Supersite count: 20
+Iteration 1/15 [burn1]
+  * PBWT selection (0.00s)
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+  * PBWT selection (0.00s)
+unpackSuperSiteCode #1: panel_offset=0 hap_idx=3 byte_idx=1
+unpackSuperSiteCode #2: panel_offset=0 hap_idx=9 byte_idx=4
+unpackSuperSiteCode #3: panel_offset=0 hap_idx=11 byte_idx=5
+unpackSuperSiteCode #4: panel_offset=0 hap_idx=17 byte_idx=8
+unpackSuperSiteCode #5: panel_offset=0 hap_idx=19 byte_idx=9
+unpackSuperSiteCode #6: panel_offset=0 hap_idx=25 byte_idx=12
+unpackSuperSiteCode #7: panel_offset=0 hap_idx=27 byte_idx=13
+unpackSuperSiteCode #8: panel_offset=0 hap_idx=33 byte_idx=16
+unpackSuperSiteCode #9: panel_offset=0 hap_idx=35 byte_idx=17
+unpackSuperSiteCode #10: panel_offset=0 hap_idx=41 byte_idx=20
+unpackSuperSiteCode #11: panel_offset=0 hap_idx=43 byte_idx=21
+unpackSuperSiteCode #12: panel_offset=0 hap_idx=49 byte_idx=24
+unpackSuperSiteCode #13: panel_offset=0 hap_idx=51 byte_idx=25
+unpackSuperSiteCode #14: panel_offset=0 hap_idx=57 byte_idx=28
+unpackSuperSiteCode #15: panel_offset=0 hap_idx=59 byte_idx=29
+unpackSuperSiteCode #16: panel_offset=0 hap_idx=65 byte_idx=32
+unpackSuperSiteCode #17: panel_offset=0 hap_idx=69 byte_idx=34
+unpackSuperSiteCode #18: panel_offset=0 hap_idx=72 byte_idx=36
+unpackSuperSiteCode #19: panel_offset=0 hap_idx=77 byte_idx=38
+unpackSuperSiteCode #20: panel_offset=0 hap_idx=80 byte_idx=40
+[SUPERDEBUG] H1: ENTER SS_RUN_AMB
+[SUPERDEBUG] H1: Sample=supersite_sample Pos=0 c0=0 c1=1 amb_mask=85
+  Expected classes: 1 0 1 0 1 0 1 0 
+[SUPERDEBUG] H1: k=0 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=1 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=2 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=3 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=4 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H2: Enter AMB block segment=0 dip_mask=0x102040810204080 DipSampled=7 hap0_lane=0 hap1_lane=7
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: Enter AMB block'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] H2: Resolving het at Pos=0 for sample supersite_sample
+[SUPERDEBUG] H2: current_c0=0 current_c1=1 amb_code=85
+[SUPERDEBUG] H2: hap0_lane=0 hap1_lane=7
+[SUPERDEBUG] H2: sampled_h0=1 sampled_h1=0
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projection in AMB'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After make() in sampleBackward'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:entry'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:anchor-classes' h0=1 h1=0
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:exit'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projectSupersites() in sampleBackward'
+  HAP0: 1 0 
+  HAP1: 0 0 
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+
+[ITER_TRACE] Iteration 1 (burn1):
+  anchor[0]: bial=1|0 ss=1|0 ✓
+  anchor[1]: bial=0|1 ss=0|1 ✓
+  anchor[2]: bial=0|0 ss=0|0 ✓
+  anchor[3]: bial=0|0 ss=0|0 ✓
+  anchor[4]: bial=1|1 ss=1|1 ✓
+[ITER_TRACE] amb_state post-burn1: bial(seg=3,amb0=0x55) supersite(seg=3,amb0=0x55)
+Iteration 2/15 [burn2]
+  * PBWT selection (0.00s)
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+  * PBWT selection (0.00s)
+[SUPERDEBUG] H1: ENTER SS_RUN_AMB
+[SUPERDEBUG] H1: Sample=supersite_sample Pos=0 c0=0 c1=1 amb_mask=85
+  Expected classes: 1 0 1 0 1 0 1 0 
+[SUPERDEBUG] H1: k=0 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=1 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=2 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=3 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=4 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H2: Enter AMB block segment=0 dip_mask=0x102040810204080 DipSampled=56 hap0_lane=7 hap1_lane=0
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: Enter AMB block'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] H2: Resolving het at Pos=0 for sample supersite_sample
+[SUPERDEBUG] H2: current_c0=0 current_c1=1 amb_code=85
+[SUPERDEBUG] H2: hap0_lane=7 hap1_lane=0
+[SUPERDEBUG] H2: sampled_h0=0 sampled_h1=1
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projection in AMB'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After make() in sampleBackward'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:entry'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:anchor-classes' h0=0 h1=1
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:exit'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projectSupersites() in sampleBackward'
+  HAP0: 0 0 
+  HAP1: 1 0 
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+
+[ITER_TRACE] Iteration 2 (burn2):
+  anchor[0]: bial=0|1 ss=0|1 ✓
+  anchor[1]: bial=1|0 ss=1|0 ✓
+  anchor[2]: bial=0|0 ss=0|0 ✓
+  anchor[3]: bial=0|0 ss=0|0 ✓
+  anchor[4]: bial=1|1 ss=1|1 ✓
+[ITER_TRACE] amb_state post-burn2: bial(seg=3,amb0=0x55) supersite(seg=3,amb0=0x55)
+Iteration 3/15 [burn3]
+  * PBWT selection (0.00s)
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+  * PBWT selection (0.00s)
+[SUPERDEBUG] H1: ENTER SS_RUN_AMB
+[SUPERDEBUG] H1: Sample=supersite_sample Pos=0 c0=0 c1=1 amb_mask=85
+  Expected classes: 1 0 1 0 1 0 1 0 
+[SUPERDEBUG] H1: k=0 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=1 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=2 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=3 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=4 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H2: Enter AMB block segment=0 dip_mask=0x102040810204080 DipSampled=35 hap0_lane=4 hap1_lane=3
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: Enter AMB block'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] H2: Resolving het at Pos=0 for sample supersite_sample
+[SUPERDEBUG] H2: current_c0=0 current_c1=1 amb_code=85
+[SUPERDEBUG] H2: hap0_lane=4 hap1_lane=3
+[SUPERDEBUG] H2: sampled_h0=1 sampled_h1=0
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projection in AMB'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After make() in sampleForward'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:entry'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:anchor-classes' h0=1 h1=0
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:exit'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projectSupersites() in sampleForward'
+  HAP0: 1 0 
+  HAP1: 0 0 
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+
+[ITER_TRACE] Iteration 3 (burn3):
+  anchor[0]: bial=1|0 ss=1|0 ✓
+  anchor[1]: bial=0|1 ss=0|1 ✓
+  anchor[2]: bial=0|0 ss=0|0 ✓
+  anchor[3]: bial=0|0 ss=0|0 ✓
+  anchor[4]: bial=1|1 ss=1|1 ✓
+[ITER_TRACE] amb_state post-burn3: bial(seg=3,amb0=0x55) supersite(seg=3,amb0=0x55)
+Iteration 4/15 [burn4]
+  * PBWT selection (0.00s)
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+  * PBWT selection (0.00s)
+[SUPERDEBUG] H1: ENTER SS_RUN_AMB
+[SUPERDEBUG] H1: Sample=supersite_sample Pos=0 c0=0 c1=1 amb_mask=85
+  Expected classes: 1 0 1 0 1 0 1 0 
+[SUPERDEBUG] H1: k=0 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=1 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=2 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=3 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=4 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H2: Enter AMB block segment=0 dip_mask=0x102040810204080 DipSampled=28 hap0_lane=3 hap1_lane=4
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: Enter AMB block'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] H2: Resolving het at Pos=0 for sample supersite_sample
+[SUPERDEBUG] H2: current_c0=0 current_c1=1 amb_code=85
+[SUPERDEBUG] H2: hap0_lane=3 hap1_lane=4
+[SUPERDEBUG] H2: sampled_h0=0 sampled_h1=1
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projection in AMB'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After make() in sampleBackward'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:entry'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:anchor-classes' h0=0 h1=1
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:exit'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projectSupersites() in sampleBackward'
+  HAP0: 0 0 
+  HAP1: 1 0 
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+
+[ITER_TRACE] Iteration 4 (burn4):
+  anchor[0]: bial=0|1 ss=0|1 ✓
+  anchor[1]: bial=1|0 ss=1|0 ✓
+  anchor[2]: bial=0|0 ss=0|0 ✓
+  anchor[3]: bial=0|0 ss=0|0 ✓
+  anchor[4]: bial=1|1 ss=1|1 ✓
+[ITER_TRACE] amb_state post-burn4: bial(seg=3,amb0=0x55) supersite(seg=3,amb0=0x55)
+Iteration 5/15 [burn5]
+  * PBWT selection (0.00s)
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+  * PBWT selection (0.00s)
+[SUPERDEBUG] H1: ENTER SS_RUN_AMB
+[SUPERDEBUG] H1: Sample=supersite_sample Pos=0 c0=0 c1=1 amb_mask=85
+  Expected classes: 1 0 1 0 1 0 1 0 
+[SUPERDEBUG] H1: k=0 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=1 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=2 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=3 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=4 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H2: Enter AMB block segment=0 dip_mask=0x102040810204080 DipSampled=7 hap0_lane=0 hap1_lane=7
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: Enter AMB block'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] H2: Resolving het at Pos=0 for sample supersite_sample
+[SUPERDEBUG] H2: current_c0=0 current_c1=1 amb_code=85
+[SUPERDEBUG] H2: hap0_lane=0 hap1_lane=7
+[SUPERDEBUG] H2: sampled_h0=1 sampled_h1=0
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projection in AMB'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After make() in sampleBackward'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:entry'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:anchor-classes' h0=1 h1=0
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:exit'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projectSupersites() in sampleBackward'
+  HAP0: 1 0 
+  HAP1: 0 0 
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+
+[ITER_TRACE] Iteration 5 (burn5):
+  anchor[0]: bial=1|0 ss=1|0 ✓
+  anchor[1]: bial=0|1 ss=0|1 ✓
+  anchor[2]: bial=0|0 ss=0|0 ✓
+  anchor[3]: bial=0|0 ss=0|0 ✓
+  anchor[4]: bial=1|1 ss=1|1 ✓
+[ITER_TRACE] amb_state post-burn5: bial(seg=3,amb0=0x55) supersite(seg=3,amb0=0x55)
+Iteration 6/15 [prune1]
+  * PBWT selection (0.00s)
+[ITER_TRACE] biallelic_x4 prune pre-merge: n_segments=3 n_transitions=200 amb0=0x55
+[ITER_TRACE] biallelic_x4 prune post-merge: n_segments=2 n_transitions=136 amb0=0x55
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+  * PBWT selection (0.00s)
+[SUPERDEBUG] H1: ENTER SS_RUN_AMB
+[SUPERDEBUG] H1: Sample=supersite_sample Pos=0 c0=0 c1=1 amb_mask=85
+  Expected classes: 1 0 1 0 1 0 1 0 
+[SUPERDEBUG] H1: k=0 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=1 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=2 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=3 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=4 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H2: Enter AMB block segment=0 dip_mask=0x102040810204080 DipSampled=28 hap0_lane=3 hap1_lane=4
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: Enter AMB block'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] H2: Resolving het at Pos=0 for sample supersite_sample
+[SUPERDEBUG] H2: current_c0=0 current_c1=1 amb_code=85
+[SUPERDEBUG] H2: hap0_lane=3 hap1_lane=4
+[SUPERDEBUG] H2: sampled_h0=0 sampled_h1=1
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projection in AMB'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After make() in sampleBackward'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:entry'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:anchor-classes' h0=0 h1=1
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:exit'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projectSupersites() in sampleBackward'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[ITER_TRACE] supersite_x4 prune pre-merge: n_segments=3 n_transitions=200 amb0=0x55
+[PRUNE_DEBUG] supersite_sample enter performMerges n_segments=3 flagMerges.size=4 Ambiguous.size=8 Lengths[0]=12 Lengths_bio[0]=6 flagM[0]=0
+[PRUNE_DEBUG] supersite_sample pre-loop flagMerges:0100
+[PRUNE_DEBUG] supersite_sample merge-at flagMerges:0100
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=0 vrel=0 arel=0 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=2 vrel=1 arel=1 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=10 vrel=5 arel=2 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=12 vrel=6 arel=3 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=20 vrel=10 arel=4 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=22 vrel=11 arel=5 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=0 vrel=0 arel=0 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=2 vrel=1 arel=1 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=10 vrel=5 arel=2 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=12 vrel=6 arel=3 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=20 vrel=10 arel=4 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=22 vrel=11 arel=5 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=0 vrel=0 arel=0 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=2 vrel=1 arel=1 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=10 vrel=5 arel=2 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=12 vrel=6 arel=3 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=20 vrel=10 arel=4 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=22 vrel=11 arel=5 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=0 vrel=0 arel=0 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=2 vrel=1 arel=1 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=10 vrel=5 arel=2 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=12 vrel=6 arel=3 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=20 vrel=10 arel=4 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=22 vrel=11 arel=5 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=0 vrel=0 arel=0 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=2 vrel=1 arel=1 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=10 vrel=5 arel=2 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=12 vrel=6 arel=3 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=20 vrel=10 arel=4 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=22 vrel=11 arel=5 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=0 vrel=0 arel=0 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=2 vrel=1 arel=1 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=10 vrel=5 arel=2 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=12 vrel=6 arel=3 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=20 vrel=10 arel=4 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=22 vrel=11 arel=5 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=0 vrel=0 arel=0 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=2 vrel=1 arel=1 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=10 vrel=5 arel=2 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=12 vrel=6 arel=3 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=20 vrel=10 arel=4 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h0 seg=1 vabs=22 vrel=11 arel=5 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=0 vrel=0 arel=0 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=2 vrel=1 arel=1 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=10 vrel=5 arel=2 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=12 vrel=6 arel=3 amb_code=0x55 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=20 vrel=10 arel=4 amb_code=0xaa len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/h1 seg=1 vabs=22 vrel=11 arel=5 amb_code=0x33 len_bio_left=6 len_bio_right=9
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=0 side=L amb_old=0x55 amb_new=0xa9
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=1 side=L amb_old=0xaa amb_new=0x56
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=2 side=L amb_old=0x33 amb_new=0xa9
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=3 side=L amb_old=0x55 amb_new=0x56
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=4 side=L amb_old=0xaa amb_new=0xa9
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=5 side=L amb_old=0x33 amb_new=0x56
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=6 side=R amb_old=0x55 amb_new=0x0
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=7 side=R amb_old=0xaa amb_new=0x0
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=8 side=R amb_old=0x0 amb_new=0x0
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=9 side=R amb_old=0x0 amb_new=0x0
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=10 side=R amb_old=0x0 amb_new=0x0
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=11 side=R amb_old=0x0 amb_new=0x0
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=12 side=R amb_old=0x0 amb_new=0x0
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=13 side=R amb_old=0x0 amb_new=0x0
+[PRUNE_DEBUG] supersite_sample ctx=merge/final seg=1 anchor_idx=14 side=R amb_old=0x0 amb_new=0x0
+[PRUNE_DEBUG] supersite_sample ctx=copy-tail seg=3 vabs=30 vrel=0 arel=0 amb_code=0x55 len_bio_left=5 len_bio_right=0
+[PRUNE_DEBUG] supersite_sample ctx=copy-tail seg=3 vabs=32 vrel=1 arel=1 amb_code=0xaa len_bio_left=5 len_bio_right=0
+[PRUNE_DEBUG] supersite_sample exit performMerges n_segments=2 Ambiguous.size=8 copied_amb=8 Lengths_bio[0]=15
+[ITER_TRACE] supersite_x4 prune post-merge: n_segments=2 n_transitions=136 amb0=0xa9
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+
+[ITER_TRACE] Iteration 6 (prune1):
+  anchor[0]: bial=0|1 ss=0|1 ✓
+  anchor[1]: bial=1|0 ss=1|0 ✓
+  anchor[2]: bial=0|0 ss=0|0 ✓
+  anchor[3]: bial=0|0 ss=0|0 ✓
+  anchor[4]: bial=1|1 ss=1|1 ✓
+[ITER_TRACE] amb_state post-prune1: bial(seg=2,amb0=0x55) supersite(seg=2,amb0=0xa9)
+Iteration 7/15 [burn6]
+  * PBWT selection (0.00s)
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+  * PBWT selection (0.00s)
+[SUPERDEBUG] H1: ENTER SS_RUN_AMB
+[SUPERDEBUG] H1: Sample=supersite_sample Pos=0 c0=0 c1=1 amb_mask=169
+  Expected classes: 1 0 0 1 0 1 0 1 
+[SUPERDEBUG] H1: k=0 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=1 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=2 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=3 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=4 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H2: Enter AMB block segment=0 dip_mask=0x4080102004080102 DipSampled=8 hap0_lane=1 hap1_lane=0
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: Enter AMB block'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] H2: Resolving het at Pos=0 for sample supersite_sample
+[SUPERDEBUG] H2: current_c0=0 current_c1=1 amb_code=169
+[SUPERDEBUG] H2: hap0_lane=1 hap1_lane=0
+[SUPERDEBUG] H2: sampled_h0=0 sampled_h1=1
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projection in AMB'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After make() in sampleForward'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:entry'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:anchor-classes' h0=0 h1=1
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:exit'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projectSupersites() in sampleForward'
+  HAP0: 0 0 
+  HAP1: 1 0 
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+
+[ITER_TRACE] Iteration 7 (burn6):
+  anchor[0]: bial=0|1 ss=0|1 ✓
+  anchor[1]: bial=1|0 ss=1|0 ✓
+  anchor[2]: bial=0|0 ss=0|0 ✓
+  anchor[3]: bial=0|0 ss=0|0 ✓
+  anchor[4]: bial=1|1 ss=1|1 ✓
+[ITER_TRACE] amb_state post-burn6: bial(seg=2,amb0=0x55) supersite(seg=2,amb0=0xa9)
+Iteration 8/15 [prune2]
+  * PBWT selection (0.00s)
+[ITER_TRACE] biallelic_x4 prune pre-merge: n_segments=2 n_transitions=136 amb0=0x55
+[ITER_TRACE] biallelic_x4 prune post-merge: n_segments=2 n_transitions=136 amb0=0x55
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+  * PBWT selection (0.00s)
+[SUPERDEBUG] H1: ENTER SS_RUN_AMB
+[SUPERDEBUG] H1: Sample=supersite_sample Pos=0 c0=0 c1=1 amb_mask=169
+  Expected classes: 1 0 0 1 0 1 0 1 
+[SUPERDEBUG] H1: k=0 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=1 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=2 donor_code=1 (strict) first-lane emit=1
+[SUPERDEBUG] H1: k=3 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H1: k=4 donor_code=0 (strict) first-lane emit=0.01
+[SUPERDEBUG] H2: Enter AMB block segment=0 dip_mask=0x4080102004080102 DipSampled=26 hap0_lane=3 hap1_lane=2
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: Enter AMB block'
+  HAP0: 0 0 
+  HAP1: 1 0 
+[SUPERDEBUG] H2: Resolving het at Pos=0 for sample supersite_sample
+[SUPERDEBUG] H2: current_c0=0 current_c1=1 amb_code=169
+[SUPERDEBUG] H2: hap0_lane=3 hap1_lane=2
+[SUPERDEBUG] H2: sampled_h0=1 sampled_h1=0
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projection in AMB'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After make() in sampleBackward'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:entry'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:anchor-classes' h0=1 h1=0
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='projectSupersites:exit'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[SUPERDEBUG] Sample=supersite_sample Pos=0 Context='Hypo2: After projectSupersites() in sampleBackward'
+  HAP0: 1 0 
+  HAP1: 0 0 
+[ITER_TRACE] supersite_x4 prune pre-merge: n_segments=2 n_transitions=136 amb0=0xa9
+[PRUNE_DEBUG] supersite_sample enter performMerges n_segments=2 flagMerges.size=3 Ambiguous.size=8 Lengths[0]=30 Lengths_bio[0]=15 flagM[0]=0
+[PRUNE_DEBUG] supersite_sample pre-loop flagMerges:000
+[PRUNE_DEBUG] supersite_sample ctx=copy seg=1 vabs=0 vrel=0 arel=0 amb_code=0xa9 len_bio_left=15 len_bio_right=0
+[PRUNE_DEBUG] supersite_sample ctx=copy seg=1 vabs=2 vrel=1 arel=1 amb_code=0x56 len_bio_left=15 len_bio_right=0
+[PRUNE_DEBUG] supersite_sample ctx=copy seg=1 vabs=10 vrel=5 arel=2 amb_code=0xa9 len_bio_left=15 len_bio_right=0
+[PRUNE_DEBUG] supersite_sample ctx=copy seg=1 vabs=12 vrel=6 arel=3 amb_code=0x56 len_bio_left=15 len_bio_right=0
+[PRUNE_DEBUG] supersite_sample ctx=copy seg=1 vabs=20 vrel=10 arel=4 amb_code=0xa9 len_bio_left=15 len_bio_right=0
+[PRUNE_DEBUG] supersite_sample ctx=copy seg=1 vabs=22 vrel=11 arel=5 amb_code=0x56 len_bio_left=15 len_bio_right=0
+[PRUNE_DEBUG] supersite_sample ctx=copy-tail seg=2 vabs=30 vrel=0 arel=0 amb_code=0x55 len_bio_left=5 len_bio_right=0
+[PRUNE_DEBUG] supersite_sample ctx=copy-tail seg=2 vabs=32 vrel=1 arel=1 amb_code=0xaa len_bio_left=5 len_bio_right=0
+[PRUNE_DEBUG] supersite_sample exit performMerges n_segments=2 Ambiguous.size=8 copied_amb=8 Lengths_bio[0]=15
+[ITER_TRACE] supersite_x4 prune post-merge: n_segments=2 n_transitions=136 amb0=0xa9
+  * IBD2 tracks [#inds=0 / #tracks=0 / #merged = 0]
+  * HAP update (0.00s)
+  * H2V transpose (0.00s)
+
+[ITER_TRACE] Iteration 8 (prune2):
+  anchor[0]: bial=0|1 ss=1|0 MISMATCH
+  anchor[1]: bial=1|0 ss=0|1 MISMATCH
+  anchor[2]: bial=0|0 ss=0|0 ✓
+  anchor[3]: bial=0|0 ss=0|0 ✓
+  anchor[4]: bial=1|1 ss=1|1 ✓
+Anchor mismatch at locus 0: bial (0|1) vs supersite (1|0)
+Anchor haplotypes diverged during prune2

@@ -655,8 +655,8 @@ void haplotype_segment_single::forward() {
 		                        hmm_mis,
 		                        hmm_hom);
 
-		if (curr_segment_locus == (G->Lengths[curr_segment_index] - 1)) SUMK();
-		if (curr_segment_locus == G->Lengths[curr_segment_index] - 1) {
+		if (curr_segment_locus == (G->Lengths_bio[curr_segment_index] - 1)) SUMK();
+		if (curr_segment_locus == G->Lengths_bio[curr_segment_index] - 1) {
 			const int rel_seg = curr_segment_index - segment_first;
 			// Diagnostic guard: print sizes/indices when trace enabled to catch OOB
 			if (supersite_trace_enabled()) {
@@ -687,7 +687,10 @@ void haplotype_segment_single::forward() {
 			curr_abs_missing ++;
 		}
 
-		curr_segment_locus ++;
+		// Only increment segment locus for non-sibling loci (siblings don't count toward segment length)
+		if (!is_sibling) {
+			curr_segment_locus ++;
+		}
 		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
 		const int cursor_before = curr_abs_ambiguous;
 		const bool can_advance_amb = data_amb && has_amb_range && (curr_abs_ambiguous <= ambiguous_last);
@@ -749,7 +752,7 @@ void haplotype_segment_single::forward() {
 			}
 			assert(false && "forward ambiguous cursor moved out of window bounds");
 		}
-		if (curr_segment_locus >= G->Lengths[curr_segment_index]) {
+		if (curr_segment_locus >= G->Lengths_bio[curr_segment_index]) {
 			curr_segment_index++;
 			curr_segment_locus = 0;
 		}
@@ -777,7 +780,7 @@ void haplotype_segment_single::forward() {
 	}
 		if (curr_segment_index > segment_last) {
 			curr_segment_index = segment_last;
-			curr_segment_locus = (segment_last >= segment_first) ? G->Lengths[segment_last] - 1 : 0;
+			curr_segment_locus = (segment_last >= segment_first) ? G->Lengths_bio[segment_last] - 1 : 0;
 		}
 		curr_abs_locus = locus_last;
 	trace_forward_active = false;
@@ -789,7 +792,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	// Set thread-local offset storage for IMPUTE_SUPERSITE_MULTIVARIATE calls
 	this->supersite_sc_offset = supersite_sc_offset;
 	curr_segment_index = segment_last;
-	curr_segment_locus = G->Lengths[segment_last] - 1;
+	curr_segment_locus = G->Lengths_bio[segment_last] - 1;
 	curr_abs_ambiguous = ambiguous_last;
 	curr_abs_missing = missing_last;
 	curr_abs_transition = transition_last;
@@ -818,7 +821,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	nt = 1.0f;
 
 	for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
-		if (curr_segment_locus == G->Lengths[curr_segment_index] - 1) pending_collapse = true;
+		if (curr_segment_locus == G->Lengths_bio[curr_segment_index] - 1) pending_collapse = true;
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
 		const int prev_before = prev_abs_locus;
@@ -843,7 +846,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			// which is correct for the start of a backward pass.
 			INIT_SIB(site_view);
 			// CRITICAL: Check for segment boundary BEFORE decrementing, since we'll skip the normal check with continue
-			if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
+			if (curr_segment_locus == 0 && curr_abs_locus != locus_first && curr_segment_index > segment_first) {
 				if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
 					unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
 					unsigned int prev_dipcount = (curr_segment_index > 0) ? G->countDiplotypes(G->Diplotypes[curr_segment_index-1]) : 0;
@@ -857,11 +860,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 				if (ret < 0) return ret;
 				else n_underflow_recovered += ret;
 			}
-			curr_segment_locus--;
-			if (curr_segment_locus < 0 && curr_segment_index > 0) {
-				curr_segment_index--;
-				curr_segment_locus = G->Lengths[curr_segment_index] - 1;
-			}
+			// Siblings don't count toward segment length, so don't decrement curr_segment_locus
 			continue;
 		}
 
@@ -1048,7 +1047,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 					}
 					SET_FIRST_TRANS(transition_probabilities);
 				}
-				if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
+				if (!is_sibling && curr_segment_locus == 0 && curr_abs_locus != locus_first && curr_segment_index > segment_first) {
 					if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
 						unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
 						unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
@@ -1104,7 +1103,10 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		}
 
 
-		curr_segment_locus--;
+		// Only decrement segment locus for non-sibling loci (siblings don't count toward segment length)
+		if (!is_sibling) {
+			curr_segment_locus--;
+		}
 		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
 	const bool can_retreat_amb = data_amb && has_amb_range && (curr_abs_ambiguous >= ambiguous_first);
 	// Sibling variants do not have entries in the Ambiguous array, so curr_abs_ambiguous should not retreat for them.
@@ -1135,7 +1137,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		}
 		if (curr_segment_locus < 0 && curr_segment_index > 0) {
 			curr_segment_index--;
-			curr_segment_locus = G->Lengths[curr_segment_index] - 1;
+			curr_segment_locus = G->Lengths_bio[curr_segment_index] - 1;
 		}
 	}
 		curr_segment_index = segment_first;
