@@ -63,6 +63,7 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_representation_parity \
     $(bindir)/test_supersite_expansion_parity \
     $(bindir)/test_supersite_expansion_epochs \
+    $(bindir)/test_supersite_expansion_epochs_w_missing \
     $(bindir)/test_segment_boundary_multiallelic \
     $(bindir)/test_segment_boundary_invariants \
     $(bindir)/test_supersite_transition_underflow \
@@ -163,6 +164,9 @@ $(bindir)/test_supersite_expansion_parity: $(objdir)/test_supersite_expansion_pa
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_supersite_expansion_epochs: $(objdir)/test_supersite_expansion_epochs.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_supersite_expansion_epochs_w_missing: $(objdir)/test_supersite_expansion_epochs_w_missing.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_forward_backward_comprehensive: $(objdir)/test_forward_backward_comprehensive.o $(PHASE_COMMON_OBJS)
