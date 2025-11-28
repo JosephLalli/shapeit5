@@ -21,6 +21,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -58,11 +60,13 @@ static void setup_two_segment_genotype(genotype& G, unsigned int n_variants, uns
     G.Lengths.assign(2, 0);
     G.Lengths[0] = len_seg0;
     G.Lengths[1] = len_seg1;
+    G.Lengths_bio = G.Lengths;
     G.ProbMask.clear();
     G.ProbStored.clear();
 }
 
 int main() {
+    TEST_INIT("test_supersite_transition_underflow");
     std::cout << "Testing supersite transition underflow regression..." << std::endl;
 
     // Build a 2‑split supersite at the same (chr,bp): anchor then sibling
@@ -146,10 +150,10 @@ int main() {
     // Report result explicitly without aborting on failure
     if (outcome_double == 0) {
         std::cout << "PASS: Double-precision recovered from zero AlphaSumSum" << std::endl;
+        TEST_SUMMARY();
         return 0;
     } else {
         std::cout << "FAIL: Double-precision also underflowed (" << outcome_double << ") — unrecoverable." << std::endl;
         return 1;
     }
 }
-

@@ -23,6 +23,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -39,6 +41,7 @@ static variant* make_var(std::string chr, int bp, std::string id, std::string re
 }
 
 int main() {
+    TEST_INIT("test_supersite_backward_projection");
     std::cout << "Testing supersite backward→projection integration..." << std::endl;
 
     // Supersite at a single position (2 splits)
@@ -75,6 +78,7 @@ int main() {
     G.double_precision = false; G.haploid = false;
     G.Variants.assign((V.size() + 1) / 2, 0);
     G.Lengths.assign(1, (unsigned short)V.size());
+    G.Lengths_bio = G.Lengths;
     // For missing data: allow all 4 diplotypes (00, 01, 10, 11) = dipcodes 0, 1, 8, 9
     G.Diplotypes.assign(1, 0x303ull);  // (1<<0) | (1<<1) | (1<<8) | (1<<9)
     VAR_SET_MIS(0, G.Variants[0]);
@@ -131,5 +135,6 @@ int main() {
     assert((int)h1_v0 + (int)h1_v1 <= 1);
 
     std::cout << "✓ SUCCESS: SC posteriors consumed; mutual exclusivity enforced" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

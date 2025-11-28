@@ -9,6 +9,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -25,6 +27,7 @@ static variant* make_var(std::string chr, int bp, std::string id, std::string re
 }
 
 int main() {
+    TEST_INIT("test_supersite_float_double_parity");
     std::cout << "Testing supersite float/double parity under anchor gating..." << std::endl;
 
     variant_map V;
@@ -60,6 +63,7 @@ int main() {
     G.double_precision = false; G.haploid = false;
     G.Variants.assign(1, 0);
     G.Lengths.assign(1, (unsigned short)V.size());
+    G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 1ull);
     VAR_SET_HET(0, G.Variants[0]); // amb at anchor
     VAR_SET_HOM(1, G.Variants[0]); // REF at sibling
@@ -99,5 +103,6 @@ int main() {
     assert(std::fabs((double)HS.probSumT - HD.probSumT) <= tol_sum);
 
     std::cout << "✓ SUCCESS: Float/double parity with anchor gating" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

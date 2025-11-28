@@ -6,6 +6,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -36,12 +38,14 @@ static void setup_genotype(genotype& G, unsigned int n_variants, unsigned int se
     G.Ambiguous.clear();
     G.Diplotypes.assign(1, 0);
     G.Lengths.assign(1, static_cast<unsigned short>(segment_length));
+    G.Lengths_bio = G.Lengths;
     G.ProbMask.clear();
     G.ProbStored.clear();
     G.ProbMissing.clear();
 }
 
 int main() {
+    TEST_INIT("test_supersite_hmm");
     std::cout << "Testing supersite HMM harness..." << std::endl;
 
     // Synthetic variant map: two split records at the same position (supersite)
@@ -163,5 +167,6 @@ int main() {
     assert(std::fabs(HD.probSumT - expect_total) < 1e-8);
 
     std::cout << "  OK" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

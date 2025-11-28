@@ -8,6 +8,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -47,6 +49,7 @@ static void init_genotype(genotype& G,
         // Production builds seed each segment with a full diplotype mask; mirror that to exercise transitions.
         G.Diplotypes[i] = 0xFFFFFFFFFFFFFFFFULL;
     }
+    G.Lengths_bio = G.Lengths;
     G.ProbMask.clear();
     G.ProbStored.clear();
     G.ProbMissing.assign(n_missing, 0.0f);
@@ -58,6 +61,7 @@ static void set_cond_alt(conditioning_set& H, int variant_idx, int hap_idx) {
 }
 
 int main() {
+    TEST_INIT("test_supersite_hmm_states");
     std::cout << "Testing supersite HMM state transitions (float vs double)..." << std::endl;
 
     // Build synthetic variant map: three supersites, each split into two biallelic records.
@@ -245,6 +249,7 @@ int main() {
         assert_close(static_cast<double>(missing_single[i]), static_cast<double>(missing_double[i]), tol, "missing_prob");
     }
 
-    std::cout << "test_supersite_hmm_states: PASS" << std::endl;
+    TEST_PASS("test_supersite_hmm_states");  // was: PASS
+    TEST_SUMMARY();
     return 0;
 }

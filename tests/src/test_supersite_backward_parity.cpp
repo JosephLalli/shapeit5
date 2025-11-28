@@ -12,6 +12,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -28,6 +30,7 @@ static variant* make_var(std::string chr, int bp, std::string id, std::string re
 }
 
 int main() {
+    TEST_INIT("test_supersite_backward_parity");
     std::cout << "Testing supersite backward float/double parity..." << std::endl;
 
     // Two splits at the same position
@@ -65,6 +68,7 @@ int main() {
     G.double_precision = false; G.haploid = false;
     G.Variants.assign(1, 0);
     G.Lengths.assign(1, (unsigned short)V.size());
+    G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 1ull);
     VAR_SET_HOM(0, G.Variants[0]);
     VAR_SET_HOM(1, G.Variants[0]);
@@ -111,5 +115,6 @@ int main() {
     assert(std::fabs((double)HS.probSumT - HD.probSumT) <= tol);
 
     std::cout << "✓ SUCCESS: Backward float/double parity (anchor gating)" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

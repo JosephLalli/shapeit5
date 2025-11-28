@@ -18,11 +18,14 @@
 #include "../../phase_common/src/containers/variant_map.h"
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 
+
+#include "test_reporting.h"
 static variant* make_var(std::string chr, int bp, std::string id, std::string ref, std::string alt, int idx) {
     return new variant(chr, bp, id, ref, alt, idx);
 }
 
 int main() {
+    TEST_INIT("test_supersite_mutual_exclusivity_make");
     std::cout << "Testing supersite mutual exclusivity in genotype::make()..." << std::endl;
 
     // Create a 2-split supersite
@@ -58,6 +61,7 @@ int main() {
     G.haploid = false;
     G.Variants.assign((V.size() + 1)/2, 0);
     G.Lengths.assign(1, (unsigned short)V.size());
+    G.Lengths_bio = G.Lengths;
     // Allow all diplotypes so DipSampled=1 is valid without running build()
     G.Diplotypes.assign(1, 0xFFFFFFFFFFFFFFFFULL);
     VAR_SET_MIS(0, G.Variants[0]);
@@ -106,5 +110,6 @@ int main() {
     assert(h1_v1 == true);
 
     std::cout << "✓ SUCCESS: Mutual exclusivity enforced across split records" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

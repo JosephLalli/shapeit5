@@ -26,6 +26,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -303,6 +305,7 @@ protected:
 } // namespace
 
 int main() {
+    TEST_INIT("test_cursor_drift_investigation");
     std::cout << "======================================================================" << std::endl;
     std::cout << "Cursor Drift Investigation Test" << std::endl;
     std::cout << "======================================================================" << std::endl;
@@ -360,6 +363,7 @@ int main() {
     G.Ambiguous.clear();
     G.Diplotypes.assign(1, 1ull);
     G.Lengths.assign(1, static_cast<unsigned short>(V.size()));
+    G.Lengths_bio = G.Lengths;
 
     // Set genotypes to create ambiguous patterns
     set_phase(G, 0, ALT_REF); // ss1_anchor: 1|0 (HET -> ambiguous)

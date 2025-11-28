@@ -27,6 +27,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -435,6 +437,7 @@ static std::string phase_to_string(PhaseCode code) {
 } // namespace
 
 int main() {
+    TEST_INIT("test_supersite_expansion_parity");
     std::cout << "======================================================================" << std::endl;
     std::cout << "Testing 5-variant vs 10-variant supersite expansion parity..." << std::endl;
     std::cout << "======================================================================" << std::endl;
@@ -486,6 +489,7 @@ int main() {
     G5.Ambiguous.clear();
     G5.Diplotypes.assign(1, 1ull);
     G5.Lengths.assign(1, static_cast<unsigned short>(V5.size()));
+    G5.Lengths_bio = G5.Lengths;
 
     // Set observed genotypes 
     set_phase(G5, 0, REF_ALT); // v500: 0|1
@@ -563,6 +567,7 @@ int main() {
     G10.Ambiguous.clear();
     G10.Diplotypes.assign(1, 1ull);
     G10.Lengths.assign(1, static_cast<unsigned short>(V10.size()));
+    G10.Lengths_bio = G10.Lengths;
 
     // Set observed genotypes to match 5-variant test
     // Even indices: same as 5-variant test
@@ -957,5 +962,6 @@ int main() {
     std::cout << "Test completed successfully!" << std::endl;
     std::cout << "======================================================================" << std::endl;
     
+    TEST_SUMMARY();
     return 0;
 }

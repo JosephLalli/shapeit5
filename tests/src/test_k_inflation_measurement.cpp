@@ -31,6 +31,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h" 
@@ -248,6 +250,7 @@ protected:
 } // namespace
 
 int main() {
+    TEST_INIT("test_k_inflation_measurement");
     std::cout << "======================================================================" << std::endl;
     std::cout << "K Inflation Measurement Test" << std::endl;
     std::cout << "======================================================================" << std::endl;
@@ -338,6 +341,7 @@ int main() {
         G.Ambiguous.clear();
         G.Diplotypes.assign(1, 1ull);
         G.Lengths.assign(1, static_cast<unsigned short>(n_variants));
+        G.Lengths_bio = G.Lengths;
         return G;
     };
 

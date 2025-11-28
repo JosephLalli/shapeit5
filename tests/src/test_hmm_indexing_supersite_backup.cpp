@@ -20,6 +20,8 @@
 #include <objects/compute_job.h>
 #include <containers/bitmatrix.h>
 
+
+#include "test_reporting.h"
 // Expose private members for testing
 #define private public
 #define protected public
@@ -68,6 +70,7 @@ void create_test_genotype(genotype& G, int n_variants) {
     G.Ambiguous.clear();
     G.Diplotypes.assign(1, 0);
     G.Lengths.assign(1, static_cast<unsigned short>(n_variants));
+    G.Lengths_bio = G.Lengths;
     G.ProbMask.clear();
     G.ProbStored.clear();
     G.ProbMissing.clear();
@@ -734,6 +737,7 @@ bool test_empirical_phase_consistency() {
 }
 
 int main(int argc, char** argv) {
+    TEST_INIT("test_hmm_indexing_supersite_backup");
     cout << "╔════════════════════════════════════════════════════════════════╗" << endl;
     cout << "║  Segment Boundary Multiallelic Tests (Bug #11 Validation)     ║" << endl;
     cout << "╚════════════════════════════════════════════════════════════════╝" << endl;

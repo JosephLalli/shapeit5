@@ -13,6 +13,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -28,6 +30,7 @@ static variant* make_var(std::string chr, int bp, std::string id, std::string re
 }
 
 int main() {
+    TEST_INIT("test_supersite_combine");
     std::cout << "Testing supersite combine behavior (multiple anchors)..." << std::endl;
     std::cout << "STEP 1: constructing variant_map" << std::endl;
 
@@ -88,6 +91,7 @@ int main() {
     G.Variants.assign(2, 0);
     for (int e = 0; e < 4; ++e) VAR_SET_HOM(MOD2(e), G.Variants[DIV2(e)]);
     G.Lengths.assign(1, (unsigned short)V.size());
+    G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 1ull);
 
     std::cout << "STEP 6: creating window" << std::endl;
@@ -149,6 +153,7 @@ int main() {
     assert(!changed_ss1);
     assert(changed_ss2);
 
-    std::cout << "test_supersite_combine: PASS" << std::endl;
+    TEST_PASS("test_supersite_combine");  // was: PASS
+    TEST_SUMMARY();
     return 0;
 }

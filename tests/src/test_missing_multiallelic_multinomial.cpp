@@ -18,6 +18,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -41,6 +43,7 @@ static variant* make_var(std::string chr, int bp, std::string id, std::string re
 }
 
 int main() {
+    TEST_INIT("test_missing_multiallelic_multinomial");
     std::cout << "Testing missing multiallelic site imputation (Phase 3)..." << std::endl;
     
     // Test 1: Build a multiallelic site with 3 ALTs (4 classes total)
@@ -120,6 +123,7 @@ int main() {
     
     G.Variants.assign((V.size() + 1) / 2, 0);
     G.Lengths.assign(1, V.size());
+    G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 0);
     G.ProbMissing.assign(G.n_missing, 0.0f);
     
@@ -137,7 +141,7 @@ int main() {
     assert(code_hap0 == SUPERSITE_CODE_MISSING);
     assert(code_hap1 == SUPERSITE_CODE_MISSING);
     
-    std::cout << "  Missing code detection: OK" << std::endl;
+    TEST_PASS("  Missing code detection");  // was: OK
 
     // Test 4: Run HMM and impute the missing site
     hmm_parameters M;
@@ -214,8 +218,9 @@ int main() {
     assert(imputed_c0 <= 3);
     assert(imputed_c1 <= 3);
 
-    std::cout << "  Imputation validity checks: OK" << std::endl;
+    TEST_PASS("  Imputation validity checks");  // was: OK
     
     std::cout << "All tests passed!" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

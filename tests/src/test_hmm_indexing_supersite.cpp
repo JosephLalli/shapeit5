@@ -20,6 +20,8 @@
 #include <containers/variant_map.h>
 #include <objects/super_site_builder.h>
 
+
+#include "test_reporting.h"
 // Expose private members for testing
 #define private public
 #define protected public
@@ -77,6 +79,7 @@ void test_genotype_bounds() {
     G.n_segments = 1;
     G.Variants.assign((n_variants + 1) / 2, 0);
     G.Lengths.assign(1, n_variants);
+    G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 0);
     
     // Set genotypes
@@ -130,6 +133,7 @@ void test_locus_segment_alignment() {
     G.n_segments = 1;
     G.Variants.assign((n_variants + 1) / 2, 0);
     G.Lengths.assign(1, n_variants);
+    G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 0);
     
     for (int v = 0; v < n_variants; ++v) {
@@ -229,6 +233,7 @@ void test_alpha_arrays() {
     G.n_segments = 1;
     G.Variants.assign((n_variants + 1) / 2, 0);
     G.Lengths.assign(1, n_variants);
+    G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 0);
     
     for (int v = 0; v < n_variants; ++v) {
@@ -341,6 +346,7 @@ void test_cursor_progression() {
     G.n_segments = 1;
     G.Variants.assign((n_variants + 1) / 2, 0);
     G.Lengths.assign(1, n_variants);
+    G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 0);
     
     // Supersite: HET (1|2)
@@ -432,6 +438,7 @@ void test_cursor_progression() {
  * Main test runner
  */
 int main() {
+    TEST_INIT("test_hmm_indexing_supersite");
     cout << "======================================================" << endl;
     cout << "HMM Indexing Validation Tests" << endl;
     cout << "======================================================" << endl;

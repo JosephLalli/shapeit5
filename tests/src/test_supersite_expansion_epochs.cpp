@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "test_reporting.h"
 #include "../../common/src/utils/otools.h"
 
 #define private public
@@ -240,6 +241,7 @@ static genotype make_sample_from_phases(const std::vector<PhaseCode>& phases, co
     G.Ambiguous.clear();
     G.Diplotypes.assign(1, 1ull);
     G.Lengths.assign(1, static_cast<unsigned short>(phases.size()));
+    G.Lengths_bio = G.Lengths;
     for (int locus = 0; locus < static_cast<int>(phases.size()); ++locus) {
         set_phase(G, locus, phases[locus]);
     }
@@ -630,6 +632,8 @@ static int max_int_diff(const std::vector<int>& a, const std::vector<int>& b) {
 } // namespace
 
 int main() {
+    TEST_INIT("test_supersite_expansion_epochs");
+
     std::cout << "======================================================================" << std::endl;
     std::cout << "Supersite Expansion 15-Epoch Parity Test" << std::endl;
     std::cout << "======================================================================" << std::endl;
@@ -670,8 +674,12 @@ int main() {
             if (require_multiseg) return base + "_x" + std::to_string(repeat_factor);
             return base;
         };
-        std::cout << "\n--- Scenario: repeat_factor=" << repeat_factor
-                  << (require_multiseg ? " (multi-segment)" : "") << " ---" << std::endl;
+
+        std::string scenario_name = "repeat_factor_" + std::to_string(repeat_factor);
+        std::string scenario_desc = std::to_string(repeat_factor) + "x expansion" +
+                                    (require_multiseg ? " (multi-segment)" : "");
+        SCENARIO_START(scenario_name, scenario_desc);
+        TEST_CONTEXT(scenario_name + " initialization");
 
         MiniContext ctx_bial = build_context(false, ref_samples, repeat_factor, require_multiseg,
                                              make_name(false));
@@ -687,8 +695,9 @@ int main() {
         std::string max_prob_diff_stage;
         for (size_t iter = 0; iter < schedule.size(); ++iter) {
             const StageDef& stage = schedule[iter];
-            std::cout << "Iteration " << (iter + 1) << "/" << schedule.size()
-                      << " [" << stage.label << "]" << std::endl;
+            ITERATION(iter + 1, schedule.size(), stage.label);
+            TEST_CONTEXT(scenario_name + ", iteration " + std::to_string(iter + 1) +
+                        "/" + std::to_string(schedule.size()) + " (" + stage.label + ")");
 
             IterationResult res_bial = run_iteration(ctx_bial, stage, seed_base + iter);
             IterationResult res_sup = run_iteration(ctx_ss, stage, seed_base + iter);
@@ -756,33 +765,43 @@ int main() {
 
             const int k_diff = max_int_diff(res_bial.k_sizes, res_sup.k_sizes);
             if (k_diff != 0) {
-                std::cerr << "K-state size divergence detected during " << stage.label
-                          << " (max delta=" << k_diff << ")" << std::endl;
+                std::string reason = "K-state size divergence during " + stage.label +
+                                    " (max delta=" + std::to_string(k_diff) + ")";
+                std::cerr << reason << std::endl;
+                SCENARIO_FAIL(scenario_name, reason);
                 std::exit(EXIT_FAILURE);
             }
 
             // Check exact K-state parity
             if (res_bial.Kstates.size() != res_sup.Kstates.size()) {
-                 std::cerr << "K-state window count mismatch: " << res_bial.Kstates.size() 
-                           << " vs " << res_sup.Kstates.size() << std::endl;
+                 std::string reason = "K-state window count mismatch during " + stage.label +
+                                     ": " + std::to_string(res_bial.Kstates.size()) +
+                                     " vs " + std::to_string(res_sup.Kstates.size());
+                 std::cerr << reason << std::endl;
+                 SCENARIO_FAIL(scenario_name, reason);
                  std::exit(EXIT_FAILURE);
             }
             for(size_t w=0; w<res_bial.Kstates.size(); ++w) {
                 const auto& kb = res_bial.Kstates[w];
                 const auto& ks = res_sup.Kstates[w];
                 if (kb.size() != ks.size() || !std::equal(kb.begin(), kb.end(), ks.begin())) {
-                    std::cerr << "K-state content divergence at window " << w << " during " << stage.label << std::endl;
+                    std::string reason = "K-state content divergence at window " + std::to_string(w) +
+                                        " during " + stage.label;
+                    std::cerr << reason << std::endl;
                     std::cerr << "  Biallelic: ";
                     for(auto x : kb) std::cerr << x << " ";
                     std::cerr << "\n  Supersite: ";
                     for(auto x : ks) std::cerr << x << " ";
                     std::cerr << "\n";
+                    SCENARIO_FAIL(scenario_name, reason);
                     std::exit(EXIT_FAILURE);
                 }
             }
 
             if (!anchor_haplotype_parity(ctx_bial, ctx_ss, repeat_factor)) {
-                std::cerr << "Anchor haplotypes diverged during " << stage.label << std::endl;
+                std::string reason = "Anchor haplotypes diverged during " + stage.label;
+                std::cerr << reason << std::endl;
+                SCENARIO_FAIL(scenario_name, reason);
                 std::exit(EXIT_FAILURE);
             }
 
@@ -806,10 +825,15 @@ int main() {
             std::cout << "Max probSumT delta observed: " << max_prob_diff_observed
                       << " during " << max_prob_diff_stage << std::endl;
         }
-        std::cout << "Scenario repeat_factor=" << repeat_factor << ": PASS" << std::endl;
+
+        std::string details = std::to_string(schedule.size()) + " iterations";
+        if (!max_prob_diff_stage.empty()) {
+            details += ", max_delta=" + std::to_string(max_prob_diff_observed);
+        }
+        SCENARIO_PASS(scenario_name, details);
     }
 
     std::cout << "\nAll scenarios completed without divergence." << std::endl;
-    std::cout << "test_supersite_expansion_epochs: PASS" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

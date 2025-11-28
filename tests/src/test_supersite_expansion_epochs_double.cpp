@@ -28,6 +28,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -254,6 +256,7 @@ static genotype make_sample_from_phases(const std::vector<PhaseCode>& phases, co
     G.Ambiguous.clear();
     G.Diplotypes.assign(1, 1ull);
     G.Lengths.assign(1, static_cast<unsigned short>(phases.size()));
+    G.Lengths_bio = G.Lengths;
     for (int locus = 0; locus < static_cast<int>(phases.size()); ++locus) {
         set_phase(G, locus, phases[locus]);
     }
@@ -591,6 +594,7 @@ static int max_int_diff(const std::vector<int>& a, const std::vector<int>& b) {
 } // namespace
 
 int main() {
+    TEST_INIT("test_supersite_expansion_epochs_double");
     std::cout << "======================================================================" << std::endl;
     std::cout << "Supersite Expansion 15-Epoch Parity Test (DOUBLE PRECISION)" << std::endl;
     std::cout << "======================================================================" << std::endl;
@@ -657,6 +661,7 @@ int main() {
                   << " during " << max_prob_diff_stage << std::endl;
     }
     std::cout << "All 15 epochs completed without divergence." << std::endl;
-    std::cout << "test_supersite_expansion_epochs_double: PASS" << std::endl;
+    TEST_PASS("test_supersite_expansion_epochs_double");  // was: PASS
+    TEST_SUMMARY();
     return 0;
 }

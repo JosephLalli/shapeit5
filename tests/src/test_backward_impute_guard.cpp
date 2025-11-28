@@ -16,6 +16,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -32,6 +34,7 @@ static variant* make_var(std::string chr, int bp, std::string id, std::string re
 }
 
 int main() {
+    TEST_INIT("test_backward_impute_guard");
     std::cout << "Testing backward IMPUTE guard..." << std::endl;
 
     // Two splits at the same position
@@ -70,6 +73,7 @@ int main() {
     G.double_precision = false; G.haploid = false;
     G.Variants.assign(1, 0);
     G.Lengths.assign(1, (unsigned short)V.size());
+    G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 1ull);
     // anchor: HOM
     VAR_SET_HOM(0, G.Variants[0]);
@@ -115,5 +119,6 @@ int main() {
     }
 
     std::cout << "✓ SUCCESS: backward IMPUTE guard regression test passed" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

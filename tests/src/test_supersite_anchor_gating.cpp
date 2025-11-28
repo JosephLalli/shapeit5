@@ -16,6 +16,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -46,12 +48,14 @@ static void setup_genotype_simple(genotype& G, unsigned int n_variants) {
     G.Ambiguous.clear();
     G.Diplotypes.assign(1, 1ull); // Ensure at least one diplotype bit for transitions
     G.Lengths.assign(1, static_cast<unsigned short>(n_variants));
+    G.Lengths_bio = G.Lengths;
     G.ProbMask.clear();
     G.ProbStored.clear();
     G.ProbMissing.clear();
 }
 
 int main() {
+    TEST_INIT("test_supersite_anchor_gating");
     std::cout << "Testing supersite anchor gating (sibling no-op)..." << std::endl;
 
     // Build a simple 2-split supersite at same position
@@ -148,5 +152,6 @@ int main() {
     assert(std::fabs(HS_both.probSumT - probSumT_after_anchor) <= 1e-6f);
 
     std::cout << "✓ SUCCESS: Sibling is a no-op; anchor-only gating confirmed" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

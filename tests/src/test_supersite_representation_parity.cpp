@@ -26,6 +26,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_double.h"
@@ -714,6 +716,7 @@ static void print_supersite_amb_details(const std::string& label, const ForwardT
 } // namespace
 
 int main() {
+    TEST_INIT("test_supersite_representation_parity");
     std::cout << "Testing supersite vs biallelic representation parity..." << std::endl;
 
     // ---------------------------------------------------------------------
@@ -763,6 +766,7 @@ int main() {
         G.Ambiguous.clear();
         G.Diplotypes.assign(1, 1ull);
         G.Lengths.assign(1, static_cast<unsigned short>(V.size()));
+        G.Lengths_bio = G.Lengths;
         return G;
     };
 
@@ -1012,5 +1016,6 @@ int main() {
                   << "  Max normalized alpha diff: " << whole_norm_max << std::endl;
     }
 
+    TEST_SUMMARY();
     return 0;
 }

@@ -16,6 +16,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -45,12 +47,14 @@ static void setup_genotype_missing(genotype& G, unsigned int n_variants) {
     G.Ambiguous.clear();
     G.Diplotypes.assign(1, 1ull); // at least one diplotype bit
     G.Lengths.assign(1, static_cast<unsigned short>(n_variants));
+    G.Lengths_bio = G.Lengths;
     G.ProbMask.clear();
     G.ProbStored.clear();
     G.ProbMissing.assign(n_variants, 0.0f);
 }
 
 int main() {
+    TEST_INIT("test_supersite_backward_sc");
     std::cout << "Testing supersite backward multivariant normalization..." << std::endl;
 
     // Supersite with 2 splits at same position
@@ -147,5 +151,6 @@ int main() {
     }
 
     std::cout << "✓ SUCCESS: SC normalization per hap verified" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

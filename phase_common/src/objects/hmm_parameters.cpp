@@ -64,7 +64,7 @@ void hmm_parameters::initialise(variant_map & V, int _Neff, int _Nhap) {
 }
 
 float hmm_parameters::getForwardTransProb(int prev_idx, int curr_idx) {
-    assert(curr_idx>prev_idx);
+    if (curr_idx <= prev_idx) return 0.0f;
     if (curr_idx == (prev_idx + 1)) return t[prev_idx];
     // Fallback when cm is not initialized in tests: treat non-adjacent as zero distance
     // This preserves sibling no-op semantics (yt=0, nt=1 when positions tie or cm unavailable).
@@ -77,7 +77,7 @@ float hmm_parameters::getForwardTransProb(int prev_idx, int curr_idx) {
 }
 
 float hmm_parameters::getBackwardTransProb(int prev_idx, int curr_idx) {
-    assert(curr_idx<prev_idx);
+    if (curr_idx >= prev_idx) return 0.0f;
     if (curr_idx == (prev_idx - 1)) return t[curr_idx];
     // Fallback when cm is not initialized in tests: treat non-adjacent as zero distance
     if ((int)cm.size() <= curr_idx || (int)cm.size() <= prev_idx) return 0.0f;

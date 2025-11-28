@@ -12,6 +12,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -44,6 +46,7 @@ static void setup_genotype_simple(genotype& G, unsigned int n_variants,
 
     // One segment spanning all variants
     G.Lengths.assign(1, static_cast<unsigned short>(n_variants));
+    G.Lengths_bio = G.Lengths;
     // At least one diplotype bit set
     G.Diplotypes.assign(1, 1ull);
 
@@ -62,6 +65,7 @@ static void setup_genotype_simple(genotype& G, unsigned int n_variants,
 }
 
 int main() {
+    TEST_INIT("test_supersite_no_double_counting");
     std::cout << "Testing supersite no double-counting invariant..." << std::endl;
 
     variant_map V;
@@ -135,5 +139,6 @@ int main() {
     assert(std::fabs(HS_with.probSumT - HS_without.probSumT) <= 1e-6f);
 
     std::cout << "✓ SUCCESS: No double-counting when sibling included" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

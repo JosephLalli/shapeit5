@@ -22,6 +22,8 @@
 #include "../../common/src/utils/otools.h"
 #include "test_framework.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -53,6 +55,7 @@ static void setup_genotype(genotype& G, unsigned int n_variants, bool has_missin
     G.Ambiguous.clear();
     G.Diplotypes.assign(1, 0);
     G.Lengths.assign(1, static_cast<unsigned short>(n_variants));
+    G.Lengths_bio = G.Lengths;
     G.ProbMask.clear();
     G.ProbStored.clear();
     
@@ -71,6 +74,7 @@ void test_missing_biallelic();
 void test_missing_multiallelic();
 
 int main() {
+    TEST_INIT("test_forward_backward_comprehensive");
     std::cout << "==============================================================" << std::endl;
     std::cout << "Comprehensive Forward-Backward HMM Tests" << std::endl;
     std::cout << "==============================================================" << std::endl;
@@ -384,6 +388,7 @@ void test_missing_biallelic() {
 
     G.Variants.assign((V.size() + 1) / 2, 0);
     G.Lengths.assign(1, static_cast<unsigned short>(V.size()));
+    G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 0);
     
     // Pos 0: heterozygous 0|1 (hap0=REF, hap1=ALT)
