@@ -21,6 +21,8 @@
  ******************************************************************************/
 
 #include <objects/genotype/genotype_header.h>
+#include <cstdlib>
+#include <cmath>
 
 using namespace std;
 
@@ -30,7 +32,26 @@ public:
 	unsigned int idx;
 	Transition() { prob = 0.0; idx = 0;}
 	~Transition() {}
-	bool operator < (const Transition & t) const { return prob > t.prob; }
+	bool operator < (const Transition & t) const {
+		// Fuzzy comparison to handle FP rounding differences between biallelic and supersite modes.
+		// Enable with SHAPEIT5_DETERMINISTIC_SORT=1 environment variable.
+		// This is needed because supersite processes anchor+siblings (multiple FP ops per locus)
+		// while biallelic processes single variants (one FP op per locus), causing ULP-level
+		// differences in transition probabilities that can affect sort order.
+		static bool use_epsilon = (std::getenv("SHAPEIT5_DETERMINISTIC_SORT") != nullptr);
+		static const double epsilon = 1e-12; // ~40 ULPs for values around 1e-9
+
+		if (use_epsilon) {
+			double diff = std::abs(prob - t.prob);
+			double max_val = std::max(std::abs(prob), std::abs(t.prob));
+			// If probabilities differ by less than epsilon (relative), use index as tie-breaker
+			if (diff <= epsilon * max_val) {
+				return idx < t.idx; // Deterministic tie-breaker
+			}
+		}
+		// Standard comparison: sort by decreasing probability
+		return prob > t.prob;
+	}
 };
 
 class TransStatistics {
@@ -91,6 +112,21 @@ void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass
 					vecTransitions[t].prob = currProbs[toffset + t];
 					vecTransitions[t].idx = t;
 				}
+
+				// LOG TRANSITION PROBABILITIES BEFORE SORT (Scenario 8, prune iterations only)
+				bool is_test_sample = (name.find("_sample") != std::string::npos);
+				static int prune_iter_count = 0;
+				if (is_test_sample && n_segments == 3 && s >= 1 && s <= 2) {
+					std::fprintf(stderr, "[TRANS_PROBS_PRESORT] sample=%s seg=%d n_trans=%d prune_count=%d\n",
+					             name.c_str(), s, n_curr_transitions, prune_iter_count);
+					int max_print = (n_curr_transitions < 20) ? n_curr_transitions : 20;
+					for (int t = 0; t < max_print; t++) {
+						std::fprintf(stderr, "  [%d] idx=%u prob=%.20g (hex:%a)\n",
+						             t, vecTransitions[t].idx, vecTransitions[t].prob, vecTransitions[t].prob);
+					}
+					if (s == 2) prune_iter_count++;
+				}
+
 				sort(vecTransitions.begin(), vecTransitions.begin() + n_curr_transitions);
 				//Step6: compute transition entropy
 				vecTransStatistics[s-1].entropy = 0.0;

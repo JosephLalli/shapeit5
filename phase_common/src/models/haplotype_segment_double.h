@@ -605,8 +605,10 @@ bool haplotype_segment_double::SS_RUN_HOM() {
 		__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
         _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
         _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
-        _prob0 = _mm256_mul_pd(_prob0, _emit);
-        _prob1 = _mm256_mul_pd(_prob1, _emit);
+        if (ss_emissions[k] != 1.0) {
+            _prob0 = _mm256_mul_pd(_prob0, _emit);
+            _prob1 = _mm256_mul_pd(_prob1, _emit);
+        }
         _sum0 = _mm256_add_pd(_sum0, _prob0);
         _sum1 = _mm256_add_pd(_sum1, _prob1);
         _mm256_store_pd(&prob[i], _prob0);

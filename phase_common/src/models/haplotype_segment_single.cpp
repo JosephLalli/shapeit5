@@ -1315,10 +1315,25 @@ int haplotype_segment_single::SET_OTHER_TRANS(vector < double > & transition_pro
         }
         return -1;
     }
+    // LOG HMM STATE - Check values before and after TRANS_DIP_MULT
+    bool is_test_sample = (G->name.find("_sample") != std::string::npos);
+    bool is_seg2 = (curr_segment_index == 2);
+    if (is_test_sample && is_seg2) {
+        std::fprintf(stderr, "[HMM_BEFORE_TRANS_DIP_MULT] sample=%s locus=%d seg=%d sumHProbs=%.20g (hex:%a)\n",
+                     G->name.c_str(), curr_abs_locus, curr_segment_index, (double)sumHProbs, (double)sumHProbs);
+    }
+
     if (TRANS_DIP_MULT()) {
         if (TRANS_DIP_ADD()) return -2;
         else underflow_recovered = 1;
     }
+
+    // LOG DPROBS AFTER TRANS_DIP_MULT
+    if (is_test_sample && is_seg2) {
+        std::fprintf(stderr, "[HMM_AFTER_TRANS_DIP_MULT] sample=%s locus=%d seg=%d sumDProbs=%.20g (hex:%a)\n",
+                     G->name.c_str(), curr_abs_locus, curr_segment_index, sumDProbs, sumDProbs);
+    }
+
 	unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
 	unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
 	unsigned int n_transitions = curr_dipcount * prev_dipcount;

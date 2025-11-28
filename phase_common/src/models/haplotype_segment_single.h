@@ -611,7 +611,7 @@ bool haplotype_segment_single::SS_RUN_HOM(const SuperSite& ss, int ss_idx, uint8
                          prob_after_fma[0], prob_after_fma[1], prob_after_fma[2], prob_after_fma[3],
                          prob_after_fma[4], prob_after_fma[5], prob_after_fma[6], prob_after_fma[7]);
         }
-        _prob = _mm256_mul_ps(_prob, _emit);
+        if (ss_emissions[k] != 1.0f) _prob = _mm256_mul_ps(_prob, _emit);
         _sum = _mm256_add_ps(_sum, _prob);
         _mm256_store_ps(&prob[i], _prob);
 
@@ -840,7 +840,7 @@ void haplotype_segment_single::SS_COLLAPSE_HOM(const SuperSite& ss, int ss_idx, 
             _prob = _mm256_set1_ps(probSumK[k]);
             _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
         }
-        _prob = _mm256_mul_ps(_prob, _emit);
+        if (ss_emissions[k] != 1.0f) _prob = _mm256_mul_ps(_prob, _emit);
         _sum = _mm256_add_ps(_sum, _prob);
         _mm256_store_ps(&prob[i], _prob);
     }
@@ -1630,6 +1630,30 @@ bool haplotype_segment_single::TRANS_HAP() {
         return true;
     }
     
+    // Log inputs to TRANS_HAP for first seg=2 call
+    bool is_test_sample = (G->name.find("_sample") != std::string::npos);
+    bool is_seg2 = (curr_segment_index == 2);
+    bool is_first_iter = (curr_abs_locus == 15 || curr_abs_locus == 30);
+    if (is_test_sample && is_seg2 && is_first_iter) {
+        std::fprintf(stderr, "[TRANS_HAP_INPUTS] sample=%s locus=%d seg=%d\n",
+                     G->name.c_str(), curr_abs_locus, curr_segment_index);
+        std::fprintf(stderr, "  prev_total=%.20g yt=%.20g nt=%.20g n_cond=%u\n",
+                     (double)prev_total, (double)yt, (double)nt, n_cond_haps);
+        std::fprintf(stderr, "  AlphaSum[prev_seg][0-3]: %.20g %.20g %.20g %.20g\n",
+                     (double)AlphaSum[curr_rel_segment_index-1][0],
+                     (double)AlphaSum[curr_rel_segment_index-1][1],
+                     (double)AlphaSum[curr_rel_segment_index-1][2],
+                     (double)AlphaSum[curr_rel_segment_index-1][3]);
+        std::fprintf(stderr, "  prob[0][0-7]: %.20g %.20g %.20g %.20g %.20g %.20g %.20g %.20g\n",
+                     (double)prob[0], (double)prob[1], (double)prob[2], (double)prob[3],
+                     (double)prob[4], (double)prob[5], (double)prob[6], (double)prob[7]);
+        std::fprintf(stderr, "  Alpha[prev_seg][0*8+0-3]: %.20g %.20g %.20g %.20g\n",
+                     (double)Alpha[curr_rel_segment_index-1][0],
+                     (double)Alpha[curr_rel_segment_index-1][1],
+                     (double)Alpha[curr_rel_segment_index-1][2],
+                     (double)Alpha[curr_rel_segment_index-1][3]);
+    }
+
     float fact1 = nt / prev_total;
     for (int h1 = 0 ; h1 < HAP_NUMBER ; h1++) {
         __m256 _sum = _mm256_set1_ps(0.0f);
@@ -1644,7 +1668,7 @@ bool haplotype_segment_single::TRANS_HAP() {
     }
     bool enable_debug = (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME) ||
                         (G->name.find("_sample") != std::string::npos);
-    if (enable_debug && curr_segment_index >= 1 && curr_segment_index <= 2) {
+    if (enable_debug && curr_segment_index >= 1 && curr_segment_index <= 5) {
         std::fprintf(stderr, "[TRANS_HAP] sample=%s locus=%d seg=%d prev_total=%.15f yt=%.15f nt=%.15f n_cond=%u sumHProbs=%.15f\n",
                      G->name.c_str(), curr_abs_locus, curr_segment_index, (double)prev_total, (double)yt, (double)nt, n_cond_haps, (double)sumHProbs);
         // Show first 4 prob values
@@ -1662,6 +1686,27 @@ bool haplotype_segment_single::TRANS_DIP_MULT() {
     sumDProbs= 0.0f;
     double scaling = 1.0 / sumHProbs;
     int pd_hits = 0, nd_hits = 0, t_hits = 0;
+
+    // Log HProbs array and diplotype iteration for first seg=2 call per sample
+    bool is_test_sample = (G->name.find("_sample") != std::string::npos);
+    bool is_seg2 = (curr_segment_index == 2);
+    bool is_first_iter = (curr_abs_locus == 15 || curr_abs_locus == 30); // bial locus 15, supersite locus 30
+    if (is_test_sample && is_seg2 && is_first_iter) {
+        std::fprintf(stderr, "[HPROBS_ARRAY] sample=%s locus=%d seg=%d sumHProbs=%.20g\n",
+                     G->name.c_str(), curr_abs_locus, curr_segment_index, (double)sumHProbs);
+        std::fprintf(stderr, "  HProbs[0-15]:\n");
+        for (int i = 0; i < 16; i++) {
+            std::fprintf(stderr, "    [%d] %.20g (hex:%a)\n", i, (double)HProbs[i], (double)HProbs[i]);
+        }
+        std::fprintf(stderr, "  HProbs[16-31]:\n");
+        for (int i = 16; i < 32; i++) {
+            std::fprintf(stderr, "    [%d] %.20g (hex:%a)\n", i, (double)HProbs[i], (double)HProbs[i]);
+        }
+        std::fprintf(stderr, "  Diplotypes prev[%d]=0x%016llx curr[%d]=0x%016llx\n",
+                     curr_segment_index-1, (unsigned long long)G->Diplotypes[curr_segment_index-1],
+                     curr_segment_index, (unsigned long long)G->Diplotypes[curr_segment_index]);
+    }
+
     for (int pd = 0, t = 0 ; pd < 64 ; ++pd) {
         if (DIP_GET(G->Diplotypes[curr_segment_index-1], pd)) {
             pd_hits++;
@@ -1669,6 +1714,14 @@ bool haplotype_segment_single::TRANS_DIP_MULT() {
                 if (DIP_GET(G->Diplotypes[curr_segment_index], nd)) {
                     if (pd_hits == 1) nd_hits++;
                     DProbs[t] = (((double)HProbs[DIP_HAP0(pd)*HAP_NUMBER+DIP_HAP0(nd)]) * scaling) * ((double)(HProbs[DIP_HAP1(pd)*HAP_NUMBER+DIP_HAP1(nd)]) * scaling);
+                    if (is_test_sample && is_seg2 && is_first_iter && t < 8) {
+                        int h0_pd = DIP_HAP0(pd);
+                        int h1_pd = DIP_HAP1(pd);
+                        int h0_nd = DIP_HAP0(nd);
+                        int h1_nd = DIP_HAP1(nd);
+                        std::fprintf(stderr, "    t=%d pd=%d(h%d,h%d) nd=%d(h%d,h%d) DProbs[%d]=%.20g\n",
+                                     t, pd, h0_pd, h1_pd, nd, h0_nd, h1_nd, t, DProbs[t]);
+                    }
                     sumDProbs += DProbs[t];
                     t_hits++;
                     t++;
@@ -1676,6 +1729,12 @@ bool haplotype_segment_single::TRANS_DIP_MULT() {
             }
         }
     }
+
+    if (is_test_sample && is_seg2 && is_first_iter) {
+        std::fprintf(stderr, "  Total: pd_hits=%d nd_hits=%d t_hits=%d sumDProbs=%.20g\n",
+                     pd_hits, nd_hits, t_hits, sumDProbs);
+    }
+
     if (trans_parity_trace_enabled_s()) {
         std::fprintf(stderr, "[TRANS_DIP_MULT debug][single] seg=%d sumHProbs=%g scaling=%g pd_hits=%d nd_hits_first_pd=%d t_hits=%d sumDProbs=%g firstD=%g\n",
                      curr_segment_index, sumHProbs, scaling, pd_hits, nd_hits, t_hits, sumDProbs, (t_hits>0?DProbs[0]:-1.0));
