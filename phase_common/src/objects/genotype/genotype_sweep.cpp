@@ -45,7 +45,8 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 	double sumProbs = 0.0;
 	unsigned int prev_sampled = 0;
 	unsigned int curr_dipcount = 0, prev_dipcount = 1;
-	vector < double > currProbs = vector < double > (64, 0.0);
+	vector < double > currProbs;
+	currProbs.reserve(64);
 	vector < unsigned char > DipSampled = vector < unsigned char >(n_segments, 0);
 	const bool trace_sample = []() {
 		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
@@ -55,6 +56,7 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 	for (unsigned int s = 0, toffset = 0 ; s < n_segments ; s ++) {
 		sumProbs = 0.0;
 		curr_dipcount = countDiplotypes(Diplotypes[s]);
+		currProbs.resize(curr_dipcount);
 		for (unsigned int tabs = toffset + prev_sampled*curr_dipcount, trel = 0 ; trel < curr_dipcount ; ++trel, ++tabs) {
 			if (tabs >= trans_buf_size) {
 				std::fprintf(stderr,
