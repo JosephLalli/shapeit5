@@ -19,6 +19,8 @@
 #include "test_framework.h"
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
@@ -365,6 +367,7 @@ void test_no_mutex_races() {
 
 // Main test runner
 int main() {
+    TEST_INIT("test_conditioning_set_threading");
     std::cout << "=== SHAPEIT5 Conditioning Set Threading Safety Tests ===" << std::endl;
     
     test_pbwt_selection_thread_safety();

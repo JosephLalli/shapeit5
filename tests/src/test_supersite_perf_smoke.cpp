@@ -12,6 +12,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -27,6 +29,7 @@ static variant* make_var(std::string chr, int bp, std::string id, std::string re
 }
 
 int main() {
+    TEST_INIT("test_supersite_perf_smoke");
     using clock = std::chrono::high_resolution_clock;
     std::cout << "Supersite performance smoke test..." << std::endl;
 
@@ -112,5 +115,6 @@ int main() {
     std::cout << "Elapsed (supersites on):  " << ms_ss << " ms\n";
     std::cout << "Elapsed (biallelic only): " << ms_bi << " ms\n";
     std::cout << "(Perf smoke; no assertions)\n";
+    TEST_SUMMARY();
     return 0;
 }

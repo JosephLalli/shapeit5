@@ -21,6 +21,8 @@
 #include "test_framework.h"
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/super_site_accessor.h"
@@ -430,6 +432,7 @@ void test_no_mutex_supersite() {
 
 // Main test runner
 int main() {
+    TEST_INIT("test_supersite_threading_safety");
     std::cout << "=== SHAPEIT5 SuperSite Threading Safety Tests ===" << std::endl;
     
     test_supersite_context_thread_safety();

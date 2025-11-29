@@ -12,11 +12,14 @@
 #include "../../phase_common/src/containers/variant_map.h"
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 
+
+#include "test_reporting.h"
 static variant* make_var(std::string chr, int bp, std::string id, std::string ref, std::string alt, int idx) {
     return new variant(chr, bp, id, ref, alt, idx);
 }
 
 int main() {
+    TEST_INIT("test_supersite_class_microcases");
     std::cout << "Testing supersite class microcases (HOM/AMB/MIS)..." << std::endl;
 
     variant_map V;
@@ -68,6 +71,7 @@ int main() {
     }
 
     std::cout << "✓ SUCCESS: Supersite classification microcases OK" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }
 

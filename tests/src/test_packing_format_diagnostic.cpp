@@ -16,7 +16,10 @@
 #include "../../common/src/utils/otools.h"
 #include "../../phase_common/src/models/super_site_accessor.h"
 
+
+#include "test_reporting.h"
 int main() {
+    TEST_INIT("test_packing_format_diagnostic");
     std::cout << "==============================================================" << std::endl;
     std::cout << "Packing Format Diagnostic Test" << std::endl;
     std::cout << "==============================================================" << std::endl;
@@ -151,8 +154,8 @@ int main() {
     std::cout << "Test 4: Diagnostic Conclusions" << std::endl;
     std::cout << "===============================" << std::endl;
     
-    std::cout << "  ✓ Round-trip consistency: PASS" << std::endl;
-    std::cout << "  ✓ Access order independence: PASS" << std::endl;
+    TEST_PASS("  ✓ Round-trip consistency");  // was: PASS
+    TEST_PASS("  ✓ Access order independence");  // was: PASS
     std::cout << "  ✓ Sequential unpacking: CORRECT" << std::endl;
     std::cout << std::endl;
     
@@ -172,6 +175,7 @@ int main() {
     std::cout << "    - Trade-off: simplicity vs memory efficiency" << std::endl;
     std::cout << std::endl;
     
-    std::cout << "test_packing_format_diagnostic: PASS" << std::endl;
+    TEST_PASS("test_packing_format_diagnostic");  // was: PASS
+    TEST_SUMMARY();
     return 0;
 }

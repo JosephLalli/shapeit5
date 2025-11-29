@@ -16,6 +16,8 @@
 #include "../../phase_common/src/containers/genotype_set.h"
 
 
+
+#include "test_reporting.h"
 using namespace std;
 
 // Minimal helper to build a SuperSite spanning two split variants at positions 0 and 1
@@ -33,6 +35,7 @@ static SuperSite make_test_supersite(uint32_t anchor_id, uint32_t var_start, uin
 }
 
 int main() {
+    TEST_INIT("test_supersite_anchor_encoding");
     // One sample, two split variants (indices 0 and 1) forming one supersite
     genotype_set G;
     G.allocate(/*n_main_samples*/1, /*n_variants*/2);
@@ -83,5 +86,6 @@ int main() {
     assert(!VAR_GET_HET(MOD2(0), v0));
 
     cout << "test_supersite_anchor_encoding: PASS" << endl;
+    TEST_SUMMARY();
     return 0;
 }

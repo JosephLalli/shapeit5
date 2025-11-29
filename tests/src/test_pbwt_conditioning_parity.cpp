@@ -31,6 +31,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
@@ -249,6 +251,7 @@ static ConditioningComparison compare_conditioning_sets(
 } // namespace
 
 int main() {
+    TEST_INIT("test_pbwt_conditioning_parity");
     std::cout << "======================================================================" << std::endl;
     std::cout << "PBWT Conditioning Set Parity Test" << std::endl;
     std::cout << "======================================================================" << std::endl;

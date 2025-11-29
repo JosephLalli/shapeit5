@@ -14,6 +14,8 @@
 #include <containers/bitmatrix.h>
 #include <objects/hmm_parameters.h>
 
+
+#include "test_reporting.h"
 // Helper to create a minimal genetic map
 void create_minimal_map(hmm_parameters &M, int n_loci, double cm_distance = 0.0001) {
     M.t.assign(n_loci, 0.0f);
@@ -284,6 +286,7 @@ bool test_zero_length_segment_detection() {
 }
 
 int main() {
+    TEST_INIT("test_empty_segment_underflow");
     std::cout << "╔════════════════════════════════════════════════╗" << std::endl;
     std::cout << "║  Empty Segment Underflow Detection Test       ║" << std::endl;
     std::cout << "╚════════════════════════════════════════════════╝" << std::endl;
@@ -310,6 +313,7 @@ int main() {
         std::cout << "\nTo trigger this bug, run: test/scripts/phase.chr22.wgs.sh" << std::endl;
         std::cout << "with --enable-supersites on real data with complex variant" << std::endl;
         std::cout << "patterns that create empty segments." << std::endl;
+        TEST_SUMMARY();
         return 0;
     } else {
         std::cout << "❌ SOME TESTS FAILED" << std::endl;

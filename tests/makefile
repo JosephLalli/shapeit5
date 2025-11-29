@@ -59,7 +59,6 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_backward_parity \
     $(bindir)/test_supersite_perf_smoke \
     $(bindir)/test_supersite_combine \
-	$(bindir)/test_supersite_outer_product \
     $(bindir)/test_supersite_representation_parity \
     $(bindir)/test_supersite_expansion_parity \
     $(bindir)/test_supersite_expansion_epochs \
@@ -149,8 +148,6 @@ $(bindir)/test_supersite_perf_smoke: $(objdir)/test_supersite_perf_smoke.o $(PHA
 $(bindir)/test_supersite_combine: $(objdir)/test_supersite_combine.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
-$(bindir)/test_supersite_outer_product: $(objdir)/test_supersite_outer_product.o $(PHASE_COMMON_OBJS)
-	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 $(bindir)/test_missing_multiallelic_multinomial: $(objdir)/test_missing_multiallelic_multinomial.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 

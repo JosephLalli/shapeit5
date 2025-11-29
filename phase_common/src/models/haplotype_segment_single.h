@@ -1766,6 +1766,14 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
 
+    if (supersite_trace_enabled()) {
+        std::fprintf(stderr, "[IMPUTE_TRACE] locus=%d rel_mis=%d ss_idx=%d n_cond=%u\n",
+                     curr_abs_locus, curr_rel_missing, ss_idx, n_cond_haps);
+        std::fprintf(stderr, "  AlphaSumInv: ");
+        for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, "%.6e ", 1.0f/AlphaSumMissing[curr_rel_missing][h]);
+        std::fprintf(stderr, "\n");
+    }
+
     __m256 _sum = _mm256_set1_ps(0.0f);
     __m256 _alphaSum = _mm256_load_ps(&AlphaSumMissing[curr_rel_missing][0]);
     __m256 _ones = _mm256_set1_ps(1.0f);
@@ -1807,10 +1815,24 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
             __m256 _alpha = _mm256_load_ps(&AlphaMissing[curr_rel_missing][i]);
             _sum = _mm256_mul_ps(_mm256_mul_ps(_alpha, _alphaSum), _prob);
             _sumA[ah] = _mm256_add_ps(_sumA[ah], _sum);
+
+            if (supersite_trace_enabled()) {
+                alignas(32) float av[8], bv[8], sv[8];
+                _mm256_store_ps(av, _alpha);
+                _mm256_store_ps(bv, _prob);
+                _mm256_store_ps(sv, _sum);
+                std::fprintf(stderr, "  k=%d ah=%d Alpha=%.2e Beta=%.2e Sum=%.2e\n", k, (int)ah, av[0], bv[0], sv[0]);
+            }
         }
         float* prob0 = (float*)&_sumA[0];
         float* prob1 = (float*)&_sumA[1];
         for (int h = 0; h < HAP_NUMBER; h++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h] + prob1[h]);
+        
+        if (supersite_trace_enabled()) {
+            std::fprintf(stderr, "  Result Probs (Alt):");
+            for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, " %.6f", missing_probabilities[curr_abs_missing * HAP_NUMBER + h]);
+            std::fprintf(stderr, "\n");
+        }
     }
 }
 
@@ -1827,11 +1849,11 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
 {
     // Return early if panel codes not available (no supersites built)
     if (panel_codes == nullptr) return;
-    
+
     ss_load_cond_codes(ss, ss_idx);
-    
+
     int C = (int)ss.n_classes;  // 1 + n_alts
-    
+
     // Calculate offset - use thread-local offset if available, otherwise fallback to simple calculation
     uint32_t offset;
     if (supersite_sc_offset != nullptr) {
@@ -1842,12 +1864,21 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
         offset = static_cast<uint32_t>(ss_idx) * HAP_NUMBER * C + (has_guard ? 1u : 0u);
     }
 
+    if (supersite_trace_enabled()) {
+        std::fprintf(stderr, "[IMPUTE_SS_TRACE] locus=%d rel_mis=%d ss_idx=%d n_cond=%u offset=%u C=%d\n",
+                     curr_abs_locus, rel_missing_index, ss_idx, n_cond_haps, offset, C);
+        std::fprintf(stderr, "  AlphaSumInv: ");
+        for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, "%.6e ", 1.0f/AlphaSumMissing[rel_missing_index][h]);
+        std::fprintf(stderr, "\n");
+    }
+
     const size_t required = static_cast<size_t>(offset) + static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>(C);
     const bool guard_sentinels_present = supersite_debug::guard_checks_enabled() &&
                                          SC.size() >= 2 &&
                                          std::isnan(SC.front()) &&
                                          std::isnan(SC.back());
     const bool guard_applicable = guard_sentinels_present && offset >= 1u;
+    
     if (guard_applicable) {
         const size_t usable = SC.size() - 1;  // trailing guard slot excluded
         if (required > usable) {
@@ -1927,45 +1958,60 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
     // Accumulate: for each conditioning donor haplotype k
     for (int k = 0, i = 0; k < (int)n_cond_haps; ++k, i += HAP_NUMBER) {
         uint8_t code = ss_cond_codes[k];  // 0=REF, 1..n_alts
-        if (code >= C) code = 0;  // Safety: invalid code → REF
-        
-        // term = Alpha[k] × Beta[k] / AlphaSum (8 lanes)
+        if (code >= C) code = 0;  // Safety: invalid code -> REF
+
+        // term = Alpha[k] x Beta[k] / AlphaSum (8 lanes)
         __m256 _alpha = _mm256_load_ps(&AlphaMissing[rel_missing_index][i]);
         __m256 _beta  = _mm256_load_ps(&prob[i]);  // prob=Beta in backward pass
         __m256 term = _mm256_mul_ps(_mm256_mul_ps(_alpha, _alphaSum_inv), _beta);
-        
+
         // Add to class bucket
         sum[code] = _mm256_add_ps(sum[code], term);
         denom = _mm256_add_ps(denom, term);
+
+        if (supersite_trace_enabled()) {
+            alignas(32) float av[8], bv[8], tv[8];
+            _mm256_store_ps(av, _alpha);
+            _mm256_store_ps(bv, _beta);
+            _mm256_store_ps(tv, term);
+            std::fprintf(stderr, "  k=%d code=%u Alpha=%.2e Beta=%.2e Term=%.2e\n", k, code, av[0], bv[0], tv[0]);
+        }
     }
     if (supersite_trace_enabled()) supersite_trace_log("[SupersiteImpute] accumulation complete\n");
-    
+
     // Normalize: SC[offset + h*C + c] = sum[c][h] / denom[h]
     // Extract 8 lanes and write to SC buffer
     float sum_lanes[SUPERSITE_MAX_ALTS + 1][HAP_NUMBER];
     float denom_lanes[HAP_NUMBER];
-    
-    for (int c = 0; c < C; ++c) {
-        _mm256_storeu_ps(sum_lanes[c], sum[c]);
-    }
-    _mm256_storeu_ps(denom_lanes, denom);
-    if (supersite_trace_enabled()) supersite_trace_log("[SupersiteImpute] stored lane sums\n");
-    
-    // Write normalized posteriors to SC
-    for (int h = 0; h < HAP_NUMBER; ++h) {
-        float d = denom_lanes[h];
-        if (d > 0.0f) {
-            for (int c = 0; c < C; ++c) {
-                SC[offset + h * C + c] = sum_lanes[c][h] / d;
-            }
-        } else {
-            // Fallback: uniform distribution if denominator is zero
-            float uniform = 1.0f / (float)C;
-            for (int c = 0; c < C; ++c) {
-                SC[offset + h * C + c] = uniform;
+
+        for (int c = 0; c < C; ++c) {
+            _mm256_storeu_ps(sum_lanes[c], sum[c]);
+        }
+        _mm256_storeu_ps(denom_lanes, denom);
+
+        // Write normalized posteriors to SC
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            float d = denom_lanes[h];
+            if (d > 0.0f) {
+                for (int c = 0; c < C; ++c) {
+                    SC[offset + h * C + c] = sum_lanes[c][h] / d;
+                }
+            } else {
+                // Fallback: uniform distribution if denominator is zero
+                float uniform = 1.0f / (float)C;
+                for (int c = 0; c < C; ++c) {
+                    SC[offset + h * C + c] = uniform;
+                }
             }
         }
-    }
+
+        if (supersite_trace_enabled()) {
+            std::fprintf(stderr, "  Result SC (h0):");
+            for (int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", SC[offset + 0*C + c]);
+            std::fprintf(stderr, "\n");
+        }
+
+
     if (supersite_trace_enabled()) supersite_trace_log("[SupersiteImpute] wrote SC block\n");
 
     if (supersite_debug::guard_checks_enabled()) {

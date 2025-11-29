@@ -145,21 +145,15 @@ void compute_job::make(unsigned int ind, double min_window_size) {
 		anchor_has_missing.assign(super_sites->size(), false);
 		supersite_sc_offset.assign(super_sites->size(), 0);
 		
-		// Check each supersite: if ALL members are missing for this sample, set flag
+		// Check each supersite: if the ANCHOR is missing, treat the whole supersite as missing
+		// This aligns with SupersiteEmissionAdapter (HMM) and genotype::make logic.
+		// Siblings may have MIS cleared by previous imputation (genotype::make), but we must
+		// continue to treat the supersite as missing to allow re-imputation.
 		for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
 			const SuperSite& ss = (*super_sites)[ss_idx];
-			bool all_missing = true;
-			
-			for (uint32_t i = 0; i < ss.var_count; ++i) {
-				int v_idx = (*super_site_var_index)[ss.var_start + i];
-				unsigned char v = G.vecG[ind]->Variants[DIV2(v_idx)];
-				if (!VAR_GET_MIS(MOD2(v_idx), v)) {
-					all_missing = false;
-					break;
-				}
-			}
-			
-			anchor_has_missing[ss_idx] = all_missing;
+			int v_idx = static_cast<int>(ss.global_site_id);
+			unsigned char v = G.vecG[ind]->Variants[DIV2(v_idx)];
+			anchor_has_missing[ss_idx] = VAR_GET_MIS(MOD2(v_idx), v);
 		}
 		if (supersite_trace_enabled()) {
 			size_t flagged = std::count(anchor_has_missing.begin(), anchor_has_missing.end(), true);

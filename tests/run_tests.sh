@@ -150,75 +150,102 @@ passed_individual_tests=0
 failed_individual_tests=0
 failed_individual_test_names=()
 
+# Arrays to store test details for summary table
+declare -a test_binaries_list
+declare -a test_status_list
+declare -a test_duration_list
+declare -a test_details_list
+declare -a test_category_list
+
 # Function to parse test output and extract individual test results
 parse_test_output() {
     local output="$1"
     local binary_name="$2"
     local exit_code="$3"
     local duration="$4"
-    
-    # Common patterns for test results
-    local test_patterns=(
-        '✓.*passed'                    # ✓ Test X passed
-        '✗.*failed'                    # ✗ Test X failed
-        'Test [0-9]+.*passed'          # Test 1 passed
-        'Test [0-9]+.*failed'          # Test 1 failed
-        'PASS.*Test'                   # PASS: Test description
-        'FAIL.*Test'                   # FAIL: Test description
-        '\[PASS\]'                     # [PASS]
-        '\[FAIL\]'                     # [FAIL]
-        'OK.*test'                     # OK - test description
-        'ERROR.*test'                  # ERROR - test description
-    )
-    
+
     local found_individual_tests=false
     local individual_tests_in_binary=0
     local passed_in_binary=0
     local failed_in_binary=0
-    
+    local scenarios_info=""
+    local crash_context=""
+
     # Look for individual test results in output
     while IFS= read -r line; do
-        lc_line="${line,,}"
-        is_test_line=false
-        if [[ "$lc_line" == *"test"* ]]; then
-            is_test_line=true
-        elif [[ "$lc_line" == *"pass"* ]] || [[ "$lc_line" == *"fail"* ]] || [[ "$lc_line" == *"ok"* ]]; then
-            is_test_line=true
-        fi
-
-        # Check for passed tests
-        if $is_test_line && [[ "$lc_line" == *"✓"* || "$lc_line" == *"passed"* || "$lc_line" == *"[pass]"* || "$lc_line" == *" ok"* || "$lc_line" == *"pass:"* ]]; then
+        # Check for standardized [TEST_PASS] format (preferred)
+        if [[ "$line" =~ ^\[TEST_PASS\][[:space:]](.+)$ ]]; then
             found_individual_tests=true
             ((individual_tests_in_binary++))
             ((passed_in_binary++))
             ((total_individual_tests++))
             ((passed_individual_tests++))
-            
-            # Extract test name/description
-            local test_desc=$(echo "$line" | sed -E 's/.*[Tt]est[[:space:]]*[0-9]*[[:space:]]*[:]*[[:space:]]*(.*)/\1/' | sed 's/[✓✗]//g' | sed 's/\[(PASS|FAIL)\]//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
-            if [[ -z "$test_desc" ]]; then
-                test_desc="unnamed_test_$individual_tests_in_binary"
-            fi
-            
-            echo "${binary_name}::${test_desc}: PASS (${duration}s)" | tee -a "$CURRENT_LOG"
-            
-        # Check for failed tests - be more specific to avoid false positives
-        # Only flag explicit failure indicators, not words like "error" in descriptive context
-        elif $is_test_line && [[ "$lc_line" == *"✗"* || "$lc_line" == *"failed"* || "$lc_line" == *"[fail]"* ]]; then
+            local test_name="${BASH_REMATCH[1]}"
+            echo "${binary_name}::${test_name}: PASS (${duration}s)" | tee -a "$CURRENT_LOG"
+
+        # Check for standardized [TEST_FAIL] format (preferred)
+        elif [[ "$line" =~ ^\[TEST_FAIL\][[:space:]](.+)$ ]]; then
             found_individual_tests=true
             ((individual_tests_in_binary++))
             ((failed_in_binary++))
             ((total_individual_tests++))
             ((failed_individual_tests++))
-            
-            # Extract test name/description
-            local test_desc=$(echo "$line" | sed -E 's/.*[Tt]est[[:space:]]*[0-9]*[[:space:]]*[:]*[[:space:]]*(.*)/\1/' | sed 's/[✓✗]//g' | sed 's/\[(PASS|FAIL)\]//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
-            if [[ -z "$test_desc" ]]; then
-                test_desc="unnamed_test_$individual_tests_in_binary"
+            local test_name="${BASH_REMATCH[1]}"
+            echo "${binary_name}::${test_name}: FAIL (${duration}s)" | tee -a "$CURRENT_LOG"
+            failed_individual_test_names+=("${binary_name}::${test_name}")
+
+        # Extract crash context for diagnostics
+        elif [[ "$line" =~ ^\[TEST_CRASH\][[:space:]](.+)$ ]]; then
+            crash_context="$crash_context${BASH_REMATCH[1]}; "
+
+        # Extract scenario information
+        elif [[ "$line" =~ ^\[SCENARIO_PASS\][[:space:]](.+)$ ]]; then
+            scenarios_info="${scenarios_info}✓ ${BASH_REMATCH[1]} "
+        elif [[ "$line" =~ ^\[SCENARIO_FAIL\][[:space:]](.+)$ ]]; then
+            scenarios_info="${scenarios_info}✗ ${BASH_REMATCH[1]} "
+
+        # Legacy format support - check for old patterns
+        # Skip lines that are part of [TEST_SUMMARY] block
+        elif [[ ! "$line" =~ ^\[TEST_SUMMARY\]|^[[:space:]]*(Binary|Total|Passed|Failed|Duration): ]]; then
+            lc_line="${line,,}"
+            is_test_line=false
+            if [[ "$lc_line" == *"test"* ]]; then
+                is_test_line=true
+            elif [[ "$lc_line" == *"pass"* ]] || [[ "$lc_line" == *"fail"* ]] || [[ "$lc_line" == *"ok"* ]]; then
+                is_test_line=true
             fi
-            
-            echo "${binary_name}::${test_desc}: FAIL (${duration}s)" | tee -a "$CURRENT_LOG"
-            failed_individual_test_names+=("${binary_name}::${test_desc}")
+
+            # Check for passed tests (legacy)
+            if $is_test_line && [[ "$lc_line" == *"✓"* || "$lc_line" == *"passed"* || "$lc_line" == *"[pass]"* || "$lc_line" == *" ok"* || "$lc_line" == *"pass:"* ]]; then
+                found_individual_tests=true
+                ((individual_tests_in_binary++))
+                ((passed_in_binary++))
+                ((total_individual_tests++))
+                ((passed_individual_tests++))
+
+                local test_desc=$(echo "$line" | sed -E 's/.*[Tt]est[[:space:]]*[0-9]*[[:space:]]*[:]*[[:space:]]*(.*)/\1/' | sed 's/[✓✗]//g' | sed 's/\[(PASS|FAIL)\]//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                if [[ -z "$test_desc" ]]; then
+                    test_desc="unnamed_test_$individual_tests_in_binary"
+                fi
+
+                echo "${binary_name}::${test_desc}: PASS (${duration}s)" | tee -a "$CURRENT_LOG"
+
+            # Check for failed tests (legacy) - but not "Failed: 0" summary lines
+            elif $is_test_line && [[ "$lc_line" == *"✗"* || "$lc_line" == *"failed"* || "$lc_line" == *"[fail]"* ]] && [[ ! "$lc_line" =~ failed:[[:space:]]*0 ]]; then
+                found_individual_tests=true
+                ((individual_tests_in_binary++))
+                ((failed_in_binary++))
+                ((total_individual_tests++))
+                ((failed_individual_tests++))
+
+                local test_desc=$(echo "$line" | sed -E 's/.*[Tt]est[[:space:]]*[0-9]*[[:space:]]*[:]*[[:space:]]*(.*)/\1/' | sed 's/[✓✗]//g' | sed 's/\[(PASS|FAIL)\]//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                if [[ -z "$test_desc" ]]; then
+                    test_desc="unnamed_test_$individual_tests_in_binary"
+                fi
+
+                echo "${binary_name}::${test_desc}: FAIL (${duration}s)" | tee -a "$CURRENT_LOG"
+                failed_individual_test_names+=("${binary_name}::${test_desc}")
+            fi
         fi
     done <<< "$output"
     
@@ -264,15 +291,73 @@ parse_test_output() {
         fi
     fi
     
-    # Always log the output for failed binaries or detailed info
+    # Determine test category from binary name
+    local category="unit"
+    if [[ "$binary_name" == *"parity"* || "$binary_name" == *"expansion"* ]]; then
+        category="integration"
+    elif [[ "$binary_name" == *"smoke"* || "$binary_name" == *"perf"* ]]; then
+        category="smoke"
+    elif [[ "$binary_name" == *"threading"* ]]; then
+        category="concurrency"
+    fi
+
+    # Store test details for summary table
+    test_binaries_list+=("$binary_name")
+    test_duration_list+=("$duration")
+    test_category_list+=("$category")
+
+    # Determine overall status and details for this binary
+    local status="PASS"
+    local details=""
+
+    if [ "$exit_code" -ne 0 ] || [ "$failed_in_binary" -gt 0 ]; then
+        status="FAIL"
+    fi
+
+    # Build details string
+    if [ "$found_individual_tests" = true ]; then
+        details="${passed_in_binary}/${individual_tests_in_binary}"
+    else
+        details="-"
+    fi
+
+    if [[ -n "$scenarios_info" ]]; then
+        details="$details ${scenarios_info}"
+    fi
+
+    if [[ -n "$crash_context" ]]; then
+        details="$details [crash: $crash_context]"
+    fi
+
+    test_status_list+=("$status")
+    test_details_list+=("$details")
+
+    # Add failure context for failed tests
     if [ "$exit_code" -ne 0 ] || [ "$failed_in_binary" -gt 0 ]; then
         echo "  Binary: $binary_name (exit_code: $exit_code)" | tee -a "$CURRENT_LOG"
         echo "  Individual tests found: $individual_tests_in_binary (passed: $passed_in_binary, failed: $failed_in_binary)" | tee -a "$CURRENT_LOG"
-        echo "  Output:" | tee -a "$CURRENT_LOG"
+
+        # Extract and log failure context
+        if [[ -n "$crash_context" ]]; then
+            echo "  [FAILURE_CONTEXT] Crash: $crash_context" | tee -a "$CURRENT_LOG"
+        fi
+
+        # Show last 20 lines before failure
+        echo "  [FAILURE_CONTEXT] Last output before failure:" | tee -a "$CURRENT_LOG"
+        echo "$output" | tail -20 | sed 's/^/    /' | tee -a "$CURRENT_LOG"
+
+        # Show active environment variables
+        local shapeit_env=$(env | grep '^SHAPEIT5' || true)
+        if [[ -n "$shapeit_env" ]]; then
+            echo "  [FAILURE_CONTEXT] Environment:" | tee -a "$CURRENT_LOG"
+            echo "$shapeit_env" | sed 's/^/    /' | tee -a "$CURRENT_LOG"
+        fi
+
+        echo "  Full output:" | tee -a "$CURRENT_LOG"
         echo "$output" | sed 's/^/    /' | tee -a "$CURRENT_LOG"
         echo "" | tee -a "$CURRENT_LOG"
     fi
-    
+
     # Return non-zero if this binary had any failures
     if [ "$exit_code" -ne 0 ] || [ "$failed_in_binary" -gt 0 ]; then
         return 1
@@ -295,11 +380,16 @@ run_test() {
     
     # Run the test and capture both output and exit code with timeout protection
     set +e  # Don't exit on command failure
-    
+
     # Use timeout to prevent hanging tests and capture all possible crashes
     if command -v timeout >/dev/null 2>&1; then
         # Use --preserve-status to get the actual exit code from the process
-        output=$(timeout --preserve-status "$timeout_seconds" "$test_binary" 2>&1)
+        # Run expansion_epochs tests with deterministic sorting to avoid floating-point divergence
+        if [[ "$test_name" == *"expansion_epochs"* ]]; then
+            output=$(SHAPEIT5_DETERMINISTIC_SORT=1 timeout --preserve-status "$timeout_seconds" "$test_binary" 2>&1)
+        else
+            output=$(timeout --preserve-status "$timeout_seconds" "$test_binary" 2>&1)
+        fi
         exit_code=$?
         
         # Check if timeout killed the process (timeout returns 124 only without --preserve-status)
@@ -311,7 +401,11 @@ TIMEOUT: Test binary exceeded ${timeout_seconds} seconds"
         fi
     else
         # Fallback without timeout if timeout command not available
-        output=$("$test_binary" 2>&1)
+        if [[ "$test_name" == *"expansion_epochs"* ]]; then
+            output=$(SHAPEIT5_DETERMINISTIC_SORT=1 "$test_binary" 2>&1)
+        else
+            output=$("$test_binary" 2>&1)
+        fi
         exit_code=$?
     fi
     
@@ -407,6 +501,69 @@ if [ $failed_individual_tests -gt 0 ]; then
 fi
 
 echo "========================================" | tee -a "$CURRENT_LOG"
+
+# Print formatted summary table
+echo "" | tee -a "$CURRENT_LOG"
+echo "Detailed Test Results:" | tee -a "$CURRENT_LOG"
+echo "┌────────────────────────────────────────┬─────────────┬──────────┬──────────┬───────────────────────────┐" | tee -a "$CURRENT_LOG"
+echo "│ Test Binary                            │ Category    │ Status   │ Duration │ Details                   │" | tee -a "$CURRENT_LOG"
+echo "├────────────────────────────────────────┼─────────────┼──────────┼──────────┼───────────────────────────┤" | tee -a "$CURRENT_LOG"
+
+for i in "${!test_binaries_list[@]}"; do
+    name="${test_binaries_list[$i]}"
+    status="${test_status_list[$i]}"
+    duration="${test_duration_list[$i]}"
+    details="${test_details_list[$i]}"
+    category="${test_category_list[$i]}"
+
+    # Truncate name if too long
+    if [ ${#name} -gt 38 ]; then
+        name="${name:0:35}..."
+    fi
+
+    # Truncate category if too long
+    if [ ${#category} -gt 11 ]; then
+        category="${category:0:8}..."
+    fi
+
+    # Truncate details if too long
+    if [ ${#details} -gt 25 ]; then
+        details="${details:0:22}..."
+    fi
+
+    # Color code status
+    status_display="$status"
+    if [ "$status" = "FAIL" ]; then
+        status_display="✗ FAIL  "
+    else
+        status_display="✓ PASS  "
+    fi
+
+    # Format row (duration as "0.123s" fits in 8 chars)
+    printf "│ %-38s │ %-11s │ %-8s │ %7ss │ %-25s │\n" \
+        "$name" "$category" "$status_display" "$duration" "$details" | tee -a "$CURRENT_LOG"
+done
+
+echo "└────────────────────────────────────────┴─────────────┴──────────┴──────────┴───────────────────────────┘" | tee -a "$CURRENT_LOG"
+
+# Category breakdown
+echo "" | tee -a "$CURRENT_LOG"
+echo "By Category:" | tee -a "$CURRENT_LOG"
+for cat in unit integration smoke concurrency; do
+    cat_total=0
+    cat_passed=0
+    for i in "${!test_category_list[@]}"; do
+        if [ "${test_category_list[$i]}" = "$cat" ]; then
+            ((cat_total++))
+            if [ "${test_status_list[$i]}" = "PASS" ]; then
+                ((cat_passed++))
+            fi
+        fi
+    done
+    if [ $cat_total -gt 0 ]; then
+        echo "  $(printf '%-12s' "$cat:"): $cat_passed/$cat_total passed" | tee -a "$CURRENT_LOG"
+    fi
+done
 
 # Compare with previous run if available
 if [ -L "$LATEST_SYMLINK" ] && [ -f "$LATEST_SYMLINK" ]; then

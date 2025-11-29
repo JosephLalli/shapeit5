@@ -10,8 +10,11 @@
 #include "../../common/src/utils/otools.h"
 #include "test_framework.h"
 
+
+#include "test_reporting.h"
 // Test basic emission computation for supersites
 int main() {
+    TEST_INIT("test_supersite_emissions");
     TEST_RUN("match_emission", []() {
         const float match_emission = 1.0f;
         TEST_ASSERT(std::fabs(match_emission - 1.0f) < 1e-6f, "match emission should be 1.0");

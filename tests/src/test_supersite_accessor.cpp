@@ -12,6 +12,8 @@
 #include "../../phase_common/src/objects/genotype/genotype_header.h"
 #include "../../phase_common/src/objects/variant.h"
 
+
+#include "test_reporting.h"
 // Helper to create SuperSite structure
 static SuperSite make_supersite(unsigned int site_id, unsigned char chr, int bp, 
                                 unsigned char n_alts, uint32_t panel_offset,
@@ -30,6 +32,7 @@ static SuperSite make_supersite(unsigned int site_id, unsigned char chr, int bp,
 }
 
 int main() {
+    TEST_INIT("test_supersite_accessor");
     std::cout << "Testing supersite accessor functions..." << std::endl;
     
     // Test 1: SuperSite structure creation
@@ -46,7 +49,7 @@ int main() {
     assert(ss.var_start == 0);
     assert(ss.var_count == 2);
     
-    std::cout << "  SuperSite structure: OK" << std::endl;
+    TEST_PASS("  SuperSite structure");  // was: OK
     
     // Test 2: Panel haplotype code unpacking
     // Create packed codes: 4 haplotypes with allele codes 0, 1, 2, 0
@@ -59,7 +62,7 @@ int main() {
     assert(unpackSuperSiteCode(packed_codes, 0, 2) == 2);  // ALT2
     assert(unpackSuperSiteCode(packed_codes, 0, 3) == 0);  // REF
     
-    std::cout << "  Panel code unpacking: OK" << std::endl;
+    TEST_PASS("  Panel code unpacking");  // was: OK
     
     // Test 3: Sample genotype allele code inference
     // Create a genotype with 2 variants at same position (split records)
@@ -86,7 +89,7 @@ int main() {
     assert(code_hap0 == 1);  // ALT1
     assert(code_hap1 == 0);  // REF
     
-    std::cout << "  Sample code inference: OK" << std::endl;
+    TEST_PASS("  Sample code inference");  // was: OK
     
     // Test 4: Missing data code (special value)
     G.Variants[0] = 0;
@@ -99,7 +102,7 @@ int main() {
     assert(code_hap0 == SUPERSITE_CODE_MISSING);
     assert(code_hap1 == SUPERSITE_CODE_MISSING);
     
-    std::cout << "  Missing code: OK" << std::endl;
+    TEST_PASS("  Missing code");  // was: OK
     
     // Test 5: Multi-allelic site with 3 ALTs
     SuperSite ss3 = make_supersite(/*site_id*/2, /*chr*/1, /*bp*/2000,
@@ -108,7 +111,7 @@ int main() {
     
     // n_classes computed as 1 + n_alts in HMM phase, not set here
     
-    std::cout << "  Multi-allelic supersite: OK" << std::endl;
+    TEST_PASS("  Multi-allelic supersite");  // was: OK
     
     // Test 6: aligned_vector32 works correctly
     aligned_vector32<uint8_t> vec;
@@ -126,8 +129,9 @@ int main() {
     uintptr_t addr = reinterpret_cast<uintptr_t>(vec.data());
     assert((addr % 32) == 0);
     
-    std::cout << "  aligned_vector32: OK" << std::endl;
+    TEST_PASS("  aligned_vector32");  // was: OK
     
     std::cout << "All tests passed!" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

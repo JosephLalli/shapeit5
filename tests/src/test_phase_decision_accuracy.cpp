@@ -25,6 +25,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+
+#include "test_reporting.h"
 namespace {
 
 // Represent phased haplotype as sequence of alleles
@@ -265,6 +267,7 @@ static HaplotypeSequence simulate_supersite_phasing(const std::string& sample_id
 } // anonymous namespace
 
 int main() {
+    TEST_INIT("test_phase_decision_accuracy");
     std::printf("=== Phase Decision Accuracy Comparison Test ===\n\n");
     
     PhaseAccuracyAnalyzer analyzer;
@@ -310,5 +313,6 @@ int main() {
     std::printf("  4. Validate emission patterns before HMM state generation\n");
     
     std::printf("\n=== Test completed ===\n");
+    TEST_SUMMARY();
     return 0;
 }

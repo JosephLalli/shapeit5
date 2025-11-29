@@ -335,33 +335,55 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                         std::cout << sc_probs1 << std::endl;
                     }
 					
-                    // Sample h0 for hap0
-                    float r0 = rng.getDouble();
-                    float cumsum0 = 0.0f;
-                    for (int c = 0; c < C; ++c) {
-                        cumsum0 += (*SC)[offset + hap0 * C + c];
-                        if (r0 <= cumsum0) {
-                            h0 = c;
-                            break;
-                        }
-                    }
-                    if (cumsum0 < r0) {
-                        h0 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
-                    }
+                                        // Sample h0 for hap0
+                                        float r0 = rng.getDouble();
+                                        float cumsum0 = 0.0f;
+                                        for (int c = 0; c < C; ++c) {
+                                            cumsum0 += (*SC)[offset + hap0 * C + c];
+                                            if (r0 <= cumsum0) {
+                                                h0 = c;
+                                                break;
+                                            }
+                                        }
+                                        if (cumsum0 < r0) {
+                                            h0 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
+                                        }
                     
-                    // Sample h1 for hap1
-                    float r1 = rng.getDouble();
-                    float cumsum1 = 0.0f;
-                    for (int c = 0; c < C; ++c) {
-                        cumsum1 += (*SC)[offset + hap1 * C + c];
-                        if (r1 <= cumsum1) {
-                            h1 = c;
-                            break;
-                        }
-                    }
-					if (cumsum1 < r1) {
-                        h1 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
-                    }
+                                        // Sample h1 for hap1
+                                        float r1 = rng.getDouble();
+                                        float cumsum1 = 0.0f;
+                                        for (int c = 0; c < C; ++c) {
+                                            cumsum1 += (*SC)[offset + hap1 * C + c];
+                                            if (r1 <= cumsum1) {
+                                                h1 = c;
+                                                break;
+                                            }
+                                        }
+                                        if (cumsum1 < r1) {
+                                            h1 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
+                                        }
+                    
+                                        if (supersite_trace_enabled()) {
+                                            std::fprintf(stderr, "[MAKE_SS_SAMPLE] locus=%u ss_idx=%d r0=%.15f h0=%u r1=%.15f h1=%u\n",
+                                                         vabs, ss_idx, r0, h0, r1, h1);
+                                            // Dump SC for this anchor
+                                            std::fprintf(stderr, "  SC_probs: h0=[");
+                                            for(int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", (*SC)[offset + hap0 * C + c]);
+                                            std::fprintf(stderr, "] h1=[");
+                                            for(int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", (*SC)[offset + hap1 * C + c]);
+                                            std::fprintf(stderr, "]\n");
+                                        }
+                    
+					if (supersite_trace_enabled()) {
+						std::fprintf(stderr, "[MAKE_SS_SAMPLE] locus=%u ss_idx=%d r0=%.15f h0=%u r1=%.15f h1=%u\n",
+						             vabs, ss_idx, r0, h0, r1, h1);
+						// Dump SC for this anchor
+						std::fprintf(stderr, "  SC_probs: h0=[");
+						for(int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", (*SC)[offset + hap0 * C + c]);
+						std::fprintf(stderr, "] h1=[");
+						for(int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", (*SC)[offset + hap1 * C + c]);
+						std::fprintf(stderr, "]\n");
+					}
 
                     // HYPOTHESIS 3 DEBUGGING
                     if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
@@ -489,8 +511,18 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
 					}
 				} else {
-					(rng.getDouble()<=CurrentMissingProbabilities[m*HAP_NUMBER+hap0])?VAR_SET_HAP0(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP0(MOD2(vabs),Variants[DIV2(vabs)]);
-					(rng.getDouble()<=CurrentMissingProbabilities[m*HAP_NUMBER+hap1])?VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
+					float r0 = rng.getDouble();
+					float p0 = CurrentMissingProbabilities[m*HAP_NUMBER+hap0];
+					(r0<=p0)?VAR_SET_HAP0(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP0(MOD2(vabs),Variants[DIV2(vabs)]);
+					
+					float r1 = rng.getDouble();
+					float p1 = CurrentMissingProbabilities[m*HAP_NUMBER+hap1];
+					(r1<=p1)?VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
+
+					if (supersite_trace_enabled()) {
+						std::fprintf(stderr, "[MAKE_BIAL_SAMPLE] locus=%u m=%u r0=%.15f p0=%.15f r1=%.15f p1=%.15f\n",
+						             vabs, m, r0, p0, r1, p1);
+					}
 				}
 				m++;
 			}

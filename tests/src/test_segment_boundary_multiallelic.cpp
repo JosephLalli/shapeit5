@@ -19,7 +19,8 @@
 #include <objects/genotype/genotype_header.h>
 #include <objects/compute_job.h>
 #include <containers/bitmatrix.h>
-
+#include <containers/window_set.h>
+#include <objects/super_site_builder.h> // For buildSuperSites()
 
 #include "test_reporting.h"
 // Expose private members for testing
@@ -70,7 +71,7 @@ void create_test_genotype(genotype& G, int n_variants) {
     G.Ambiguous.clear();
     G.Diplotypes.assign(1, 0);
     G.Lengths.assign(1, static_cast<unsigned short>(n_variants));
-    G.Lengths_bio = G.Lengths;
+    G.Lengths_bio.assign(1, 1);  // one biological anchor in this segment
     G.ProbMask.clear();
     G.ProbStored.clear();
     G.ProbMissing.clear();
@@ -167,21 +168,18 @@ bool test_single_multiallelic_per_segment() {
     genotype G(n_variants);
     create_test_genotype(G, n_variants);
     
-    // Setup supersite: variants 0,1,2 are splits of one multiallelic site
-    vector<SuperSite> super_sites(1);
-    super_sites[0] = create_test_supersite(0, 0, 3, 2);  // Anchor at var 0, 3 splits, 2 ALTs
-    
-    vector<int> locus_to_super_idx(n_variants, -1);
-    locus_to_super_idx[0] = 0;
-    locus_to_super_idx[1] = 0;
-    locus_to_super_idx[2] = 0;
-    
-    vector<int> super_site_var_index = {0, 1, 2};  // Member variants
-    
-    // Panel codes: donor 0=REF, donor 1=ALT1, donor 2=ALT2, donor 3=ALT3
-    vector<uint8_t> allele_codes = {0, 1, 2, 3};
+    // Build supersites via production helper
+    vector<SuperSite> super_sites;
+    vector<bool> is_super_site;
     vector<uint8_t> packed_codes;
-    setup_panel_codes(packed_codes, allele_codes);
+    vector<int> locus_to_super_idx;
+    vector<int> super_site_var_index;
+    vector<uint8_t> unused_sample_codes;
+    conditioning_set H_cond; // Declare conditioning_set object
+    buildSuperSites(V, H_cond, super_sites, is_super_site, packed_codes, locus_to_super_idx, super_site_var_index, unused_sample_codes);
+    // Mark siblings per production
+    hmm_parameters dummyM;
+    dummyM.markSuperSiteSiblings(super_sites, locus_to_super_idx);
     
     // Mark variant 0 as HET (ALT2|ALT3 → c0=2, c1=3)
     VAR_SET_HET(MOD2(0), G.Variants[DIV2(0)]);
@@ -202,6 +200,13 @@ bool test_single_multiallelic_per_segment() {
     VAR_SET_HAP1(MOD2(3), G.Variants[DIV2(3)]);
     
     G.build();  // Build segments, diplotypes, etc.
+    // Attach supersite context and snapshot base classes, mirroring production
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
+    // Mirror production: biological segment length counts only anchors (1 here)
+    G.Lengths_bio.assign(1, 1);
+    // And keep stored-length (all records) for bookkeeping
+    G.Lengths.assign(1, static_cast<unsigned short>(n_variants));
     
     cout << "  Genotype built: " << G.n_segments << " segments, " 
          << G.n_ambiguous << " ambiguous sites" << endl;
@@ -213,18 +218,25 @@ bool test_single_multiallelic_per_segment() {
     M.Neff = 15000;
     M.Nhap = n_cond_haps;
     M.rare_allele.resize(n_variants, 0);
-    M.t.resize(n_variants, 0.0f);
-    M.nt.resize(n_variants, 1.0f);
     M.cm.resize(n_variants);
     for (int i = 0; i < n_variants; ++i) {
         M.cm[i] = V.vec_pos[i]->cm;
     }
+    // Compute transitions from map
+    M.t.assign(n_variants ? n_variants - 1 : 0, 0.0f);
+    M.nt.assign(M.t.size(), 1.0f);
+    for (size_t i = 0; i + 1 < M.cm.size(); ++i) {
+        float dist_cm = M.cm[i + 1] - M.cm[i];
+        float tval = (dist_cm <= 0.0f) ? 0.0f : static_cast<float>(-1.0 * expm1(-0.04 * M.Neff * dist_cm / static_cast<float>(M.Nhap)));
+        M.t[i] = tval;
+        M.nt[i] = 1.0f - tval;
+    }
     M.ss_anchor_split_emissions = false;
-    
+
     // Create conditioning panel (bitmatrix)
     bitmatrix H;
     H.allocate(n_variants, n_cond_haps);
-    
+
     // Fill panel with allele data matching our codes
     for (int v = 0; v < n_variants; ++v) {
         for (int h = 0; h < n_cond_haps; ++h) {
@@ -234,29 +246,31 @@ bool test_single_multiallelic_per_segment() {
             }
         }
     }
-    
-    // Create window spanning both segments
-    window W;
-    W.start_segment = 0;
-    W.stop_segment = G.n_segments - 1;
-    W.start_locus = 0;
-    W.stop_locus = n_variants - 1;
-    W.start_ambiguous = 0;
-    W.stop_ambiguous = G.n_ambiguous - 1;
-    W.start_missing = 0;
-    W.stop_missing = -1;  // No missing
-    W.start_transition = 0;
-    W.stop_transition = G.n_transitions - 1;
-    
-    vector<unsigned int> idxH(n_cond_haps);
-    for (int i = 0; i < n_cond_haps; ++i) idxH[i] = i;
-    
-    // Create HMM segment with supersite support
-    haplotype_segment_single HS(&G, H, idxH, W, M,
+
+    // Build production-like window via compute_job
+    genotype_set Gset;
+    Gset.allocate(1, n_variants);
+    *Gset.vecG[0] = G;
+    conditioning_set Hwrap;
+    Hwrap.allocate(0, n_cond_haps / 2, n_variants);
+    Hwrap.H_opt_hap = H;
+    Hwrap.H_opt_var.transpose(Hwrap.H_opt_hap);
+    // Mirror supersite context
+    Gset.vecG[0]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    Gset.vecG[0]->snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
+
+    compute_job job(V, Gset, Hwrap, /*max_trans*/128, /*max_missing*/64,
+                    &super_sites, &locus_to_super_idx, &super_site_var_index);
+    job.make(0, 0.0);
+
+    // Use the first window from compute_job, but restrict to anchor only to mirror biological boundary
+    window W = job.Windows.W[0];
+    W.stop_locus = W.start_locus;  // anchor only
+    W.stop_segment = W.start_segment;
+    haplotype_segment_single HS(Gset.vecG[0], Hwrap.H_opt_hap, job.Kstates[0], W, M,
                                 &super_sites, nullptr, &locus_to_super_idx,
                                 packed_codes.data(), packed_codes.size(), &super_site_var_index);
-    
-    // Run forward pass
+
     HS.forward();
     
     // BUG #11 DETECTION: Analyze per-lane probabilities BEFORE SUMK()

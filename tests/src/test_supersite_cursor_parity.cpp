@@ -8,7 +8,10 @@
 #include <libgen.h> // For dirname
 #include <limits.h> // For PATH_MAX
 
+
+#include "test_reporting.h"
 int main() {
+    TEST_INIT("test_supersite_cursor_parity");
     const char* home = getenv("HOME");
     std::string ld = (home ? std::string(home) + "/.linuxbrew/lib:/usr/local/lib" : std::string("/usr/local/lib"));
     const char* old_ld = getenv("LD_LIBRARY_PATH");
@@ -52,6 +55,7 @@ int main() {
 
     if (pass_single && pass_double) {
         std::cout << "test_supersite_cursor_parity: PASS\n";
+        TEST_SUMMARY();
         return 0;
     }
 

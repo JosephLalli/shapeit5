@@ -19,6 +19,8 @@
 #include "test_framework.h"
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/phaser/phaser_header.h"
@@ -284,6 +286,7 @@ void test_shared_data_access() {
 
 // Main test runner
 int main() {
+    TEST_INIT("test_phaser_threading_safety");
     std::cout << "=== SHAPEIT5 Phaser Threading Safety Tests ===" << std::endl;
     
     test_job_counter_thread_safety();

@@ -27,6 +27,8 @@
 #include "../../phase_common/src/containers/variant_map.h"
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 
+
+#include "test_reporting.h"
 // Expose private members for testing
 #define private public
 #define protected public
@@ -464,6 +466,7 @@ bool test_multiple_supersites_with_boundaries() {
  * Main test runner
  */
 int main() {
+    TEST_INIT("test_segment_boundary_invariants");
     cout << "======================================================" << endl;
     cout << "Segment Boundary Invariants Test Suite" << endl;
     cout << "======================================================" << endl;
@@ -484,6 +487,7 @@ int main() {
             cout << "✓ ALL TESTS PASSED - Segment boundary invariants are correctly enforced" << endl;
             cout << "✓ INVARIANT 1: Segments never start at sibling loci" << endl;
             cout << "✓ INVARIANT 2: Segments ending on multiallelic sites contain all siblings" << endl;
+            TEST_SUMMARY();
             return 0;
         } else {
             cout << "✗ TESTS FAILED - Segment boundary invariants are violated" << endl;

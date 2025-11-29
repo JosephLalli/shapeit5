@@ -24,6 +24,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/site_emission_adapter.h"
@@ -254,6 +256,7 @@ static void simulate_supersite_emission(const MockConditioningData& cond,
 } // anonymous namespace
 
 int main() {
+    TEST_INIT("test_emission_pattern_validation");
     std::printf("=== Emission Pattern Validation Test ===\n\n");
     
     EmissionValidator validator;
@@ -339,5 +342,6 @@ int main() {
     std::printf("  - Target emission adapter fixes for consistency\n");
     
     std::printf("\n=== Test completed ===\n");
+    TEST_SUMMARY();
     return 0;
 }

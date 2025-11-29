@@ -11,7 +11,10 @@
 #include "../../phase_common/src/models/super_site_accessor.h"
 #include "../../phase_common/src/models/super_site_emissions.h"
 
+
+#include "test_reporting.h"
 int main() {
+    TEST_INIT("test_supersite_emissions_real");
     std::cout << "Testing REAL supersite emission computation..." << std::endl;
     
     // Test 1: Create a 2-ALT supersite with 4 conditioning haplotypes
@@ -82,5 +85,6 @@ int main() {
     std::cout << "    OK: 8-haplotype emissions computed correctly" << std::endl;
     
     std::cout << "All tests passed!" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

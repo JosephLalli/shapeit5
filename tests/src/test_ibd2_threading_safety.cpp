@@ -22,6 +22,8 @@
 #include "test_framework.h"
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/containers/ibd2_tracks.h"
@@ -478,6 +480,7 @@ void test_no_mutex_ibd2() {
 
 // Main test runner
 int main() {
+    TEST_INIT("test_ibd2_threading_safety");
     std::cout << "=== SHAPEIT5 IBD2 Threading Safety Tests ===" << std::endl;
     
     test_ibd2_push_thread_safety();

@@ -13,12 +13,15 @@
 #include "../../phase_common/src/containers/variant_map.h"
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 
+
+#include "test_reporting.h"
 static variant* make_var(std::string chr, int bp, std::string id, std::string ref, std::string alt, int idx) {
     // variant constructor takes lvalue refs; keep locals so refs remain valid
     return new variant(chr, bp, id, ref, alt, idx);
 }
 
 int main() {
+    TEST_INIT("test_supersite_vs_biallelic_simple");
     std::cout << "Testing buildSuperSites behavior..." << std::endl;
     
     // Test scenario: 10-variant context
@@ -122,5 +125,6 @@ int main() {
     
     std::cout << "✓ SUCCESS: buildSuperSites correctly distinguishes biallelic vs multiallelic" << std::endl;
     std::cout << "All tests passed!" << std::endl;
+    TEST_SUMMARY();
     return 0;
 }

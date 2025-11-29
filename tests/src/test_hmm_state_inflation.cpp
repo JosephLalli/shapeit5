@@ -24,6 +24,8 @@
 
 #include "../../common/src/utils/otools.h"
 
+#include "test_reporting.h"
+
 #define private public
 #define protected public
 #include "../../phase_common/src/models/haplotype_segment_single.h"
@@ -195,6 +197,7 @@ static MockHMMState simulate_hmm_pass(const std::string& mode, KInflationAnalyze
 } // anonymous namespace
 
 int main() {
+    TEST_INIT("test_hmm_state_inflation");
     std::printf("=== HMM State Inflation Investigation ===\n\n");
     
     KInflationAnalyzer analyzer;
@@ -229,5 +232,6 @@ int main() {
     std::printf("  4. Identify specific loci where K inflation occurs\n");
     
     std::printf("\n=== Test completed ===\n");
+    TEST_SUMMARY();
     return 0;
 }

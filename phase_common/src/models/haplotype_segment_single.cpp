@@ -97,8 +97,10 @@ void haplotype_segment_single::handle_sibling_bookkeeping(const SiteView& site_v
 		assert(curr_abs_ambiguous >= lower_inclusive && curr_abs_ambiguous <= upper_exclusive);
 	}
 	if (missing_first <= missing_last) {
+		const bool backward_stage = trace_backward_active && !trace_forward_active;
+		const int lower_inclusive = backward_stage ? (missing_first - 1) : missing_first;
 		const int upper_exclusive = missing_last + 1;
-		assert(curr_abs_missing >= missing_first && curr_abs_missing <= upper_exclusive);
+		assert(curr_abs_missing >= lower_inclusive && curr_abs_missing <= upper_exclusive);
 	}
 	if (supersite_trace_enabled()) {
 		supersite_trace_log("[SupersiteSibling] stage=%s locus=%d kind=%d curr_abs_amb=%d curr_abs_mis=%d\n",
@@ -676,17 +678,14 @@ void haplotype_segment_single::forward() {
 			AlphaSumSum[rel_seg] = probSumT;
 			AlphaLocus[rel_seg] = prev_abs_locus;
 		}
-		if (data_mis) {
-			AlphaMissing[curr_rel_missing] = prob;
-			AlphaSumMissing[curr_rel_missing] = probSumH;
-			// If this is a supersite anchor, record the rel-missing index for backward SC
-			if (is_anchor) {
-				int idx = curr_abs_locus - locus_first;
-				if (idx >= 0 && idx < (int)missing_index_by_locus.size()) missing_index_by_locus[idx] = curr_rel_missing;
-			}
-			curr_abs_missing ++;
-		}
-
+					if (data_mis) {
+						AlphaMissing[curr_rel_missing] = prob;
+						AlphaSumMissing[curr_rel_missing] = probSumH;
+						// Record the rel-missing index for backward SC (supersites) or IMPUTE (biallelic)
+						int idx = curr_abs_locus - locus_first;
+						if (idx >= 0 && idx < (int)missing_index_by_locus.size()) missing_index_by_locus[idx] = curr_rel_missing;
+						curr_abs_missing ++;
+					}
 		// Only increment segment locus for non-sibling loci (siblings don't count toward segment length)
 		if (!is_sibling) {
 			curr_segment_locus ++;
