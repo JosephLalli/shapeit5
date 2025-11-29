@@ -38,9 +38,10 @@ scaffold_bcf_prefix="$tmp_dir/chr22.1KGP.18-25mb.phase_common"
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
   --output $scaffold_bcf_prefix.main_algo.small.bcf \
-  --thread 64 &
+  --thread 64
 #fi
-# SHAPEIT5_TEST_TRACE=1 \
+
+#SHAPEIT5_TEST_TRACE=1 \
 ${TEST_DIR}/../phase_common/bin/phase_common \
   --input $in_bcf \
   --filter-maf 0.001 \

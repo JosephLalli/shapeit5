@@ -645,33 +645,6 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			update_prev_locus = false;
 			trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, 0);
 			prev_abs_locus = update_prev_locus ? curr_abs_locus : prev_abs_locus;
-			// CRITICAL: Check for segment boundary BEFORE decrementing, since we'll skip the normal check with continue
-			if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
-				if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
-					unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
-					unsigned int prev_dipcount = (curr_segment_index > 0) ? G->countDiplotypes(G->Diplotypes[curr_segment_index-1]) : 0;
-					unsigned int n_trans = curr_dipcount * prev_dipcount;
-					std::fprintf(stdout,
-					             "[TRANS_TRACE][double][skip-sib] sample=%s curr_abs_locus=%d seg_idx=%d n_trans=%u curr_abs_transition=%d stored_so_far=%d/%u buf_size=%zu\n",
-					             G->name.c_str(), curr_abs_locus, curr_segment_index, n_trans, curr_abs_transition, debug_transitions_written, G->n_transitions, transition_probabilities.size());
-					std::fflush(stdout);
-				}
-				unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
-				unsigned int prev_dipcount = (curr_segment_index > 0) ? G->countDiplotypes(G->Diplotypes[curr_segment_index-1]) : 0;
-				unsigned int n_trans = curr_dipcount * prev_dipcount;
-				int ret = SET_OTHER_TRANS(transition_probabilities);
-				if (debug_track_transitions) debug_transitions_written += n_trans;
-				if (ret < 0) return ret;
-				else n_underflow_recovered += ret;
-			}
-			// CRITICAL: Decrement curr_segment_locus even for skipped siblings
-			// Otherwise segments ending on siblings will never hit curr_segment_locus==0
-			// and SET_OTHER_TRANS() will never be called, causing vector size mismatch
-			curr_segment_locus--;
-			if (curr_segment_locus < 0 && curr_segment_index > 0) {
-				curr_segment_index--;
-				curr_segment_locus = lengths_bio[curr_segment_index] - 1;
-			}
 			continue;
 		}
 		const EmitKind emit = site_view.emit_kind;
@@ -778,7 +751,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			SET_FIRST_TRANS(transition_probabilities);
 			if (debug_track_transitions) debug_transitions_written += n_trans;
 		}
-		if (curr_segment_locus == 0 && curr_abs_locus != locus_first) {
+		if (!is_sibling && curr_segment_locus == 0 && curr_abs_locus != locus_first && curr_segment_index > segment_first) {
 			if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
 				unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
 				unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
@@ -823,7 +796,9 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			curr_abs_missing--;
 		}
 
-		curr_segment_locus--;
+		if (!is_sibling) {
+			curr_segment_locus--;
+		}
 		const bool has_amb_range = (ambiguous_first <= ambiguous_last);
 		const bool can_retreat_amb = data_amb && has_amb_range && (curr_abs_ambiguous >= ambiguous_first);
 		const int expected_delta = can_retreat_amb ? -1 : 0;
