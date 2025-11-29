@@ -341,7 +341,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 						}
 						for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++) {
 							if (isAmbiguous(voffset+vrel)) {
-								bool in_first_segment = (vrel < Lengths[s-1]);
+								bool in_first_segment = (arel < n_amb_first);
 								unsigned int old_hap = in_first_segment ? prev_h0 : next_h0;
 								bool was_set = HAP_GET(Ambiguous[aoffset+arel], old_hap);
 								if (was_set) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h0]);
@@ -362,7 +362,7 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 						// includes siblings, while arel only counts ambiguous anchors.
 						for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++) {
 							if (isAmbiguous(voffset+vrel)) {
-								bool in_first_segment = (vrel < Lengths[s-1]);
+								bool in_first_segment = (arel < n_amb_first);
 								unsigned int old_hap = in_first_segment ? prev_h1 : next_h1;
 								if (HAP_GET(Ambiguous[aoffset+arel], old_hap)) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h1]);
 								arel ++;
