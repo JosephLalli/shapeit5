@@ -513,6 +513,9 @@ void haplotype_segment_single::forward() {
 
     for (curr_abs_locus = locus_first ; curr_abs_locus <= locus_last ; curr_abs_locus++) {
         if (supersite_trace_enabled()) std::fprintf(stderr, "FWD3 loop enter abs=%d rel_off=%d\n", curr_abs_locus, curr_rel_locus_offset);
+        // Keep segment cursor in range before any Lengths_bio access (protects trailing siblings)
+        if (curr_segment_index < segment_first) curr_segment_index = segment_first;
+        if (curr_segment_index > segment_last) curr_segment_index = segment_last;
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
 		const int prev_before = prev_abs_locus;
@@ -751,10 +754,16 @@ void haplotype_segment_single::forward() {
 			}
 			assert(false && "forward ambiguous cursor moved out of window bounds");
 		}
-		if (curr_segment_locus >= G->Lengths_bio[curr_segment_index]) {
-			curr_segment_index++;
-			curr_segment_locus = 0;
-		}
+			if (curr_segment_locus >= G->Lengths_bio[curr_segment_index]) {
+				// Avoid advancing past the last segment when trailing siblings are present
+				if (curr_segment_index < segment_last) {
+					curr_segment_index++;
+					curr_segment_locus = 0;
+				} else {
+					// Pin to last valid slot to keep Lengths_bio accesses in range
+					curr_segment_locus = G->Lengths_bio[curr_segment_index] - 1;
+				}
+			}
 
 		// End-of-window diagnostic: verify ambiguous-site bookkeeping parity
 		if (supersite_trace_enabled()) {

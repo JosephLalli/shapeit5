@@ -1872,41 +1872,34 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
         std::fprintf(stderr, "\n");
     }
 
-    const size_t required = static_cast<size_t>(offset) + static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>(C);
+    const size_t payload = static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>(C);
     const bool guard_sentinels_present = supersite_debug::guard_checks_enabled() &&
                                          SC.size() >= 2 &&
                                          std::isnan(SC.front()) &&
                                          std::isnan(SC.back());
-    const bool guard_applicable = guard_sentinels_present && offset >= 1u;
-    
-    if (guard_applicable) {
-        const size_t usable = SC.size() - 1;  // trailing guard slot excluded
-        if (required > usable) {
-            std::fprintf(stderr,
-                "[supersite-guard] IMPUTE_SUPERSITE_MULTIVARIATE: offset=%u C=%d size=%zu required=%zu sample=%s ss_idx=%d\n",
-                offset, C, SC.size(), required, G ? G->name.c_str() : "?", ss_idx);
-            assert(required <= usable);
-            return;
+    const size_t base_offset = guard_sentinels_present ? 1u : 0u;  // first data slot
+    const size_t usable = guard_sentinels_present ? (SC.size() - 2) : SC.size();
+
+    if (supersite_debug::guard_checks_enabled()) {
+        // Validate sentinel integrity and bounds before writing
+        if (guard_sentinels_present) {
+            if (!std::isnan(SC.front()) || !std::isnan(SC.back())) {
+                std::fprintf(stderr,
+                    "[supersite-guard] Sentinel corrupt before write sample=%s ss_idx=%d front=%g back=%g\n",
+                    G ? G->name.c_str() : "?", ss_idx, SC.front(), SC.back());
+                assert(std::isnan(SC.front()) && std::isnan(SC.back()));
+                return;
+            }
         }
-        const size_t guard_hi = SC.size() - 1;
-        const float pre_guard = SC[offset - 1];
-        const float post_guard = SC[guard_hi];
-        if (!std::isnan(pre_guard) || !std::isnan(post_guard)) {
+        const size_t rel_offset = (offset >= base_offset) ? static_cast<size_t>(offset - base_offset) : static_cast<size_t>(-1);
+        if (offset < base_offset || payload > usable || rel_offset > usable || rel_offset + payload > usable) {
             std::fprintf(stderr,
-                "[supersite-guard] Guard corrupt before write offset=%u sample=%s ss_idx=%d pre=%g post=%g\n",
-                offset, G ? G->name.c_str() : "?", ss_idx, pre_guard, post_guard);
-            assert(std::isnan(pre_guard));
-            assert(std::isnan(post_guard));
-            return;
-        }
-    } else if (supersite_debug::guard_checks_enabled()) {
-        // Either guard sentinels are absent or offset points to the very first element.
-        // Fall back to simple bounds validation without assuming sentinel padding.
-        if (required > SC.size()) {
-            std::fprintf(stderr,
-                "[supersite-guard] IMPUTE_SUPERSITE_MULTIVARIATE (unguarded buffer): offset=%u C=%d size=%zu required=%zu sample=%s ss_idx=%d\n",
-                offset, C, SC.size(), required, G ? G->name.c_str() : "?", ss_idx);
-            assert(required <= SC.size());
+                "[supersite-guard] IMPUTE_SUPERSITE_MULTIVARIATE bounds: offset=%u base=%zu rel=%zu C=%d size=%zu usable=%zu payload=%zu sample=%s ss_idx=%d\n",
+                offset, base_offset, rel_offset, C, SC.size(), usable, payload, G ? G->name.c_str() : "?", ss_idx);
+            assert(offset >= base_offset);
+            assert(payload <= usable);
+            assert(rel_offset <= usable);
+            assert(rel_offset + payload <= usable);
             return;
         }
     }
@@ -2044,8 +2037,8 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
             }
         }
         const size_t guard_hi = SC.size() ? SC.size() - 1 : 0;
-        if (guard_hi > 0 && offset >= 1u) {
-            const float pre_guard = SC[offset - 1];
+        if (guard_hi > 0 && guard_sentinels_present) {
+            const float pre_guard = SC.front();
             const float post_guard = SC[guard_hi];
             if (!std::isnan(pre_guard) || !std::isnan(post_guard)) {
                 std::fprintf(stderr,
