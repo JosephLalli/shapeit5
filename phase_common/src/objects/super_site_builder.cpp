@@ -128,6 +128,23 @@ void buildSuperSites(
             }
             current_panel_offset += n_bytes;
 
+            // Guard: verify packed codes match hap_codes when enabled
+            if (supersite_debug::guard_checks_enabled()) {
+                const uint8_t* buf = packed_allele_codes_out.data();
+                for (unsigned int h = 0; h < H.n_hap; ++h) {
+                    const uint8_t packed_code = unpackSuperSiteCode(buf, ss.panel_offset, h);
+                    if (packed_code != hap_codes[h]) {
+                        std::fprintf(stderr,
+                                     "[supersite-guard] packed code mismatch ss_idx=%zu hap=%u expected=%u got=%u\n",
+                                     super_sites_out.size(),
+                                     h,
+                                     static_cast<unsigned>(hap_codes[h]),
+                                     static_cast<unsigned>(packed_code));
+                        // Keep going; this is diagnostic only.
+                    }
+                }
+            }
+
             super_sites_out.push_back(ss);
         }
     }

@@ -65,6 +65,8 @@ public:
 	conditioning_set();
 	~conditioning_set();
 	void initialize(variant_map & V, float _modulo_selection, float _modulo_multithreading, float _mdr, int _depth, int _mac, int _nthread);
+	// Test-only simplified initializer: select/evaluate all sites, single chunk.
+	void initialize_for_test(variant_map & V, int _depth = 8, int _nthread = 1);
 	void applySupersiteAnchorMask(const std::vector<SuperSite>& super_sites,
 	                              const std::vector<int>& super_site_var_index);
 	void setSupersiteAnchorRedirect(const std::vector<int>& anchor_map);

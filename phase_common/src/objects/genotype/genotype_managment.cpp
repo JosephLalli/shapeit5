@@ -23,9 +23,11 @@
 #include <objects/genotype/genotype_header.h>
 #include <models/supersite_trace_utils.h>
 #include <models/super_site_accessor.h>
+#include <objects/supersite_debug.h>
 #include <string>
 #include <iostream>
 #include <cstdlib>
+#include <cstdio>
 #include <iomanip>
 
 // K-inflation debug instrumentation
@@ -308,98 +310,97 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 			if (ss_idx >= 0 && anchor_has_missing && (*anchor_has_missing)[ss_idx] && SC) {
 				// This is a supersite with missing data
 				const SuperSite& ss = (*super_sites)[ss_idx];
-				
+
 				if (vabs == ss.global_site_id) {
 					// Anchor: sample multivariant and project to all splits
-					int C = (int)ss.n_classes;
+					const int C = static_cast<int>(ss.n_classes); // 1 (REF) + n_alts
 					uint32_t offset = supersite_sc_offset ? (*supersite_sc_offset)[ss_idx] : 0;
-					
-                    // Sample one class per haplotype from multivariant
-                    // SC[offset + hap*C + c] = P(class_c | hap)
-                    // Here, h0/h1 are the sampled supersite classes for this epoch (mutable);
-                    // c0/c1 remain the immutable site classes used for emissions.
-                    uint8_t h0 = 0, h1 = 0;
 
-                    // HYPOTHESIS 3 DEBUGGING
-                    if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
-                        debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo3: Enter missing anchor");
-                        std::cout << "[SUPERDEBUG] H3: Imputing missing data at Pos=" << ss.global_site_id << " for sample " << this->name << std::endl;
-                        std::cout << "[SUPERDEBUG] H3: SC offset=" << offset << " hap0_idx=" << hap0 << " hap1_idx=" << hap1 << " n_classes=" << C << std::endl;
-                        std::string sc_probs0 = "  SC[hap0]: ";
-                        std::string sc_probs1 = "  SC[hap1]: ";
-                        for (int c = 0; c < C; ++c) {
-                            sc_probs0 += std::to_string((*SC)[offset + hap0 * C + c]) + " ";
-                            sc_probs1 += std::to_string((*SC)[offset + hap1 * C + c]) + " ";
-                        }
-                        std::cout << sc_probs0 << std::endl;
-                        std::cout << sc_probs1 << std::endl;
-                    }
-					
-                                        // Sample h0 for hap0
-                                        float r0 = rng.getDouble();
-                                        float cumsum0 = 0.0f;
-                                        for (int c = 0; c < C; ++c) {
-                                            cumsum0 += (*SC)[offset + hap0 * C + c];
-                                            if (r0 <= cumsum0) {
-                                                h0 = c;
-                                                break;
-                                            }
-                                        }
-                                        if (cumsum0 < r0) {
-                                            h0 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
-                                        }
-                    
-                                        // Sample h1 for hap1
-                                        float r1 = rng.getDouble();
-                                        float cumsum1 = 0.0f;
-                                        for (int c = 0; c < C; ++c) {
-                                            cumsum1 += (*SC)[offset + hap1 * C + c];
-                                            if (r1 <= cumsum1) {
-                                                h1 = c;
-                                                break;
-                                            }
-                                        }
-                                        if (cumsum1 < r1) {
-                                            h1 = C > 0 ? static_cast<uint8_t>(C - 1) : 0;
-                                        }
-                    
-                                        if (supersite_trace_enabled()) {
-                                            std::fprintf(stderr, "[MAKE_SS_SAMPLE] locus=%u ss_idx=%d r0=%.15f h0=%u r1=%.15f h1=%u\n",
-                                                         vabs, ss_idx, r0, h0, r1, h1);
-                                            // Dump SC for this anchor
-                                            std::fprintf(stderr, "  SC_probs: h0=[");
-                                            for(int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", (*SC)[offset + hap0 * C + c]);
-                                            std::fprintf(stderr, "] h1=[");
-                                            for(int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", (*SC)[offset + hap1 * C + c]);
-                                            std::fprintf(stderr, "]\n");
-                                        }
-                    
+					// Sample one class per haplotype from multivariant, but couple
+					// the draw to the ALT mass only (REF implicit), to mirror the
+					// biallelic "r <= p_alt" semantics.
+					auto sample_supersite_class = [&](int hap_lane) -> uint8_t {
+						if (C <= 1) return 0u; // Only REF available
+
+						// Row pointer for this haplotype: [REF, ALT1..ALTn]
+						const float* row = &(*SC)[offset + hap_lane * C];
+
+						float alt_sum = 0.0f;
+						for (int c = 1; c < C; ++c) {
+							alt_sum += row[c];
+						}
+
+						const float r = static_cast<float>(rng.getDouble());
+
+						// If no ALT mass (or r falls outside ALT CDF), choose REF (class 0)
+						if (alt_sum <= 0.0f || r > alt_sum) {
+							return 0u;
+						}
+
+						// Walk ALT-only CDF (classes 1..C-1). This keeps REF implicit and
+						// aligns with the bial path, where the draw is compared against p_alt.
+						float cumsum = 0.0f;
+						for (int c = 1; c < C; ++c) {
+							cumsum += row[c];
+							if (r <= cumsum) {
+								return static_cast<uint8_t>(c);
+							}
+						}
+						// Fallback for rounding error: last ALT
+						return static_cast<uint8_t>(C - 1);
+					};
+
+					uint8_t h0 = sample_supersite_class(hap0);
+					uint8_t h1 = sample_supersite_class(hap1);
+
 					if (supersite_trace_enabled()) {
-						std::fprintf(stderr, "[MAKE_SS_SAMPLE] locus=%u ss_idx=%d r0=%.15f h0=%u r1=%.15f h1=%u\n",
-						             vabs, ss_idx, r0, h0, r1, h1);
+						std::fprintf(stderr, "[MAKE_SS_SAMPLE] locus=%u ss_idx=%d h0=%u h1=%u\n",
+						             vabs, ss_idx,
+						             static_cast<unsigned>(h0),
+						             static_cast<unsigned>(h1));
 						// Dump SC for this anchor
 						std::fprintf(stderr, "  SC_probs: h0=[");
-						for(int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", (*SC)[offset + hap0 * C + c]);
+						for (int c = 0; c < C; ++c)
+							std::fprintf(stderr, " %.6f", (*SC)[offset + hap0 * C + c]);
 						std::fprintf(stderr, "] h1=[");
-						for(int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", (*SC)[offset + hap1 * C + c]);
+						for (int c = 0; c < C; ++c)
+							std::fprintf(stderr, " %.6f", (*SC)[offset + hap1 * C + c]);
 						std::fprintf(stderr, "]\n");
 					}
 
-                    // HYPOTHESIS 3 DEBUGGING
-                    if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
-                        std::cout << "[SUPERDEBUG] H3: r0=" << r0 << " -> sampled_h0=" << (int)h0 << std::endl;
-                        std::cout << "[SUPERDEBUG] H3: r1=" << r1 << " -> sampled_h1=" << (int)h1 << std::endl;
-                    }
-                    if (supersite_trace_enabled()) {
-                        supersite_trace_log("[SupersiteSample] sample=%s ss_idx=%d anchor=%u C=%d h0=%u h1=%u offset=%u\n",
-                                            this->name.c_str(),
-                                            ss_idx,
-                                            ss.global_site_id,
-                                            C,
-                                            static_cast<unsigned>(h0),
-                                            static_cast<unsigned>(h1),
-                                            offset);
-                    }
+					// Optional SUPERDEBUG hook: retain existing behaviour but with new h0/h1
+					if (!debug::SUPERDEBUG_SAMPLENAME.empty() &&
+					    this->name == debug::SUPERDEBUG_SAMPLENAME &&
+					    static_cast<int>(ss.global_site_id) == debug::SUPERDEBUG_BP) {
+						debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo3: Enter missing anchor");
+						std::cout << "[SUPERDEBUG] H3: Imputing missing data at Pos=" << ss.global_site_id
+						          << " for sample " << this->name << std::endl;
+						std::cout << "[SUPERDEBUG] H3: SC offset=" << offset
+						          << " hap0_idx=" << static_cast<int>(hap0)
+						          << " hap1_idx=" << static_cast<int>(hap1)
+						          << " n_classes=" << C << std::endl;
+						std::string sc_probs0 = "  SC[hap0]: ";
+						std::string sc_probs1 = "  SC[hap1]: ";
+						for (int c = 0; c < C; ++c) {
+							sc_probs0 += std::to_string((*SC)[offset + hap0 * C + c]) + " ";
+							sc_probs1 += std::to_string((*SC)[offset + hap1 * C + c]) + " ";
+						}
+						std::cout << sc_probs0 << std::endl;
+						std::cout << sc_probs1 << std::endl;
+						std::cout << "[SUPERDEBUG] H3: sampled_h0=" << static_cast<int>(h0)
+						          << " sampled_h1=" << static_cast<int>(h1) << std::endl;
+					}
+
+					if (supersite_trace_enabled()) {
+						supersite_trace_log("[SupersiteSample] sample=%s ss_idx=%d anchor=%u C=%d h0=%u h1=%u offset=%u\n",
+						                    this->name.c_str(),
+						                    ss_idx,
+						                    ss.global_site_id,
+						                    C,
+						                    static_cast<unsigned>(h0),
+						                    static_cast<unsigned>(h1),
+						                    offset);
+					}
 					
                     // Project to splits from sampled h0/h1: class 0=REF, 1..n_alts=ALT1..ALTn
 					// Iterate over all member variants and set based on sampled class
@@ -476,6 +477,14 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                     
                     // Persist the sampled classes for this epoch as the current h0/h1 pair
                     setSupersiteClassPair(ss_idx, h0, h1);
+					if (supersite_trace_enabled()) {
+						supersite_trace_log("[SupersiteSampleChoice] sample=%s ss_idx=%d locus=%u h0=%u h1=%u\n",
+						                    this->name.c_str(),
+						                    ss_idx,
+						                    ss.global_site_id,
+						                    (unsigned)h0,
+						                    (unsigned)h1);
+					}
 
 					// Do not attempt range skip: members may be non-consecutive after MAC pruning
 					// Count a single missing event for the supersite and proceed; siblings are skipped below
@@ -522,6 +531,9 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					if (supersite_trace_enabled()) {
 						std::fprintf(stderr, "[MAKE_BIAL_SAMPLE] locus=%u m=%u r0=%.15f p0=%.15f r1=%.15f p1=%.15f\n",
 						             vabs, m, r0, p0, r1, p1);
+						// Also log the sampled lanes to compare against supersite path
+						std::fprintf(stderr, "  [BIAL_SAMPLE_LANES] m=%u hap0_lane=%u hap1_lane=%u p0=%.6f p1=%.6f\n",
+						             m, hap0, hap1, p0, p1);
 					}
 				}
 				m++;
@@ -818,6 +830,9 @@ void genotype::projectSupersites() {
 		return; // No supersite data available
 	}
 
+	// Load invariant configuration once per call.
+	const auto cfg = supersite_invariants::SupersiteDebugConfig::from_env();
+
 	// Iterate through all supersites to perform post-HMM projection
 	for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
 		const SuperSite& ss = (*super_sites)[ss_idx];
@@ -883,6 +898,24 @@ void genotype::projectSupersites() {
 
 		if (is_superdebug_target) {
 			debug::print_supersite_state(this, ss, *super_site_var_index, "projectSupersites:exit");
+		}
+	}
+
+	// After projection, validate supersite invariants for this sample.
+	if (cfg.guards_enabled && super_sites && super_site_var_index) {
+		supersite_invariants::SupersiteInvariantViolation viol;
+		if (!supersite_invariants::check_supersite_consistency_for_sample(
+				*this, *super_sites, *super_site_var_index, cfg, &viol)) {
+			if (cfg.verbose) {
+				std::fprintf(stderr,
+					"[supersite-invariant] sample=%s ss_idx=%u bp=%u: %s\n",
+					name.c_str(),
+					static_cast<unsigned>(viol.ss_idx),
+					static_cast<unsigned>((*super_sites)[viol.ss_idx].bp),
+					viol.message.c_str());
+			}
+			// For now, do not abort here; unit tests can call the checker
+			// directly and assert on failures when needed.
 		}
 	}
 }

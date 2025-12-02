@@ -1764,6 +1764,25 @@ void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float
             SC[offset + h * C + c] = p;
         }
     }
+
+    if (supersite_debug::guard_checks_enabled()) {
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            double sum_row = 0.0;
+            bool finite = true;
+            for (int c = 0; c < C; ++c) {
+                const double val = SC[offset + h * C + c];
+                sum_row += val;
+                if (!std::isfinite(val)) {
+                    finite = false;
+                }
+            }
+            if (!finite || std::fabs(sum_row - 1.0) > 1e-6) {
+                std::fprintf(stderr,
+                    "[supersite-guard] SC row anomaly (double) sample=%s ss_idx=%d hap=%d sum=%.12f finite=%d\n",
+                    G ? G->name.c_str() : "?", ss_idx, h, sum_row, finite ? 1 : 0);
+            }
+        }
+    }
 }
 
 #endif

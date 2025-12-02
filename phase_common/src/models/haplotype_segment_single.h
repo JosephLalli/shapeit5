@@ -380,19 +380,33 @@ void haplotype_segment_single::ss_load_cond_codes(const SuperSite& ss, int ss_id
     // LOAD_TRACE: Log when codes are loaded and what we're reading
     const char* load_trace = std::getenv("SHAPEIT5_LOAD_TRACE");
     bool trace_this_call = false;
-    if (load_trace && load_trace[0] != '\0' && load_trace[0] != '0') {
-        // Only trace ss_idx 3 (the one showing different codes) at locus 6
-        if (ss_idx == 3 && curr_abs_locus == 6) {
-            trace_this_call = true;
-            std::fprintf(stderr, "[LOAD_TRACE] ss_load_cond_codes called: ss_idx=%d locus=%d\n",
-                         ss_idx, curr_abs_locus);
-            std::fprintf(stderr, "[LOAD_TRACE] ss_panel_matrix[%d] address=%p\n",
-                         ss_idx, (void*)&ss_panel_matrix[ss_idx]);
-            std::fprintf(stderr, "[LOAD_TRACE] Matrix panel codes (first 16): ");
-            for (unsigned int k = 0; k < std::min(16u, n_cond_haps); ++k) {
-                std::fprintf(stderr, "%u ", (unsigned)ss_panel_matrix[ss_idx][k]);
-            }
-            std::fprintf(stderr, "\n");
+    if (load_trace && load_trace[0] != '\0' && load_trace[0] != '0' &&
+        (ss_idx == 1 || ss_idx == 3 || ss_idx == 6)) {
+        trace_this_call = true;
+        std::fprintf(stderr, "[LOAD_TRACE] ss_load_cond_codes called: ss_idx=%d locus=%d\n",
+                     ss_idx, curr_abs_locus);
+        std::fprintf(stderr, "[LOAD_TRACE] ss_panel_matrix[%d] address=%p\n",
+                     ss_idx, (void*)&ss_panel_matrix[ss_idx]);
+        std::fprintf(stderr, "[LOAD_TRACE] Matrix panel codes (first 16): ");
+        for (unsigned int k = 0; k < std::min(16u, n_cond_haps); ++k) {
+            std::fprintf(stderr, "%u ", (unsigned)ss_panel_matrix[ss_idx][k]);
+        }
+        std::fprintf(stderr, "\n");
+
+        // Cross-check packed codes against Hvar for the current anchor
+        const bool anchor_in_window = (curr_abs_locus >= locus_first) && (curr_abs_locus <= locus_last);
+        const int rel_row = anchor_in_window ? (curr_abs_locus - locus_first + curr_rel_locus_offset) : -1;
+        std::fprintf(stderr,
+                     "[LOAD_TRACE] anchor_in_window=%d rel_row=%d locus_first=%d locus_last=%d offset=%d\n",
+                     anchor_in_window ? 1 : 0, rel_row, locus_first, locus_last, curr_rel_locus_offset);
+        const unsigned int dump_limit = std::min(32u, n_cond_haps);
+        for (unsigned int k = 0; k < dump_limit; ++k) {
+            const unsigned int gh = (*cond_idx)[k];
+            const uint8_t packed_code = ss_panel_matrix[ss_idx][k];
+            const int hvar = anchor_in_window ? static_cast<int>(Hvar.get(rel_row, k)) : -1;
+            std::fprintf(stderr,
+                         "[LOAD_CHK] ss_idx=%d locus=%d k=%u cond_idx=%u packed=%u hvar=%d\n",
+                         ss_idx, curr_abs_locus, k, gh, (unsigned)packed_code, hvar);
         }
     }
 
@@ -562,6 +576,10 @@ bool haplotype_segment_single::SS_RUN_HOM(const SuperSite& ss, int ss_idx, uint8
             if (ss_cond_codes[k] == sample_code) matches++; else mismatches++;
         }
         std::fprintf(stdout, "match=%u mismatch=%u\n", matches, mismatches);
+        // Emit per-lane classes (all lanes want sample_code for HOM)
+        std::fprintf(stdout, "[SS_RUN_HOM_CLASSES] locus=%d ss_idx=%d class=%u lanes:", curr_abs_locus, ss_idx, (unsigned)sample_code);
+        for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %u", (unsigned)sample_code);
+        std::fprintf(stdout, "\n");
     }
 
     // Precompute emissions
@@ -660,13 +678,23 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
         std::fprintf(stderr, "DEBUG SS_RUN_AMB: trace_enabled is TRUE. locus=%d\n", curr_abs_locus);
     }
 
-    if (trace_enabled) {
-        std::fprintf(stderr, "[SS_LANE_DEBUG] amb_mask=%d (0x%02x) c0=%d c1=%d\n", (int)amb_mask, (int)amb_mask, (int)c0, (int)c1);
-        for (int h = 0; h < HAP_NUMBER; ++h) {
-            bool bit = ((amb_mask >> h) & 1U);
-            std::fprintf(stderr, "  Lane %d: bit=%d expected=%d\n", h, (int)bit, (int)expected_class[h]);
-        }
-    }
+	if (trace_enabled) {
+		std::fprintf(stderr, "[SS_LANE_DEBUG] amb_mask=%d (0x%02x) c0=%d c1=%d\n", (int)amb_mask, (int)amb_mask, (int)c0, (int)c1);
+		for (int h = 0; h < HAP_NUMBER; ++h) {
+			bool bit = ((amb_mask >> h) & 1U);
+			std::fprintf(stderr, "  Lane %d: bit=%d expected=%d\n", h, (int)bit, (int)expected_class[h]);
+		}
+		// Emit per-lane expected classes to stdout for easier capture
+		std::fprintf(stdout, "[SS_RUN_AMB_CLASSES] locus=%d ss_idx=%d c0=%u c1=%u amb_mask=0x%02x lanes:", curr_abs_locus, ss_idx, (unsigned)c0, (unsigned)c1, (unsigned)amb_mask);
+		for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %u", (unsigned)expected_class[h]);
+		std::fprintf(stdout, "\n");
+		// Emit first few donor codes and match mask
+		std::fprintf(stdout, "[SS_RUN_AMB_CODES] locus=%d ss_idx=%d n_cond=%u codes:", curr_abs_locus, ss_idx, (unsigned)n_cond_haps);
+		for (unsigned int k = 0; k < std::min(16u, n_cond_haps); ++k) {
+			std::fprintf(stdout, " %u", (unsigned)ss_cond_codes[k]);
+		}
+		std::fprintf(stdout, "\n");
+	}
 
     // HYPOTHESIS 1 DEBUGGING
     if (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
@@ -1766,12 +1794,41 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
 
+    auto deep_trace_enabled = []() {
+        static int flag = -1;
+        if (flag < 0) {
+            const char* env = std::getenv("SHAPEIT5_IMPUTE_DEEP");
+            flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+        }
+        return flag == 1;
+    };
+
     if (supersite_trace_enabled()) {
         std::fprintf(stderr, "[IMPUTE_TRACE] locus=%d rel_mis=%d ss_idx=%d n_cond=%u\n",
                      curr_abs_locus, curr_rel_missing, ss_idx, n_cond_haps);
         std::fprintf(stderr, "  AlphaSumInv: ");
         for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, "%.6e ", 1.0f/AlphaSumMissing[curr_rel_missing][h]);
         std::fprintf(stderr, "\n");
+    }
+
+    if (deep_trace_enabled()) {
+        std::fprintf(stderr,
+                     "[IMPUTE_DEEP] locus=%d ss_idx=%d curr_abs_missing=%d curr_rel_missing=%d locus_first=%d\n",
+                     curr_abs_locus, ss_idx, curr_abs_missing, curr_rel_missing, locus_first);
+        std::fprintf(stderr, "  AlphaSumMissing per lane:");
+        for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stderr, " %.8e", AlphaSumMissing[curr_rel_missing][h]);
+        std::fprintf(stderr, "\n");
+        // Dump AlphaMissing/Beta for all donors
+        for (unsigned int k = 0, i = 0; k < n_cond_haps; ++k, i += HAP_NUMBER) {
+            std::fprintf(stderr, "  [A/B] k=%u", k);
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                std::fprintf(stderr, " A%.8e", AlphaMissing[curr_rel_missing][i + h]);
+            }
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                std::fprintf(stderr, " B%.8e", prob[i + h]); // prob holds Beta in backward
+            }
+            std::fprintf(stderr, "\n");
+        }
     }
 
     __m256 _sum = _mm256_set1_ps(0.0f);
@@ -1833,6 +1890,22 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
             for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, " %.6f", missing_probabilities[curr_abs_missing * HAP_NUMBER + h]);
             std::fprintf(stderr, "\n");
         }
+
+        // Optional side-by-side SC vs bial probability dump for comparison debugging
+        static int sc_compare = -1;
+        if (sc_compare < 0) {
+            const char* env = std::getenv("SHAPEIT5_SC_COMPARE");
+            sc_compare = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+        }
+        if (sc_compare == 1) {
+            std::fprintf(stderr, "[SC_COMPARE_BIAL] sample=%s locus=%d rel_mis=%d ss_idx=%d\n",
+                         G ? G->name.c_str() : "<nil>", curr_abs_locus, curr_rel_missing, ss_idx);
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                float p_alt = missing_probabilities[curr_abs_missing * HAP_NUMBER + h];
+                float p_ref = 1.0f - p_alt;
+                std::fprintf(stderr, "  lane=%d p_ref=%.6f p_alt=%.6f\n", h, p_ref, p_alt);
+            }
+        }
     }
 }
 
@@ -1870,6 +1943,20 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
         std::fprintf(stderr, "  AlphaSumInv: ");
         for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, "%.6e ", 1.0f/AlphaSumMissing[rel_missing_index][h]);
         std::fprintf(stderr, "\n");
+        // Show donor mapping for the first few conditioning states to confirm parity
+        unsigned int dbg_k = std::min(16u, n_cond_haps);
+        for (unsigned int k = 0; k < dbg_k; ++k) {
+            int cond_row = (cond_idx && k < cond_idx->size()) ? (int)(*cond_idx)[k] : -1;
+            bool bial_alt = Hvar.get(curr_abs_locus, k);
+            std::fprintf(stderr, "  [SS_DONOR_MAP] k=%u cond_idx=%d code=%u bial_alt=%d\n",
+                         k, cond_row, (unsigned)ss_cond_codes[k], (int)bial_alt);
+        }
+        // Dump the biallelic panel allele for each donor to check cond_idx consistency
+        fprintf(stderr, "  [SS_DONOR_ALLELES] locus=%d n_cond=%u\n", curr_abs_locus, (unsigned)n_cond_haps);
+        for (unsigned int k = 0; k < dbg_k; ++k) {
+            bool allele = Hvar.get(curr_abs_locus, k);
+            std::fprintf(stderr, "    k=%u allele=%d\n", k, (int)allele);
+        }
     }
 
     const size_t payload = static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>(C);
@@ -1967,7 +2054,7 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
             _mm256_store_ps(av, _alpha);
             _mm256_store_ps(bv, _beta);
             _mm256_store_ps(tv, term);
-            std::fprintf(stderr, "  k=%d code=%u Alpha=%.2e Beta=%.2e Term=%.2e\n", k, code, av[0], bv[0], tv[0]);
+            std::fprintf(stderr, "  k=%d code=%u Alpha=%.2e Beta=%.2e AlphaSumInv=%.2e Term=%.2e\n", k, code, av[0], bv[0], _alphaSum_inv[0], tv[0]);
         }
     }
     if (supersite_trace_enabled()) supersite_trace_log("[SupersiteImpute] accumulation complete\n");
@@ -2002,6 +2089,75 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
             std::fprintf(stderr, "  Result SC (h0):");
             for (int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", SC[offset + 0*C + c]);
             std::fprintf(stderr, "\n");
+        }
+
+        // Guard: row-normalization and finiteness check for SC
+        if (supersite_debug::guard_checks_enabled()) {
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                float sum_row = 0.0f;
+                bool finite = true;
+                for (int c = 0; c < C; ++c) {
+                    const float val = SC[offset + h * C + c];
+                    sum_row += val;
+                    if (!std::isfinite(val)) {
+                        finite = false;
+                    }
+                }
+                if (!finite || std::fabs(sum_row - 1.0f) > 1e-3f) {
+                    std::fprintf(stderr,
+                        "[supersite-guard] SC row anomaly sample=%s ss_idx=%d hap=%d sum=%.6f finite=%d\n",
+                        G ? G->name.c_str() : "?", ss_idx, h, sum_row, finite ? 1 : 0);
+                }
+            }
+        }
+
+        // Deep trace: dump all inputs/outputs for manual parity math
+        auto deep_trace_enabled = []() {
+            static int flag = -1;
+            if (flag < 0) {
+                const char* env = std::getenv("SHAPEIT5_IMPUTE_DEEP");
+                flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+            }
+            return flag == 1;
+        };
+        if (deep_trace_enabled()) {
+            std::fprintf(stderr,
+                         "[IMPUTE_DEEP_SS] locus=%d ss_idx=%d rel_mis=%d C=%d curr_abs_missing=%d locus_first=%d\n",
+                         curr_abs_locus, ss_idx, rel_missing_index, C, curr_abs_missing, locus_first);
+            std::fprintf(stderr, "  AlphaSumMissing per lane:");
+            for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stderr, " %.8e", AlphaSumMissing[rel_missing_index][h]);
+            std::fprintf(stderr, "\n");
+            for (unsigned int k = 0, i = 0; k < n_cond_haps; ++k, i += HAP_NUMBER) {
+                std::fprintf(stderr, "  [SS_A/B] k=%u code=%u", k, (unsigned)ss_cond_codes[k]);
+                for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stderr, " A%.8e", AlphaMissing[rel_missing_index][i + h]);
+                for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stderr, " B%.8e", prob[i + h]);
+                std::fprintf(stderr, "\n");
+            }
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                std::fprintf(stderr, "  lane=%d denom=%.8e", h, denom_lanes[h]);
+                for (int c = 0; c < C; ++c) {
+                    std::fprintf(stderr, " num_c%d=%.8e", c, sum_lanes[c][h]);
+                }
+                std::fprintf(stderr, "\n");
+            }
+        }
+
+        // Optional side-by-side SC dump for comparison debugging
+        static int sc_compare = -1;
+        if (sc_compare < 0) {
+            const char* env = std::getenv("SHAPEIT5_SC_COMPARE");
+            sc_compare = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
+        }
+        if (sc_compare == 1) {
+            std::fprintf(stderr, "[SC_COMPARE_SS] sample=%s locus=%d ss_idx=%d rel_mis=%d C=%d\n",
+                         G ? G->name.c_str() : "<nil>", curr_abs_locus, ss_idx, rel_missing_index, C);
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                std::fprintf(stderr, "  lane=%d", h);
+                for (int c = 0; c < C; ++c) {
+                    std::fprintf(stderr, " c%d=%.6f", c, SC[offset + h * C + c]);
+                }
+                std::fprintf(stderr, "\n");
+            }
         }
 
 

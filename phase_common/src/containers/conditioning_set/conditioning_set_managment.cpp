@@ -126,6 +126,39 @@ void conditioning_set::initialize(variant_map & V, float _modulo_selection, floa
 	vrb.bullet("PBWT initialization [#eval=" + stb.str(n_evaluated) + " / #select=" + stb.str(sites_pbwt_grouping.back() + 1) + " / #chunk=" + stb.str(sites_pbwt_mthreading.back() + 1) + "] (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
 }
 
+void conditioning_set::initialize_for_test(variant_map & V, int _depth, int _nthread) {
+	tac.clock();
+
+	depth = _depth;
+	nthread = _nthread;
+	if (nthread > 1) {
+		i_worker = 0;
+		i_job = 0;
+		id_workers = vector < pthread_t > (nthread);
+		pthread_mutex_init(&mutex_workers, NULL);
+	}
+
+	n_site = V.size();
+	sites_pbwt_evaluation = vector < bool > (V.size(), true);
+	sites_pbwt_selection = vector < bool > (V.size(), true);
+	sites_pbwt_grouping = vector < int > (V.size(), -1);
+	for (int l = 0 ; l < (int)V.size() ; l ++) sites_pbwt_grouping[l] = l;
+	sites_pbwt_ngroups = sites_pbwt_grouping.back() + 1;
+
+	// Single MT chunk covering all sites
+	sites_pbwt_mthreading = vector < int > (V.size(), 0);
+	starts_pbwt_mthreading = vector < int > (1, 0);
+
+	//ALLOCATE
+	Kbanned.initialize(n_ind, V);
+	indexes_pbwt_neighbour = vector < int > ( (depth+1) * sites_pbwt_ngroups * n_ind * 2UL, -1);
+	supersite_anchor_redirect_enabled = false;
+	supersite_anchor_redirect.clear();
+
+	vrb.bullet("PBWT test initialization [n_site=" + stb.str(n_site) + " / depth=" + stb.str(depth) +
+	           " / nthread=" + stb.str(nthread) + "] (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
+}
+
 void conditioning_set::applySupersiteAnchorMask(const std::vector<SuperSite>& super_sites,
                                                 const std::vector<int>& super_site_var_index) {
 	if (super_sites.empty() || sites_pbwt_evaluation.empty()) return;

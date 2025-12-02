@@ -113,6 +113,15 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 	vector < int > bio_idx_sta = vector < int >(g->n_segments, 0);
 	vector < int > bio_idx_sto = vector < int >(g->n_segments, 0);
 
+	// Prefix counts for missing/ambiguous across the full variant span.
+	// The prefix only advances on biological loci (anchors), so siblings are naturally skipped.
+	std::vector<unsigned int> amb_prefix(g->n_variants + 1, 0);
+	std::vector<unsigned int> mis_prefix(g->n_variants + 1, 0);
+	for (unsigned int locus = 0; locus < g->n_variants; ++locus) {
+		amb_prefix[locus + 1] = amb_prefix[locus] + (is_locus_ambiguous(locus) ? 1u : 0u);
+		mis_prefix[locus + 1] = mis_prefix[locus] + (is_locus_missing(locus) ? 1u : 0u);
+	}
+
 	unsigned int prev_dipcounts = 1, curr_dipcounts = 0;
 	for (unsigned int s = 0, a = 0, t = 0, v = 0, vb = 0, m = 0 ; s < g->n_segments ; s ++) {
 		//update a
@@ -169,40 +178,31 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 		W[w].stop_locus = loc_idx[W[w].stop_segment] + loc_siz[W[w].stop_segment] - 1;
 
 		// Adjust ambiguous indices within boundary segments so we don't count loci outside the window
-		int start_amb = amb_idx[W[w].start_segment];
-		unsigned int start_seg_locus = loc_idx[W[w].start_segment];
-		for (unsigned int locus = start_seg_locus; locus < W[w].start_locus; ++locus) {
-			if (is_locus_ambiguous(locus)) start_amb++;
-		}
-		int stop_amb = amb_idx[W[w].stop_segment];
-		unsigned int stop_seg_locus = loc_idx[W[w].stop_segment];
-		for (unsigned int locus = stop_seg_locus; locus <= W[w].stop_locus; ++locus) {
-			if (is_locus_ambiguous(locus)) stop_amb++;
-		}
-		stop_amb -= 1;
-		if (stop_amb < start_amb) {
+		const unsigned int start_seg_locus = loc_idx[W[w].start_segment];
+		const unsigned int stop_seg_locus = loc_idx[W[w].stop_segment];
+
+		// Ambiguous range: use prefix counts so sibling splits (non-anchors) are ignored
+		const unsigned int amb_before_start = amb_prefix[W[w].start_locus];
+		const unsigned int amb_before_stop_plus1 = amb_prefix[W[w].stop_locus + 1];
+		const unsigned int amb_count = amb_before_stop_plus1 > amb_before_start ? (amb_before_stop_plus1 - amb_before_start) : 0;
+		if (amb_count == 0) {
 			W[w].start_ambiguous = 0;
 			W[w].stop_ambiguous = -1;
 		} else {
-			W[w].start_ambiguous = start_amb;
-			W[w].stop_ambiguous = stop_amb;
+			W[w].start_ambiguous = static_cast<int>(amb_before_start);
+			W[w].stop_ambiguous = static_cast<int>(amb_before_start + amb_count - 1);
 		}
 
-		int start_mis = mis_idx[W[w].start_segment];
-		for (unsigned int locus = start_seg_locus; locus < W[w].start_locus; ++locus) {
-			if (is_locus_missing(locus)) start_mis++;
-		}
-		int stop_mis = mis_idx[W[w].stop_segment];
-		for (unsigned int locus = stop_seg_locus; locus <= W[w].stop_locus; ++locus) {
-			if (is_locus_missing(locus)) stop_mis++;
-		}
-		stop_mis -= 1;
-		if (stop_mis < start_mis) {
+		// Missing range: same prefix logic (anchors only, siblings skipped)
+		const unsigned int mis_before_start = mis_prefix[W[w].start_locus];
+		const unsigned int mis_before_stop_plus1 = mis_prefix[W[w].stop_locus + 1];
+		const unsigned int mis_count = mis_before_stop_plus1 > mis_before_start ? (mis_before_stop_plus1 - mis_before_start) : 0;
+		if (mis_count == 0) {
 			W[w].start_missing = 0;
 			W[w].stop_missing = -1;
 		} else {
-			W[w].start_missing = start_mis;
-			W[w].stop_missing = stop_mis;
+			W[w].start_missing = static_cast<int>(mis_before_start);
+			W[w].stop_missing = static_cast<int>(mis_before_start + mis_count - 1);
 		}
 
 		W[w].start_transition = tra_idx[W[w].start_segment] + tra_siz[W[w].start_segment];

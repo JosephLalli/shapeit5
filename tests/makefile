@@ -22,6 +22,7 @@ PHASE_COMMON_OBJS := \
 	$(objdir)/phase_conditioning_set_managment.o \
 	$(objdir)/phase_conditioning_set_selection.o \
 	$(objdir)/phase_super_site_builder.o \
+	$(objdir)/phase_supersite_debug.o \
 	$(objdir)/phase_ibd2_tracks.o \
 	$(objdir)/haplotype_segment_single.o \
 	$(objdir)/haplotype_segment_double.o \
@@ -63,6 +64,7 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_expansion_parity \
     $(bindir)/test_supersite_expansion_epochs \
     $(bindir)/test_supersite_expansion_epochs_w_missing \
+    $(bindir)/test_supersite_expansion_epochs_multialt \
     $(bindir)/test_segment_boundary_multiallelic \
     $(bindir)/test_segment_boundary_invariants \
     $(bindir)/test_supersite_transition_underflow \
@@ -73,7 +75,16 @@ TEST_BINARIES := \
 	$(bindir)/test_k_inflation_measurement \
 	$(bindir)/test_hmm_state_inflation \
 	$(bindir)/test_emission_pattern_validation \
-	$(bindir)/test_phase_decision_accuracy
+	$(bindir)/test_phase_decision_accuracy \
+    $(bindir)/test_supersite_multialt_underflow_stress \
+    $(bindir)/test_pbwt_multiallelic_similarity \
+    $(bindir)/test_pbwt_multiallelic_similarity_bial \
+    $(bindir)/test_pbwt_multiallelic_enrichment \
+    $(bindir)/test_pbwt_class_label_parity \
+    $(bindir)/test_supersite_amb_lane_parity \
+    $(bindir)/test_supersite_projection_invariants \
+    $(bindir)/test_supersite_bial_equivalence_window \
+    $(bindir)/test_pbwt_multiallelic_enrichment
 
 # Thread Safety Tests
 THREADING_TEST_BINARIES := \
@@ -166,6 +177,9 @@ $(bindir)/test_supersite_expansion_epochs: $(objdir)/test_supersite_expansion_ep
 $(bindir)/test_supersite_expansion_epochs_w_missing: $(objdir)/test_supersite_expansion_epochs_w_missing.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
+
+$(bindir)/test_supersite_expansion_epochs_multialt: $(objdir)/test_supersite_expansion_epochs_multialt.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 $(bindir)/test_forward_backward_comprehensive: $(objdir)/test_forward_backward_comprehensive.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
@@ -202,10 +216,25 @@ $(bindir)/test_emission_pattern_validation: $(objdir)/test_emission_pattern_vali
 $(bindir)/test_phase_decision_accuracy: $(objdir)/test_phase_decision_accuracy.o
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
+$(bindir)/test_supersite_multialt_underflow_stress: $(objdir)/test_supersite_multialt_underflow_stress.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
 $(bindir)/test_emission_logic_differences: $(objdir)/test_emission_logic_differences.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_pbwt_conditioning_parity: $(objdir)/test_pbwt_conditioning_parity.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_pbwt_multiallelic_similarity: $(objdir)/test_pbwt_multiallelic_similarity.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_pbwt_multiallelic_similarity_bial: $(objdir)/test_pbwt_multiallelic_similarity_bial.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_pbwt_multiallelic_enrichment: $(objdir)/test_pbwt_multiallelic_enrichment.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_pbwt_class_label_parity: $(objdir)/test_pbwt_class_label_parity.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_hmm_indexing_supersite: $(objdir)/test_hmm_indexing_supersite.o $(PHASE_COMMON_OBJS)
@@ -215,6 +244,18 @@ $(bindir)/test_supersite_cursor_parity: $(objdir)/test_supersite_cursor_parity.o
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_supersite_expected_codes: $(objdir)/test_supersite_expected_codes.o
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_supersite_amb_lane_parity: $(objdir)/test_supersite_amb_lane_parity.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_supersite_projection_invariants: $(objdir)/test_supersite_projection_invariants.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_supersite_bial_equivalence_window: $(objdir)/test_supersite_bial_equivalence_window.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_pbwt_multiallelic_enrichment: $(objdir)/test_pbwt_multiallelic_enrichment.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 # Thread Safety Test Link Rules
@@ -266,6 +307,9 @@ $(objdir)/phase_conditioning_set_selection.o: ../phase_common/src/containers/con
 	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_super_site_builder.o: ../phase_common/src/objects/super_site_builder.cpp
+	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
+
+$(objdir)/phase_supersite_debug.o: ../phase_common/src/objects/supersite_debug.cpp
 	$(CXX) $(CXXFLAG) -c $< -o $@ $(LOCAL_INC) -I$(HTSLIB_INC) -I$(BOOST_INC)
 
 $(objdir)/phase_ibd2_tracks.o: ../phase_common/src/containers/ibd2_tracks.cpp

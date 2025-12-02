@@ -247,6 +247,7 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
     const bool anchor_amb = G_ ? VAR_GET_HET(MOD2(ss.global_site_id), anchor_byte) : false;
 
     if (anchor_missing) {
+        // Missing anchor: emissions uninformative, lanes uniform (mirror bial MIS)
         view.emit_kind = EmitKind::Mis;
         view.sample_class0 = SUPERSITE_CODE_MISSING;
         view.sample_class1 = SUPERSITE_CODE_MISSING;

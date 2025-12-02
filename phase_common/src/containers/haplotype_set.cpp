@@ -21,6 +21,8 @@
  ******************************************************************************/
 
 #include <containers/haplotype_set.h>
+#include <objects/supersite_debug.h>
+#include <models/super_site_accessor.h>  // for SuperSite definition
 
 using namespace std;
 
@@ -47,6 +49,8 @@ void haplotype_set::allocate(unsigned long n_main_samples, unsigned long n_ref_s
 }
 
 void haplotype_set::updateHaplotypes(genotype_set & G, bool first_time) {
+	// Optional supersite invariant checks (guarded by env)
+	const auto ss_cfg = supersite_invariants::SupersiteDebugConfig::from_env();
 	tac.clock();
 	for (unsigned int i = 0 ; i < G.n_ind ; i ++) {
 		for (unsigned int v = 0 ; v < n_site ; v ++) {
@@ -55,6 +59,29 @@ void haplotype_set::updateHaplotypes(genotype_set & G, bool first_time) {
 				bool a1 = VAR_GET_HAP1(MOD2(v), G.vecG[i]->Variants[DIV2(v)]);
 				H_opt_hap.set(2*i+0, v, a0);
 				H_opt_hap.set(2*i+1, v, a1);
+			}
+		}
+
+		// After copying haplotypes for this sample, validate supersite invariants
+		// to catch projection corruption before PBWT selection.
+		if (ss_cfg.guards_enabled &&
+		    G.vecG[i]->super_sites &&
+		    G.vecG[i]->super_site_var_index) {
+			supersite_invariants::SupersiteInvariantViolation viol;
+			if (!supersite_invariants::check_supersite_consistency_for_sample(
+				    *G.vecG[i],
+				    *G.vecG[i]->super_sites,
+				    *G.vecG[i]->super_site_var_index,
+				    ss_cfg,
+				    &viol)) {
+				if (ss_cfg.verbose) {
+					std::fprintf(stderr,
+						"[supersite-invariant] post-updateHaplotypes sample=%s ss_idx=%u bp=%u: %s\n",
+						G.vecG[i]->name.c_str(),
+						static_cast<unsigned>(viol.ss_idx),
+						static_cast<unsigned>((*G.vecG[i]->super_sites)[viol.ss_idx].bp),
+						viol.message.c_str());
+				}
 			}
 		}
 	}

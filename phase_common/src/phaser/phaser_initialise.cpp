@@ -29,6 +29,7 @@
 #include <io/haploid_reader.h>
 #include <modules/genotype_builder.h>
 #include <objects/super_site_builder.h>
+#include <objects/supersite_debug.h>
 
 using namespace std;
 
@@ -122,6 +123,7 @@ void phaser::read_files_and_initialise() {
 			           stb.str(std::count(is_super_site.begin(), is_super_site.end(), true)) + " variant positions");
 			
 			// Set supersite context for all genotypes BEFORE building segments
+			const auto ss_cfg = supersite_invariants::SupersiteDebugConfig::from_env();
 			for (unsigned int i = 0; i < G.n_ind; i++) {
 				G.vecG[i]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
 			}
@@ -133,6 +135,26 @@ void phaser::read_files_and_initialise() {
 			for (unsigned int i = 0; i < G.n_ind; i++) {
 				G.vecG[i]->snapshotSupersiteClasses(super_sites, super_site_var_index);
 				G.vecG[i]->snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
+
+				// Lightweight invariant check: ensure initial c0/c1 snapshots are compatible
+				if (ss_cfg.guards_enabled) {
+					supersite_invariants::SupersiteInvariantViolation viol;
+					if (!supersite_invariants::check_supersite_consistency_for_sample(
+							*G.vecG[i],
+							super_sites,
+							super_site_var_index,
+							ss_cfg,
+							&viol)) {
+						if (ss_cfg.verbose) {
+							std::fprintf(stderr,
+								"[supersite-invariant] init sample=%s ss_idx=%u bp=%u: %s\n",
+								G.vecG[i]->name.c_str(),
+								static_cast<unsigned>(viol.ss_idx),
+								static_cast<unsigned>(super_sites[viol.ss_idx].bp),
+								viol.message.c_str());
+						}
+					}
+				}
 			}
 		}
 
