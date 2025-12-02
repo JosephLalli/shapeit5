@@ -831,7 +831,7 @@ void genotype::projectSupersites() {
 	}
 
 	// Load invariant configuration once per call.
-	const auto cfg = supersite_invariants::SupersiteDebugConfig::from_env();
+	const auto& cfg = supersite_invariants::get_cached_supersite_debug_config();
 
 	// Iterate through all supersites to perform post-HMM projection
 	for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {

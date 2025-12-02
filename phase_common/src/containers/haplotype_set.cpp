@@ -50,7 +50,7 @@ void haplotype_set::allocate(unsigned long n_main_samples, unsigned long n_ref_s
 
 void haplotype_set::updateHaplotypes(genotype_set & G, bool first_time) {
 	// Optional supersite invariant checks (guarded by env)
-	const auto ss_cfg = supersite_invariants::SupersiteDebugConfig::from_env();
+	const auto& ss_cfg = supersite_invariants::get_cached_supersite_debug_config();
 	tac.clock();
 	for (unsigned int i = 0 ; i < G.n_ind ; i ++) {
 		for (unsigned int v = 0 ; v < n_site ; v ++) {

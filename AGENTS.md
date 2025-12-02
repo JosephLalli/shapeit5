@@ -1214,12 +1214,6 @@ Broadcasting row marginals flattens the second-chain prior (column side) and era
 
 ---
 
-## Current prune divergence plan (repeat_factor=4, prune2)
-- Symptom: Supersite ambiguous mask flips to `0xa9` during prune1, while bial stays `0x55`, leading to anchor mismatch at prune2.
-- Reproduction: `SHAPEIT5_SUPERDEBUG_SAMPLENAME=supersite_sample SHAPEIT5_SUPERDEBUG_BP=0 SHAPEIT5_TRACE_SUPERSITE_PACKING=1 SHAPEIT5_DETAILED_ITERATION_TRACE=1 ./tests/bin/test_supersite_expansion_epochs` (repeat_factor=4 scenario).
-- Immediate action: Revert debug instrumentation and partial remap tweaks in `phase_common/src/objects/genotype/genotype_prune.cpp` and `tests/src/test_supersite_expansion_epochs.cpp` to a clean baseline.
-- Fix to implement: Rewrite `performMerges` remap to mirror `genotype::build()`:
-  - Maintain `vabs` over stored loci but `anchor_idx`/`anchor_offset` over anchors only; siblings never increment anchor counters.
-  - Decide left/right for ambiguous copies via `anchor_idx < Lengths_bio[s-1]` (biological counts), not stored-length offsets.
-  - Advance `anchor_offset += Lengths_bio[s-1]` after processing each segment; for copy/merge loops, iterate until `anchor_idx` reaches the biological length, skipping siblings.
-  - Goal: identical locus→ambiguous-index mapping as build() for mixed bial/supersite layouts, eliminating the supersite-only mask flip.
+## Supersite expansion parity status
+- `tests/bin/test_supersite_expansion_epochs` (no missing): passing after segment cursor clamp + SC guard tightening.
+- `tests/bin/test_supersite_expansion_epochs_w_missing`: still failing in repeat_factor=2. Symptom: burn1 anchor mismatch at bial locus 1 (bial 1|1 vs supersite 0|0) when two missing supersites are present. Guard assertions fixed and remain active; SC offsets are correct (ss_idx=1 → 1, ss_idx=6 → 25 for C=3) but SC for the first missing anchor is biased toward REF (e.g., hap0 0.30/0.70/0), while the second anchor shows ~0.82/0.18/0. Need to trace Alpha/Beta → SC mapping for multiple missing anchors in one window (check `missing_index_by_locus`, `AlphaMissing`, and donor class codes) to recover parity.

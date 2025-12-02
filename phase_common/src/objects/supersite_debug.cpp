@@ -13,6 +13,7 @@
 #include <objects/supersite_debug.h>
 
 #include <cstdlib>   // std::getenv
+#include <cstdio>    // std::fprintf
 
 #include <objects/genotype/genotype_header.h>
 #include <models/super_site_accessor.h>
@@ -33,6 +34,11 @@ SupersiteDebugConfig SupersiteDebugConfig::from_env() {
 	// SHAPEIT5_SUPERDEBUG_INVARIANTS: verbose invariant logging
 	if (const char* env = std::getenv("SHAPEIT5_SUPERDEBUG_INVARIANTS")) {
 		cfg.verbose = (env[0] != '\0' && env[0] != '0');
+	}
+
+	// SHAPEIT5_SUPERSITE_FATAL: abort on invariant violation (useful in tests)
+	if (const char* env = std::getenv("SHAPEIT5_SUPERSITE_FATAL")) {
+		cfg.fatal = (env[0] != '\0' && env[0] != '0');
 	}
 
 	// Optional sample filter
@@ -62,6 +68,11 @@ bool SupersiteDebugConfig::enabled_for_sample(const genotype& g, uint32_t anchor
 	}
 
 	return true;
+}
+
+const SupersiteDebugConfig& get_cached_supersite_debug_config() {
+	static const SupersiteDebugConfig cached = SupersiteDebugConfig::from_env();
+	return cached;
 }
 
 uint8_t class_from_hap_bits(
@@ -114,6 +125,18 @@ bool check_supersite_consistency_for_sample(
 	// invariant (at most one ALT per hap across siblings). More detailed
 	// checks (c0/c1 vs h0/h1, projection parity) can be added later.
 
+	auto handle_violation = [&](const SupersiteInvariantViolation& viol) {
+		if (cfg.fatal) {
+			std::fprintf(stderr,
+				"[supersite-invariant:fatal] sample=%s ss_idx=%u bp=%u: %s\n",
+				sample_g.name.c_str(),
+				static_cast<unsigned>(viol.ss_idx),
+				static_cast<unsigned>(viol.global_site_id),
+				viol.message.c_str());
+			std::abort();
+		}
+	};
+
 	for (uint32_t ss_idx = 0; ss_idx < super_sites.size(); ++ss_idx) {
 		const SuperSite& ss = super_sites[ss_idx];
 
@@ -126,13 +149,14 @@ bool check_supersite_consistency_for_sample(
 		for (int hap = 0; hap < 2; ++hap) {
 			hap_class[hap] = class_from_hap_bits(sample_g, ss, super_site_var_index, hap);
 			if (hap_class[hap] == SUPERSITE_CODE_CONFLICT) {
-				if (out_violation) {
-					out_violation->ss_idx = ss_idx;
-					out_violation->global_site_id = ss.global_site_id;
-					out_violation->var_start = ss.var_start;
-					out_violation->var_count = ss.var_count;
-					out_violation->message = "multiple ALT classes across supersite members for a single haplotype";
-				}
+				SupersiteInvariantViolation tmp;
+				SupersiteInvariantViolation* viol = out_violation ? out_violation : &tmp;
+				viol->ss_idx = ss_idx;
+				viol->global_site_id = ss.global_site_id;
+				viol->var_start = ss.var_start;
+				viol->var_count = ss.var_count;
+				viol->message = "multiple ALT classes across supersite members for a single haplotype";
+				handle_violation(*viol);
 				return false;
 			}
 		}
@@ -143,27 +167,29 @@ bool check_supersite_consistency_for_sample(
 		sample_g.getSupersiteClassPair(static_cast<int>(ss_idx), h0, h1);
 		if (h0 != SUPERSITE_CODE_MISSING) {
 			if (hap_class[0] != SUPERSITE_CODE_CONFLICT && hap_class[0] != h0) {
-				if (out_violation) {
-					out_violation->ss_idx = ss_idx;
-					out_violation->global_site_id = ss.global_site_id;
-					out_violation->var_start = ss.var_start;
-					out_violation->var_count = ss.var_count;
-					out_violation->message = "hap0 bits mismatch sampled class (expected h0=" + std::to_string(h0) +
-					                        ", got class_from_bits=" + std::to_string(hap_class[0]) + ")";
-				}
+				SupersiteInvariantViolation tmp;
+				SupersiteInvariantViolation* viol = out_violation ? out_violation : &tmp;
+				viol->ss_idx = ss_idx;
+				viol->global_site_id = ss.global_site_id;
+				viol->var_start = ss.var_start;
+				viol->var_count = ss.var_count;
+				viol->message = "hap0 bits mismatch sampled class (expected h0=" + std::to_string(h0) +
+				                ", got class_from_bits=" + std::to_string(hap_class[0]) + ")";
+				handle_violation(*viol);
 				return false;
 			}
 		}
 		if (h1 != SUPERSITE_CODE_MISSING) {
 			if (hap_class[1] != SUPERSITE_CODE_CONFLICT && hap_class[1] != h1) {
-				if (out_violation) {
-					out_violation->ss_idx = ss_idx;
-					out_violation->global_site_id = ss.global_site_id;
-					out_violation->var_start = ss.var_start;
-					out_violation->var_count = ss.var_count;
-					out_violation->message = "hap1 bits mismatch sampled class (expected h1=" + std::to_string(h1) +
-					                        ", got class_from_bits=" + std::to_string(hap_class[1]) + ")";
-				}
+				SupersiteInvariantViolation tmp;
+				SupersiteInvariantViolation* viol = out_violation ? out_violation : &tmp;
+				viol->ss_idx = ss_idx;
+				viol->global_site_id = ss.global_site_id;
+				viol->var_start = ss.var_start;
+				viol->var_count = ss.var_count;
+				viol->message = "hap1 bits mismatch sampled class (expected h1=" + std::to_string(h1) +
+				                ", got class_from_bits=" + std::to_string(hap_class[1]) + ")";
+				handle_violation(*viol);
 				return false;
 			}
 		}
@@ -178,16 +204,17 @@ bool check_supersite_consistency_for_sample(
 				if (hap_class[hap] == SUPERSITE_CODE_CONFLICT) continue;
 				const uint8_t cls = hap_class[hap];
 				if (cls != SUPERSITE_CODE_REF && cls != c0 && cls != c1) {
-					if (out_violation) {
-						out_violation->ss_idx = ss_idx;
-						out_violation->global_site_id = ss.global_site_id;
-						out_violation->var_start = ss.var_start;
-						out_violation->var_count = ss.var_count;
-						out_violation->message = "hap" + std::to_string(hap) +
-						                        " class_from_bits=" + std::to_string(cls) +
-						                        " not compatible with base snapshot (c0=" +
-						                        std::to_string(c0) + ", c1=" + std::to_string(c1) + ")";
-					}
+					SupersiteInvariantViolation tmp;
+					SupersiteInvariantViolation* viol = out_violation ? out_violation : &tmp;
+					viol->ss_idx = ss_idx;
+					viol->global_site_id = ss.global_site_id;
+					viol->var_start = ss.var_start;
+					viol->var_count = ss.var_count;
+					viol->message = "hap" + std::to_string(hap) +
+					                " class_from_bits=" + std::to_string(cls) +
+					                " not compatible with base snapshot (c0=" +
+					                std::to_string(c0) + ", c1=" + std::to_string(c1) + ")";
+					handle_violation(*viol);
 					return false;
 				}
 			}

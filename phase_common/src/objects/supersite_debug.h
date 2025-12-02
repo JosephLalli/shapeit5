@@ -27,12 +27,14 @@ namespace supersite_invariants {
 struct SupersiteDebugConfig {
 	bool guards_enabled = false;
 	bool verbose = false;
+	bool fatal = false;
 	std::string sample_name_filter;
 	int anchor_bp_filter = -1; // <0 means "no BP filter"
 
 	// Load settings from environment variables:
 	//   SHAPEIT5_SUPERSITE_GUARDS
 	//   SHAPEIT5_SUPERDEBUG_INVARIANTS
+	//   SHAPEIT5_SUPERSITE_FATAL
 	//   SHAPEIT5_SUPERDEBUG_SAMPLENAME
 	//   SHAPEIT5_SUPERDEBUG_BP
 	static SupersiteDebugConfig from_env();
@@ -40,6 +42,10 @@ struct SupersiteDebugConfig {
 	// Quick helper to decide whether this sample / locus should be checked.
 	bool enabled_for_sample(const genotype& g, uint32_t anchor_bp) const;
 };
+
+// Returns a cached instance of SupersiteDebugConfig loaded once per process.
+// Useful to avoid re-reading environment variables in hot paths.
+const SupersiteDebugConfig& get_cached_supersite_debug_config();
 
 // Description of a single invariant violation (optional output).
 struct SupersiteInvariantViolation {
@@ -81,4 +87,3 @@ bool check_supersite_consistency_for_sample(
 } // namespace supersite_invariants
 
 #endif // _SUPERSITE_DEBUG_H
-

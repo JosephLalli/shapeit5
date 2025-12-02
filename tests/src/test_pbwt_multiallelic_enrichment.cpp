@@ -57,8 +57,8 @@ static PanelLayout build_variant_map(variant_map& V) {
     PanelLayout layout;
     V.vec_pos.clear();
 
-    const int n_alt1_markers = 12;
-    const int n_alt2_markers = 12;
+    const int n_alt1_markers = 6;
+    const int n_alt2_markers = 20;
     const double cm_step = 0.001; // ~1 cM/Mb if bp step is 1kb
     int idx = 0;
     int bp = 1000000;
@@ -107,7 +107,7 @@ static std::vector<unsigned int> extract_neighbors(const conditioning_set& H, in
     std::vector<unsigned int> donors;
     if (locus >= (int)H.sites_pbwt_selection.size() || !H.sites_pbwt_selection[locus]) return donors;
     unsigned long addr_offset = H.sites_pbwt_ngroups * H.n_ind * 2UL;
-    unsigned long base_idx = H.sites_pbwt_grouping[locus] * 2UL * H.n_ind + target_hap;
+    unsigned long base_idx = static_cast<unsigned long>(target_hap) * H.sites_pbwt_ngroups + H.sites_pbwt_grouping[locus];
     for (int d = 0; d < H.depth && base_idx < H.indexes_pbwt_neighbour.size(); ++d) {
         unsigned long neighbor_idx = static_cast<unsigned long>(d) * addr_offset + base_idx;
         if (neighbor_idx < H.indexes_pbwt_neighbour.size()) {
@@ -128,6 +128,7 @@ struct TargetResult {
 
 static TargetResult run_case(AlleleClass target_class) {
     rng.setSeed(12345); // deterministic selection when randomness is used
+    const bool trace = std::getenv("SHAPEIT5_TEST_TRACE");
 
     variant_map V;
     PanelLayout layout = build_variant_map(V);
@@ -177,10 +178,30 @@ static TargetResult run_case(AlleleClass target_class) {
     H.select();
 
     std::vector<unsigned int> neigh = extract_neighbors(H, anchor, /*target_hap=*/0);
+    if (trace) {
+        std::cout << "Anchor " << anchor << " selected=" << H.sites_pbwt_selection[anchor]
+                  << " neighbors:";
+        for (auto hidx : neigh) {
+            std::cout << " " << hidx;
+        }
+        std::cout << " | raw:";
+        unsigned long addr_offset = H.sites_pbwt_ngroups * H.n_ind * 2UL;
+        unsigned long base_idx = static_cast<unsigned long>(0) * H.sites_pbwt_ngroups + H.sites_pbwt_grouping[anchor];
+        for (int d = 0; d < H.depth; ++d) {
+            unsigned long neighbor_idx = static_cast<unsigned long>(d) * addr_offset + base_idx;
+            if (neighbor_idx < H.indexes_pbwt_neighbour.size()) {
+                std::cout << " " << H.indexes_pbwt_neighbour[neighbor_idx];
+            }
+        }
+        std::cout << std::endl;
+    }
     int alt1_count=0, alt2_count=0, alt3_count=0, ref_count=0;
     for (unsigned int hidx : neigh) {
         if (hidx < 2) continue; // skip target's own haps
         AlleleClass cls = donor_class_from_packed(ctx.packed_codes, ss, hidx);
+        if (trace) {
+            std::cout << "  neigh hap=" << hidx << " class=" << (int)cls << std::endl;
+        }
         if (cls == ALT1) alt1_count++;
         else if (cls == ALT2) alt2_count++;
         else if (cls == ALT3) alt3_count++;

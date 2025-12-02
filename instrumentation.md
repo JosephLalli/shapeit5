@@ -10,6 +10,14 @@ This document provides a comprehensive guide to debugging SHAPEIT5, particularly
 |----------|--------|---------|---------|
 | `SHAPEIT5_TEST_TRACE` | `0` (off) / `1` (on) | `0` | Enables most trace logging including HMM internals, backward/forward passes, emission calculations |
 | `SHAPEIT5_ENABLE_OUTER_PRODUCT` | `0` (off) / `1` (on) | `0` | **Enables** outer product at segment boundaries (disabled by default due to divergence bugs) |
+| `SHAPEIT5_SUPERSITE_GUARDS` | `0` (off) / `1` (on) | `1` | Enables supersite invariant guards (mutual exclusivity, h0/h1 vs bits, c0/c1 compatibility, packed code parity, SC normalization). |
+| `SHAPEIT5_SUPERDEBUG_INVARIANTS` | `0` (off) / `1` (on) | `0` | When guards are on, emit concise invariant violations to stderr (init, projection, panel update). |
+| `SHAPEIT5_SUPERDEBUG_SAMPLENAME` | string | unset | If set, filters invariant checks/logging to this sample. |
+| `SHAPEIT5_SUPERDEBUG_BP` | integer bp | unset | If set, filters invariant checks/logging to supersite anchors at this bp. |
+| `SHAPEIT5_SUPERSITE_GUARDS` | `0` (off) / `1` (on) | `1` | Enables supersite invariant guards (mutual exclusivity, h0/h1 vs bits, c0/c1 compatibility, packed code parity). |
+| `SHAPEIT5_SUPERDEBUG_INVARIANTS` | `0` (off) / `1` (on) | `0` | When guards are on, emit concise invariant violations to stderr (init, projection, panel update). |
+| `SHAPEIT5_SUPERDEBUG_SAMPLENAME` | string | unset | If set, invariant checks/logging are filtered to this sample. |
+| `SHAPEIT5_SUPERDEBUG_BP` | integer bp | unset | If set, invariant checks/logging are filtered to supersite anchors at this bp. |
 
 ### Usage Example
 ```bash
