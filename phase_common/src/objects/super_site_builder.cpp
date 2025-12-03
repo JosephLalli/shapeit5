@@ -25,10 +25,13 @@
 #include <containers/variant_map.h>
 #include <containers/conditioning_set/conditioning_set_header.h>
 #include <containers/genotype_set.h>
+#include <objects/genotype/genotype_header.h>
 #include <map>
 #include <algorithm>
 #include <utility>
 #include <cassert>
+#include <random>
+#include <stdexcept>
 
 // Build super-sites by collapsing split biallelic records at identical (chr,bp)
 // positions into multi-allelic "super-sites" and packing per-haplotype 4-bit codes.
@@ -168,7 +171,7 @@ void updateSuperSiteAnchorEncoding(genotype_set& G,
                                    const std::vector<SuperSite>& super_sites,
                                    const std::vector<int>& super_site_var_index)
 {
-    // Update anchor encoding for all samples
+	// Update anchor encoding for all samples
     for (unsigned int i = 0; i < G.n_ind; i++) {
         genotype* g = G.vecG[i];
         
@@ -185,8 +188,103 @@ void updateSuperSiteAnchorEncoding(genotype_set& G,
             if (isSuperSiteHeterozygous(g, ss, super_site_var_index)) {
                 VAR_SET_HET(MOD2(ss.global_site_id), g->Variants[DIV2(ss.global_site_id)]);
             }
-        }
-    }
+		}
+	}
+}
+
+void resolveSupersiteClasses(
+	genotype& g,
+	const SuperSite& ss,
+	const std::vector<int>& super_site_var_index,
+	uint8_t& c0_out,
+	uint8_t& c1_out)
+{
+	uint8_t c0 = 0, c1 = 0;           // 0 = REF / not yet assigned
+	int missing_state = -1;           // -1 unknown, 0 = non-missing, 1 = missing
+
+	for (uint16_t ai = 0; ai < ss.var_count; ++ai) {
+		const int v_idx = super_site_var_index[ss.var_start + ai];
+		unsigned char v_byte = g.Variants[DIV2(v_idx)];
+		const bool is_mis = VAR_GET_MIS(MOD2(v_idx), v_byte);
+
+		// Enforce all-or-none missing across siblings
+		if (missing_state == -1) {
+			missing_state = is_mis ? 1 : 0;
+		} else if (is_mis != (missing_state == 1)) {
+			throw std::runtime_error(
+				"Supersite conflict: sample " + g.name +
+				" has mixture of missing and non-missing splits at bp=" +
+				std::to_string(ss.bp));
+		}
+		if (is_mis) continue;
+
+		const uint8_t alt_code = static_cast<uint8_t>(ai + 1);
+		const bool h0 = VAR_GET_HAP0(MOD2(v_idx), v_byte);
+		const bool h1 = VAR_GET_HAP1(MOD2(v_idx), v_byte);
+		if (!h0 && !h1) continue;  // both REF at this split
+
+		// ALT on both haps at this split: treat as single class on both haps
+		if (h0 && h1) {
+			if (c0 == 0 && c1 == 0) {
+				c0 = c1 = alt_code;
+				continue;
+			}
+			if (c0 == alt_code && c1 == 0) { c1 = alt_code; continue; }
+			if (c1 == alt_code && c0 == 0) { c0 = alt_code; continue; }
+			if (c0 == alt_code && c1 == alt_code) continue;
+			// Introducing a new ALT class on both haps when classes already assigned -> conflict
+			throw std::runtime_error(
+				"Supersite conflict: sample " + g.name +
+				" carries >2 ALT classes at supersite bp=" + std::to_string(ss.bp));
+		}
+
+		// ALT on a single hap at this split
+		if (c0 == 0) {
+			bool flipped = false;
+			c0 = alt_code;
+			if (h1 && !h0) { // move ALT to hap0
+				VAR_CLR_HAP1(MOD2(v_idx), v_byte);
+				VAR_SET_HAP0(MOD2(v_idx), v_byte);
+				flipped = true;
+			}
+			if (flipped) g.Variants[DIV2(v_idx)] = v_byte;
+			continue;
+		}
+
+		if (c1 == 0) {
+			bool flipped = false;
+			c1 = alt_code;
+			if (h0 && !h1) { // move ALT to hap1
+				VAR_CLR_HAP0(MOD2(v_idx), v_byte);
+				VAR_SET_HAP1(MOD2(v_idx), v_byte);
+				flipped = true;
+			}
+			if (flipped) g.Variants[DIV2(v_idx)] = v_byte;
+			continue;
+		}
+
+		// Third distinct ALT class -> conflict
+		if (alt_code != c0 && alt_code != c1) {
+			throw std::runtime_error(
+				"Supersite conflict: sample " + g.name +
+				" carries >2 ALT classes at supersite bp=" + std::to_string(ss.bp));
+		}
+	}
+
+	// Return c0/c1 (unordered; caller may canonicalize)
+	c0_out = c0;
+	c1_out = c1;
+
+	// Anchor genotype flag: set HET if distinct classes, HOM otherwise
+	unsigned char anchor_byte = g.Variants[DIV2(ss.global_site_id)];
+	if (missing_state == 1) {
+		VAR_SET_MIS(MOD2(ss.global_site_id), anchor_byte);
+	} else if (c0 != c1) {
+		VAR_SET_HET(MOD2(ss.global_site_id), anchor_byte);
+	} else {
+		VAR_SET_HOM(MOD2(ss.global_site_id), anchor_byte);
+	}
+	g.Variants[DIV2(ss.global_site_id)] = anchor_byte;
 }
 
 std::vector<int> buildSupersiteAnchorMap(const std::vector<SuperSite>& super_sites,

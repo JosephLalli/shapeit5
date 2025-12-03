@@ -23,6 +23,7 @@
 #include <objects/genotype/genotype_header.h>
 #include <models/supersite_trace_utils.h>
 #include <models/super_site_accessor.h>
+#include <objects/super_site_builder.h>
 #include <objects/supersite_debug.h>
 #include <string>
 #include <iostream>
@@ -236,8 +237,9 @@ void genotype::snapshotSupersiteBaseClasses(const std::vector<SuperSite>& super_
 	}
 	for (size_t ss_idx = 0; ss_idx < super_sites_ref.size(); ++ss_idx) {
 		const SuperSite& ss = super_sites_ref[ss_idx];
-		uint8_t class0 = getSampleSuperSiteAlleleCode(this, ss, super_site_var_index_ref, 0);
-		uint8_t class1 = getSampleSuperSiteAlleleCode(this, ss, super_site_var_index_ref, 1);
+		uint8_t class0 = SUPERSITE_CODE_REF;
+		uint8_t class1 = SUPERSITE_CODE_REF;
+		resolveSupersiteClasses(*this, ss, super_site_var_index_ref, class0, class1);
         canonicalize_class_pair(class0, class1);
 		const size_t offset = supersite_pair_offset(static_cast<int>(ss_idx));
 		supersite_class_pairs_base[offset] = class0;

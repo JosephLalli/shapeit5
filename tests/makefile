@@ -84,7 +84,8 @@ TEST_BINARIES := \
     $(bindir)/test_supersite_amb_lane_parity \
     $(bindir)/test_supersite_projection_invariants \
     $(bindir)/test_supersite_bial_equivalence_window \
-    $(bindir)/test_pbwt_multiallelic_enrichment
+    $(bindir)/test_pbwt_multiallelic_enrichment \
+    $(bindir)/test_supersite_conflict_resolution
 
 # Thread Safety Tests
 THREADING_TEST_BINARIES := \
@@ -253,6 +254,9 @@ $(bindir)/test_supersite_projection_invariants: $(objdir)/test_supersite_project
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_supersite_bial_equivalence_window: $(objdir)/test_supersite_bial_equivalence_window.o $(PHASE_COMMON_OBJS)
+	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
+
+$(bindir)/test_supersite_conflict_resolution: $(objdir)/test_supersite_conflict_resolution.o $(PHASE_COMMON_OBJS)
 	$(CXX) $(LDFLAG) $^ -o $@ $(DYN_LIBS)
 
 $(bindir)/test_pbwt_multiallelic_enrichment: $(objdir)/test_pbwt_multiallelic_enrichment.o $(PHASE_COMMON_OBJS)

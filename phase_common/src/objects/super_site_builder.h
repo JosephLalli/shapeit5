@@ -24,6 +24,7 @@
 #define _SUPER_SITE_BUILDER_H
 
 #include <vector>
+#include <random>
 #include <cstdint>
 #include <models/super_site_accessor.h>
 
@@ -31,6 +32,7 @@
 class variant_map;
 class conditioning_set;
 class genotype_set;
+class genotype;
 
 // ============================================================================
 // Super-Site Detection and Construction
@@ -57,5 +59,16 @@ std::vector<int> buildSupersiteAnchorMap(const std::vector<SuperSite>& super_sit
 void updateSuperSiteAnchorEncoding(genotype_set& G,
                                    const std::vector<SuperSite>& super_sites,
                                    const std::vector<int>& super_site_var_index);
+
+// Resolve per-sample supersite allele classes and project them to hap bits.
+//   - Returns c0/c1 (unordered; caller may canonicalize).
+//   - Throws on impossible configurations (e.g., >2 distinct ALTs, or multiple
+//     ALTs on a hap when both haps already carry ALTs).
+void resolveSupersiteClasses(
+	genotype& g,
+	const SuperSite& ss,
+	const std::vector<int>& super_site_var_index,
+	uint8_t& c0_out,
+	uint8_t& c1_out);
 
 #endif // _SUPER_SITE_BUILDER_H
