@@ -147,17 +147,21 @@ public:
 	// Mutable per-epoch sampled classes (h0,h1) per supersite
 	std::vector<uint8_t> supersite_class_pairs;
 	// Immutable snapshot of site classes (c0,c1) per supersite, used for emissions
-	std::vector<uint8_t> supersite_class_pairs_base;
+		std::vector<uint8_t> supersite_class_pairs_base;
+		// Per-sample RNG for deterministic multithreaded runs
+		random_number_generator sample_rng;
 
-	//METHODS
-	genotype(unsigned int);
-	~genotype();
-	void free();
-	void make(std::vector < unsigned char > &, std::vector < float > &);
-	void make(std::vector < unsigned char > &);
-	void setSuperSiteContext(const std::vector<SuperSite>* _super_sites,
-	                          const std::vector<int>* _locus_to_super_idx,
-	                          const std::vector<int>* _super_site_var_index,
+		//METHODS
+		genotype(unsigned int);
+		~genotype();
+		void free();
+		void seedRng(unsigned int base_seed);
+		random_number_generator& rng();
+		void make(std::vector < unsigned char > &, std::vector < float > &);
+		void make(std::vector < unsigned char > &);
+		void setSuperSiteContext(const std::vector<SuperSite>* _super_sites,
+		                          const std::vector<int>* _locus_to_super_idx,
+		                          const std::vector<int>* _super_site_var_index,
 	                          const std::vector<float>* _SC,
 	                          const std::vector<bool>* _anchor_has_missing,
 	                          const std::vector<uint32_t>* _supersite_sc_offset = nullptr);

@@ -44,13 +44,14 @@ public:
 	void allocate(unsigned long, unsigned long);
 
 	//METHODS
-	void imputeMonomorphic(variant_map &);		//Impute to REF monomorphic variants
-	unsigned int largestNumberOfTransitions();	//Get the number of transitions in the larger genotype graph. Used to initialize memory space for multi-threading.
-	unsigned int largestNumberOfMissings();		//Get the number of transitions in the larger genotype graph. Used to initialize memory space for multi-threading.
-	unsigned long numberOfSegments();			//Total number of segments across all genotype graphs (used for verbose).
-	void solve();								//
-	void scaffoldUsingPedigrees(pedigree_reader &);
-	void resetHaploidHeterozgotes(std::vector < std::string > &);
+		void imputeMonomorphic(variant_map &);		//Impute to REF monomorphic variants
+		unsigned int largestNumberOfTransitions();	//Get the number of transitions in the larger genotype graph. Used to initialize memory space for multi-threading.
+		unsigned int largestNumberOfMissings();		//Get the number of transitions in the larger genotype graph. Used to initialize memory space for multi-threading.
+		unsigned long numberOfSegments();			//Total number of segments across all genotype graphs (used for verbose).
+		void solve();								//
+		void seedRngs(unsigned int base_seed);
+		void scaffoldUsingPedigrees(pedigree_reader &);
+		void resetHaploidHeterozgotes(std::vector < std::string > &);
 
 };
 

@@ -832,13 +832,23 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 	}
 	trace_backward_active = false;
 
-	// DIAGNOSTIC: Check if transitions_stored matches expected
-	if (debug_track_transitions && debug_transitions_written != G->n_transitions) {
-		std::fprintf(stderr, "[TRANS_MISMATCH_ERROR] Sample=%s: Backward pass stored %u transitions but expected %u\n",
-		             G->name.c_str(), debug_transitions_written, G->n_transitions);
-		std::fprintf(stderr, "  Vector size=%zu, locus_range=[%d,%d], n_segments=%u\n",
-		             transition_probabilities.size(), locus_first, locus_last, G->n_segments);
-		std::fprintf(stderr, "  This will cause out-of-bounds access in sampleBackward!\n");
+	// DIAGNOSTIC: Check if transitions_stored matches expected for THIS WINDOW only.
+	if (debug_track_transitions) {
+		size_t window_expected = 0;
+		const long long window_range = static_cast<long long>(transition_last) - static_cast<long long>(transition_first) + 1;
+		if (window_range > 0) window_expected = static_cast<size_t>(window_range);
+		// If the window includes the first segment, add its initial transitions (handled via SET_FIRST_TRANS).
+		if (segment_first == 0) {
+			window_expected += static_cast<size_t>(G->countDiplotypes(G->Diplotypes[0]));
+		}
+		if (debug_transitions_written != window_expected) {
+			std::fprintf(stderr, "[TRANS_MISMATCH_ERROR] Sample=%s: Backward pass stored %u transitions but expected %zu for window\n",
+			             G->name.c_str(), debug_transitions_written, window_expected);
+			std::fprintf(stderr, "  Transition span=[%d,%d] segments=[%d,%d] locus_range=[%d,%d]\n",
+			             transition_first, transition_last, segment_first, segment_last, locus_first, locus_last);
+			std::fprintf(stderr, "  Whole-sample expectation=%u, vector size=%zu\n",
+			             G->n_transitions, transition_probabilities.size());
+		}
 	}
 	return n_underflow_recovered;
 }

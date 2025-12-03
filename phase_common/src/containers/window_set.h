@@ -84,13 +84,14 @@ public:
 	void clear();
 
 	//
-	int size();
-	bool split(double, int, int,
-	           std::vector < int > &, std::vector < int > &,
-	           std::vector < int > &, std::vector < int > &,
-	           std::vector < double > &, std::vector < double > &,
-	           std::vector < int > &);
-	int build (variant_map &, genotype *, float);
-};
+		int size();
+		bool split(double, int, int,
+		           std::vector < int > &, std::vector < int > &,
+		           std::vector < int > &, std::vector < int > &,
+		           std::vector < double > &, std::vector < double > &,
+		           std::vector < int > &,
+		           random_number_generator & rng);
+		int build (variant_map &, genotype *, float, random_number_generator & rng);
+	};
 
-#endif
+	#endif

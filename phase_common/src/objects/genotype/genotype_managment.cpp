@@ -137,6 +137,15 @@ void genotype::free() {
 	vector < uint8_t > ().swap(supersite_class_pairs_base);
 }
 
+void genotype::seedRng(unsigned int base_seed) {
+	// Deterministic per-sample RNG: base seed + 1 + sample index so seed=0 is still usable
+	sample_rng.setSeed(base_seed + index + 1);
+}
+
+random_number_generator& genotype::rng() {
+	return sample_rng;
+}
+
 bool genotype::supersiteHasFlag(int ss_idx, uint8_t flag) const {
 	return ss_idx >= 0 &&
 	       ss_idx < static_cast<int>(supersite_flags.size()) &&
@@ -332,7 +341,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 							alt_sum += row[c];
 						}
 
-						const float r = static_cast<float>(rng.getDouble());
+						const float r = static_cast<float>(sample_rng.getDouble());
 
 						// If no ALT mass (or r falls outside ALT CDF), choose REF (class 0)
 						if (alt_sum <= 0.0f || r > alt_sum) {
@@ -514,7 +523,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				if (haploid) {
 					float p00 = (1.0f - CurrentMissingProbabilities[m*HAP_NUMBER+hap0]) * (1.0f - CurrentMissingProbabilities[m*HAP_NUMBER+hap1]);
 					float p11 = (CurrentMissingProbabilities[m*HAP_NUMBER+hap0]) * (CurrentMissingProbabilities[m*HAP_NUMBER+hap1]);
-					if (rng.getDouble()<= (p11/(p00+p11))) {
+					if (sample_rng.getDouble()<= (p11/(p00+p11))) {
 						VAR_SET_HAP0(MOD2(vabs),Variants[DIV2(vabs)]);
 						VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
 					} else {
@@ -522,11 +531,11 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
 					}
 				} else {
-					float r0 = rng.getDouble();
+					float r0 = sample_rng.getDouble();
 					float p0 = CurrentMissingProbabilities[m*HAP_NUMBER+hap0];
 					(r0<=p0)?VAR_SET_HAP0(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP0(MOD2(vabs),Variants[DIV2(vabs)]);
 					
-					float r1 = rng.getDouble();
+					float r1 = sample_rng.getDouble();
 					float p1 = CurrentMissingProbabilities[m*HAP_NUMBER+hap1];
 					(r1<=p1)?VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
 

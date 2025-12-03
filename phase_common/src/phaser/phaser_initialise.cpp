@@ -86,6 +86,8 @@ void phaser::read_files_and_initialise() {
 	G.imputeMonomorphic(V);
 	H.updateHaplotypes(G, true);
 	H.transposeHaplotypes_H2V(true);
+	// Seed per-sample RNGs deterministically so multithreaded runs are reproducible
+	G.seedRngs(rng.getSeed());
 
 	//step7: Initialize PBWT for selecting states
 	if (pbwt_auto) {

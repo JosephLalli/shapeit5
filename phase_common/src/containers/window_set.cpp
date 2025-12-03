@@ -44,7 +44,8 @@ int window_set::size() {
 bool window_set::split(double min_length_cm, int left_index, int right_index,
                        vector < int > & idx_sta, vector < int > & idx_sto,
                        vector < int > & bio_idx_sta, vector < int > & bio_idx_sto,
-                       vector < double > & ccm_sta, vector < double > & ccm_sto, vector < int > & output) {
+                       vector < double > & ccm_sta, vector < double > & ccm_sto,
+                       vector < int > & output, random_number_generator & rng) {
 	int number_of_segments = right_index-left_index+1;
 	int number_of_variants = bio_idx_sto[right_index] - bio_idx_sta[left_index] + 1;
 	double length_of_region = ccm_sto[right_index] - ccm_sta[left_index];
@@ -54,8 +55,8 @@ bool window_set::split(double min_length_cm, int left_index, int right_index,
 	else {
 		int split_point = rng.getInt(number_of_segments/2) + number_of_segments/4 + 1;
 		vector <  int > left_output, right_output;
-		bool ret1 = split(min_length_cm, left_index, left_index + split_point, idx_sta, idx_sto, bio_idx_sta, bio_idx_sto, ccm_sta, ccm_sto, left_output);
-		bool ret2 = split(min_length_cm, left_index + split_point, right_index, idx_sta, idx_sto, bio_idx_sta, bio_idx_sto, ccm_sta, ccm_sto, right_output);
+		bool ret1 = split(min_length_cm, left_index, left_index + split_point, idx_sta, idx_sto, bio_idx_sta, bio_idx_sto, ccm_sta, ccm_sto, left_output, rng);
+		bool ret2 = split(min_length_cm, left_index + split_point, right_index, idx_sta, idx_sto, bio_idx_sta, bio_idx_sto, ccm_sta, ccm_sto, right_output, rng);
 
 		if (ret1 && ret2) {
 			//succesful split, so operate it
@@ -73,7 +74,7 @@ bool window_set::split(double min_length_cm, int left_index, int right_index,
 }
 
 
-int window_set::build (variant_map & V, genotype * g, float min_window_size) {
+int window_set::build (variant_map & V, genotype * g, float min_window_size, random_number_generator & rng) {
 
 	auto is_locus_ambiguous = [&](unsigned int locus) -> bool {
 		bool is_amb = VAR_GET_AMB(MOD2(locus), g->Variants[DIV2(locus)]);
@@ -166,7 +167,7 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size) {
 	vector < int > output;
 	output.push_back(0);
 	output.push_back(g->n_segments-1);
-	split(min_window_size, 0, g->n_segments-1, idx_sta, idx_sto, bio_idx_sta, bio_idx_sto, ccm_sta, ccm_sto, output);
+	split(min_window_size, 0, g->n_segments-1, idx_sta, idx_sto, bio_idx_sta, bio_idx_sto, ccm_sta, ccm_sto, output, rng);
 	int n_windows = output.size()/2;
 
 	//3. Update coordinates

@@ -28,7 +28,7 @@
 using namespace std;
 
 void genotype::sample(vector < double > & CurrentTransProbabilities, vector < float > & CurrentMissingProbabilities) {
-	const bool use_forward = (rng.getDouble() < 0.5f);
+	const bool use_forward = (sample_rng.getDouble() < 0.5f);
 	const bool trace_sample = []() {
 		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
 		return env && env[0] != '\0' && env[0] != '0';
@@ -99,7 +99,7 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 			}
 		}
 
-		prev_sampled = rng.sample(currProbs, sumProbs);
+			prev_sampled = sample_rng.sample(currProbs, sumProbs);
 
 		makeDiplotypes(Diplotypes[s]);
 		unsigned char selected_dipcode = curr_dipcodes[prev_sampled];
@@ -212,7 +212,7 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 			}
 			sumProbs += (currProbs[tabs] = CurrentTransProbabilities[tabs]);
 		}
-		next_sampled = rng.sample(currProbs, sumProbs);
+			next_sampled = sample_rng.sample(currProbs, sumProbs);
 		if (next_sampled < 0 || next_sampled >= static_cast<int>(curr_dipcount)) {
 			std::fprintf(stderr,
 			             "[SAMPLE_IDX_OOB][sampleBackward-single] sample=%s sampled_idx=%d curr_dipcount=%u buf_size=%zu\n",
@@ -251,7 +251,7 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 				sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
 			}
 
-			next_sampled = rng.sample(currProbs, sumProbs);
+			next_sampled = sample_rng.sample(currProbs, sumProbs);
 			if (next_sampled >= (int)curr_dipcount) {
 				std::fprintf(stderr,
 				             "[SAMPLE_IDX_OOB][sampleBackward] sample=%s segment=%d sampled_idx=%d curr_dipcount=%u next_dipcount=%u toffset=%d trans_buf_size=%zu\n",
@@ -312,7 +312,7 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 				}
 			}
 
-			next_sampled = rng.sample(currProbs, sumProbs);
+				next_sampled = sample_rng.sample(currProbs, sumProbs);
 			if (next_sampled >= static_cast<int>(n_joint)) {
 				std::fprintf(stderr,
 				             "[SAMPLE_IDX_OOB][sampleBackward-init] sample=%s segment=%d sampled_idx=%d n_joint=%u curr_dipcount=%u next_dipcount=%u toffset=%d trans_buf_size=%zu\n",

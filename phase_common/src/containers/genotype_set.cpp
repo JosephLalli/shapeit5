@@ -91,6 +91,12 @@ unsigned long genotype_set::numberOfSegments() {
 	return size;
 }
 
+void genotype_set::seedRngs(unsigned int base_seed) {
+	for (int i = 0 ; i < n_ind ; ++i) {
+		if (vecG[i]) vecG[i]->seedRng(base_seed);
+	}
+}
+
 void genotype_set::solve() {
 	tac.clock();
 	for (int i = 0 ; i < vecG.size() ; i ++) vecG[i]->solve();
@@ -169,5 +175,4 @@ void genotype_set::resetHaploidHeterozgotes(vector < string > & haploids) {
 	vrb.bullet2("#haploids = " + stb.str(nhaploids) + " / #diploids = " + stb.str(n_ind - nhaploids));
 	vrb.bullet2("Hets set as missing: n=" + stb.str(nreset) + " (" + stb.str(nreset * 100.0 / ntotal, 3) + "%)");
 }
-
 
