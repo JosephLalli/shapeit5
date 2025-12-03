@@ -150,6 +150,7 @@ public:
 		std::vector<uint8_t> supersite_class_pairs_base;
 		// Per-sample RNG for deterministic multithreaded runs
 		random_number_generator sample_rng;
+		bool revert_buffer_fix; // Opt-in legacy sampler behavior
 
 		//METHODS
 		genotype(unsigned int);
@@ -170,6 +171,7 @@ public:
 	// Capture immutable c0/c1 snapshot for emissions
 	void snapshotSupersiteBaseClasses(const std::vector<SuperSite>& super_sites,
 	                                  const std::vector<int>& super_site_var_index);
+	void setRevertBufferFix(bool value) { revert_buffer_fix = value; }
 	void setSupersiteClassPair(int ss_idx, uint8_t class0, uint8_t class1);
 	void getSupersiteClassPair(int ss_idx, uint8_t& class0, uint8_t& class1) const;
 	void getSupersiteBaseClassPair(int ss_idx, uint8_t& class0, uint8_t& class1) const;

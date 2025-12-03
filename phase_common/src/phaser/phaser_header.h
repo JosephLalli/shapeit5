@@ -53,6 +53,8 @@ public:
 
 	//SUPER-SITE DATA
 	bool enable_supersites;
+	bool revert_buffer_fix;                 // Opt-in legacy sampler behavior
+	bool restore_legacy_min_transitions;    // Opt-in legacy transition distance handling
 	std::vector<SuperSite> super_sites;
 	std::vector<bool> is_super_site; // legacy flag; superseded by locus_to_super_idx
 	std::vector<uint8_t> packed_allele_codes;

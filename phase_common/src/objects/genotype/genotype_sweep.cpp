@@ -42,6 +42,27 @@ void genotype::sample(vector < double > & CurrentTransProbabilities, vector < fl
 }
 
 void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vector < float > & CurrentMissingProbabilities) {
+	if (revert_buffer_fix) {
+		double sumProbs = 0.0;
+		unsigned int prev_sampled = 0;
+		unsigned int curr_dipcount = 0, prev_dipcount = 1;
+		vector < double > currProbs = vector < double > (64, 0.0);
+		vector < unsigned char > DipSampled = vector < unsigned char >(n_segments, 0);
+		for (unsigned int s = 0, toffset = 0 ; s < n_segments ; s ++) {
+			sumProbs = 0.0;
+			curr_dipcount = countDiplotypes(Diplotypes[s]);
+			for (unsigned int tabs = toffset + prev_sampled*curr_dipcount, trel = 0 ; trel < curr_dipcount ; ++trel, ++tabs)
+				sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
+			prev_sampled = sample_rng.sample(currProbs, sumProbs);
+			makeDiplotypes(Diplotypes[s]);
+			DipSampled[s] = curr_dipcodes[prev_sampled];
+			toffset += prev_dipcount * curr_dipcount;
+			prev_dipcount = curr_dipcount;
+		}
+		make(DipSampled, CurrentMissingProbabilities);
+		return;
+	}
+
 	double sumProbs = 0.0;
 	unsigned int prev_sampled = 0;
 	unsigned int curr_dipcount = 0, prev_dipcount = 1;
@@ -179,6 +200,41 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 } // <-- Missing brace added here
 
 void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vector < float > & CurrentMissingProbabilities) {
+
+	if (revert_buffer_fix) {
+		double sumProbs = 0.0;
+		int next_sampled = -1;
+		unsigned int curr_dipcount = 0, next_dipcount = countDiplotypes(Diplotypes[n_segments - 1]);
+		vector < double > currProbs = vector < double > (64 * 64, 0.0);
+		vector < unsigned char > DipSampled = vector < unsigned char >(n_segments, 0);
+
+		for (int s = n_segments - 2, toffset = n_transitions ; s >= 0 ; s --) {
+			sumProbs = 0.0;
+			curr_dipcount = countDiplotypes(Diplotypes[s]);
+			toffset -= next_dipcount * curr_dipcount;
+
+			if (next_sampled >= 0) {
+				currProbs.resize(64);
+				for (unsigned int tabs = toffset+next_sampled, trel = 0 ; trel < curr_dipcount ; ++trel, tabs += next_dipcount)
+					sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
+				next_sampled = sample_rng.sample(currProbs, sumProbs);
+				makeDiplotypes(Diplotypes[s]);
+				DipSampled[s] = curr_dipcodes[next_sampled];
+			} else {
+				for (unsigned int tabs = toffset, trel = 0 ; tabs < n_transitions ; ++trel, ++tabs)
+					sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
+				next_sampled = sample_rng.sample(currProbs, sumProbs);
+				makeDiplotypes(Diplotypes[s+1]);
+				DipSampled[s+1] = curr_dipcodes[next_sampled % next_dipcount];
+				makeDiplotypes(Diplotypes[s]);
+				next_sampled = next_sampled / next_dipcount;
+				DipSampled[s] = curr_dipcodes[next_sampled];
+			}
+			next_dipcount = curr_dipcount;
+		}
+		make(DipSampled, CurrentMissingProbabilities);
+		return;
+	}
 
 	double sumProbs = 0.0;
 	int next_sampled = -1;

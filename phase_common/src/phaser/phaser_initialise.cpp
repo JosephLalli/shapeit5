@@ -88,6 +88,9 @@ void phaser::read_files_and_initialise() {
 	H.transposeHaplotypes_H2V(true);
 	// Seed per-sample RNGs deterministically so multithreaded runs are reproducible
 	G.seedRngs(rng.getSeed());
+	if (revert_buffer_fix) {
+		G.setRevertBufferFix(true);
+	}
 
 	//step7: Initialize PBWT for selecting states
 	if (pbwt_auto) {

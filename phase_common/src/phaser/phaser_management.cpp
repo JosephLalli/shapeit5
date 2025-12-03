@@ -28,6 +28,8 @@ phaser::phaser() {
 	supersite_build_counter = 0;
 	supersite_build_last_context.clear();
 	supersite_mac_threshold = 0;
+	revert_buffer_fix = false;
+	restore_legacy_min_transitions = false;
 }
 
 phaser::~phaser() {

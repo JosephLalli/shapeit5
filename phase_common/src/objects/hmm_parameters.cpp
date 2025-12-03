@@ -30,6 +30,7 @@ hmm_parameters::hmm_parameters() {
     ee = 0.9999f;
     // Default to classic supersite emission semantics until explicitly enabled
     ss_anchor_split_emissions = false;
+    restore_legacy_min_transitions = false;
 }
 
 hmm_parameters::~hmm_parameters() {
@@ -43,17 +44,23 @@ void hmm_parameters::initialise(variant_map & V, int _Neff, int _Nhap) {
 	for (int l = 0 ; l < V.size() ; l ++) cm[l] = V.vec_pos[l]->cm;
 	t = vector < float > (V.size() - 1, 0.0);
 	nt = vector < float > (V.size() - 1, 0.0);
-    for (int l = 1 ; l < cm.size() ; l ++) {
-        float dist_cm = cm[l] - cm[l-1];
-        if (dist_cm <= 0.0f) {
-            t[l-1] = 0.0f;
-            nt[l-1] = 1.0f;
-        } else {
-            if (dist_cm < 1e-7f) dist_cm = 1e-7f;
-            t[l-1] = -1.0f * expm1f(-0.04 * Neff * dist_cm / Nhap);
-            nt[l-1] = 1-t[l-1];
-        }
-    }
+	for (int l = 1 ; l < cm.size() ; l ++) {
+		float dist_cm = cm[l] - cm[l-1];
+		if (restore_legacy_min_transitions) {
+			if (dist_cm <= 1e-7f) dist_cm = 1e-7f;
+			t[l-1] = -1.0f * expm1f(-0.04 * Neff * dist_cm / Nhap);
+			nt[l-1] = 1-t[l-1];
+		} else {
+			if (dist_cm <= 0.0f) {
+				t[l-1] = 0.0f;
+				nt[l-1] = 1.0f;
+			} else {
+				if (dist_cm < 1e-7f) dist_cm = 1e-7f;
+				t[l-1] = -1.0f * expm1f(-0.04 * Neff * dist_cm / Nhap);
+				nt[l-1] = 1-t[l-1];
+			}
+		}
+	}
 	int count_rare = 0;
 	rare_allele = vector < char > (V.size(), -1);
 	for (int l = 0 ; l < V.size() ; l ++) if (V.vec_pos[l]->getMAF() < RARE_VARIANT_FREQ) {
@@ -67,10 +74,13 @@ float hmm_parameters::getForwardTransProb(int prev_idx, int curr_idx) {
     if (curr_idx <= prev_idx) return 0.0f;
     if (curr_idx == (prev_idx + 1)) return t[prev_idx];
     // Fallback when cm is not initialized in tests: treat non-adjacent as zero distance
-    // This preserves sibling no-op semantics (yt=0, nt=1 when positions tie or cm unavailable).
-    if ((int)cm.size() <= curr_idx || (int)cm.size() <= prev_idx) return 0.0f;
+    if ((int)cm.size() <= curr_idx || (int)cm.size() <= prev_idx) return restore_legacy_min_transitions ? -1.0f * expm1f(-0.04 * Neff * 1e-7f / Nhap) : 0.0f;
     // Map-based distance for non-adjacent indices
     float dist_cm = cm[curr_idx] - cm[prev_idx];
+    if (restore_legacy_min_transitions) {
+    	if (dist_cm <= 1e-7f) dist_cm = 1e-7f;
+    	return -1.0f * expm1f(-0.04 * Neff * dist_cm / Nhap);
+    }
     if (dist_cm <= 0.0f) return 0.0f;
     if (dist_cm < 1e-7f) dist_cm = 1e-7f;
     return -1.0f * expm1f(-0.04 * Neff * dist_cm / Nhap);
@@ -80,9 +90,13 @@ float hmm_parameters::getBackwardTransProb(int prev_idx, int curr_idx) {
     if (curr_idx >= prev_idx) return 0.0f;
     if (curr_idx == (prev_idx - 1)) return t[curr_idx];
     // Fallback when cm is not initialized in tests: treat non-adjacent as zero distance
-    if ((int)cm.size() <= curr_idx || (int)cm.size() <= prev_idx) return 0.0f;
+    if ((int)cm.size() <= curr_idx || (int)cm.size() <= prev_idx) return restore_legacy_min_transitions ? -1.0f * expm1f(-0.04 * Neff * 1e-7f / Nhap) : 0.0f;
     // Map-based distance for non-adjacent indices
     float dist_cm = cm[prev_idx] - cm[curr_idx];
+    if (restore_legacy_min_transitions) {
+    	if (dist_cm <= 1e-7f) dist_cm = 1e-7f;
+    	return -1.0f * expm1f(-0.04 * Neff * dist_cm / Nhap);
+    }
     if (dist_cm <= 0.0f) return 0.0f;
     if (dist_cm < 1e-7f) dist_cm = 1e-7f;
     return -1.0f * expm1f(-0.04 * Neff * dist_cm / Nhap);

@@ -63,6 +63,11 @@ void phaser::declare_options() {
 			("hmm-window", bpo::value < double >()->default_value(4), "Minimal size of the phasing window in cM (default 4cM)")
 			("hmm-ne", bpo::value < int >()->default_value(15000), "Effective size of the population (default 15,000)");
 
+	bpo::options_description opt_legacy ("Legacy behavior toggles (debug)");
+	opt_legacy.add_options()
+			("revert-buffer-fix", "Re-enable legacy sampling buffers (pre-vector-resize sampler behavior)")
+			("restore-legacy-min-transitions", "Re-enable legacy minimum transition handling (forces dist_cm>=1e-7)");
+
 	bpo::options_description opt_filter ("FILTER parameters");
 	opt_filter.add_options()
 			("filter-snp", "Only consider SNPs")
@@ -85,6 +90,7 @@ void phaser::declare_options() {
 		.add(opt_mcmc)
 		.add(opt_pbwt)
 		.add(opt_hmm)
+		.add(opt_legacy)
 		.add(opt_filter)
 		.add(opt_output)
 		.add(opt_supersites);
@@ -126,9 +132,6 @@ void phaser::check_options() {
 	if (options.count("thread") && options["thread"].as < int > () < 1)
 		vrb.error("You must use at least 1 thread");
 
-	if (!options["thread"].defaulted() && !options["seed"].defaulted())
-		vrb.warning("Using multi-threading prevents reproducing a run by specifying --seed");
-
 	if (!options["hmm-ne"].defaulted() && options["hmm-ne"].as < int > () < 1)
 		vrb.error("You must specify a positive effective size");
 
@@ -144,6 +147,9 @@ void phaser::check_options() {
 
     parse_iteration_scheme(options["mcmc-iterations"].as < string > ());
 
+	revert_buffer_fix = options.count("revert-buffer-fix") > 0;
+	restore_legacy_min_transitions = options.count("restore-legacy-min-transitions") > 0;
+
 	// Initialize super-site support flag
 	enable_supersites = options.count("enable-supersites") > 0;
 
@@ -158,6 +164,13 @@ void phaser::check_options() {
 
 	if (!enable_supersites && (anchor_split_on || anchor_split_off))
 		vrb.warning("Supersite anchor emission flags specified but supersites are disabled; option will be ignored");
+
+	if (enable_supersites && (revert_buffer_fix || restore_legacy_min_transitions)) {
+		vrb.error("Reversion flags (--revert-buffer-fix/--restore-legacy-min-transitions) are incompatible with --enable-supersites");
+	}
+
+	// Propagate transition legacy toggle into model
+	M.restore_legacy_min_transitions = restore_legacy_min_transitions;
 }
 
 void phaser::verbose_files() {
@@ -189,6 +202,11 @@ void phaser::verbose_options() {
 	else vrb.bullet("HMM     : [window = " + stb.str(options["hmm-window"].as < double > ()) + "cM / Ne = " + stb.str(options["hmm-ne"].as < int > ()) + " / Constant recombination rate of 1cM per Mb]");
 	if (options.count("filter-snp") || (!options["filter-maf"].defaulted()))
 		vrb.bullet("FILTERS : [snp only = " + stb.str(options.count("filter-snp")) + " / MAF = " + stb.str(options["filter-maf"].as < double > ()) + "]");
+
+	if (revert_buffer_fix || restore_legacy_min_transitions) {
+		vrb.bullet("Legacy   : [revert-buffer-fix=" + stb.str((int)revert_buffer_fix) +
+		           " / restore-legacy-min-transitions=" + stb.str((int)restore_legacy_min_transitions) + "]");
+	}
 
 	if (enable_supersites) {
 		vrb.bullet("Supersites : [enabled / anchor emissions = " + string(M.ss_anchor_split_emissions ? "split" : "strict") + "]");

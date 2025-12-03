@@ -111,6 +111,7 @@ genotype::genotype(unsigned int _index) {
 	this->name = "";
 	double_precision = false;
 	haploid = false;
+	revert_buffer_fix = false;
 	// Initialize supersite context pointers to nullptr
 	super_sites = nullptr;
 	locus_to_super_idx = nullptr;

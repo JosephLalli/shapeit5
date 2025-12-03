@@ -50,6 +50,7 @@ public:
 		unsigned long numberOfSegments();			//Total number of segments across all genotype graphs (used for verbose).
 		void solve();								//
 		void seedRngs(unsigned int base_seed);
+		void setRevertBufferFix(bool enable);
 		void scaffoldUsingPedigrees(pedigree_reader &);
 		void resetHaploidHeterozgotes(std::vector < std::string > &);
 

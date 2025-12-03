@@ -38,6 +38,7 @@ public :
 	double ed;
 	// Supersite configuration
 	bool ss_anchor_split_emissions; // when true, use biallelic split semantics at supersite anchors
+	bool restore_legacy_min_transitions; // when true, mimic pre-guard transition distance handling
 
 	//CONSTRUCTOR/DESTRUCTOR
 	hmm_parameters();
