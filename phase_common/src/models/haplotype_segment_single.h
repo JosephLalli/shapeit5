@@ -37,6 +37,7 @@
 #include <limits>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
@@ -182,6 +183,46 @@ private:
 
     // Trace noise guard: limit anchor emission logs per window
     int trace_anchor_match_logs_remaining = 0;
+
+    // Helper: gate supersite HMM tracing to a specific site / sample when desired.
+    //
+    // Behavior:
+    //   - Requires SHAPEIT5_TEST_TRACE to be non-zero.
+    //   - If SHAPEIT5_SUPERDEBUG_SAMPLENAME is set, only traces that sample.
+    //   - If SHAPEIT5_SUPERDEBUG_BP (>0) is set, only traces at that absolute locus.
+    //
+    // With no filters set, this is equivalent to supersite_trace_enabled() (preserves
+    // unit-test behavior). For large WGS windows, setting both env vars keeps
+    // SHAPEIT5_TEST_TRACE output limited to a single site/sample.
+    bool supersite_site_trace_enabled() const {
+        if (!supersite_trace_enabled()) return false;
+
+        struct TraceFilter {
+            bool initialized = false;
+            std::string sample;
+            int bp = -1;
+        };
+        static TraceFilter filter;
+        if (!filter.initialized) {
+            if (const char* s = std::getenv("SHAPEIT5_SUPERDEBUG_SAMPLENAME")) {
+                if (s[0] != '\0') filter.sample = std::string(s);
+            }
+            if (const char* b = std::getenv("SHAPEIT5_SUPERDEBUG_BP")) {
+                if (b && b[0] != '\0') {
+                    filter.bp = std::atoi(b);
+                }
+            }
+            filter.initialized = true;
+        }
+
+        if (!filter.sample.empty()) {
+            if (!G || G->name != filter.sample) return false;
+        }
+        if (filter.bp > 0) {
+            if (curr_abs_locus != filter.bp) return false;
+        }
+        return true;
+    }
 
     //INLINED AND UNROLLED ROUTINES
     void INIT_HOM();

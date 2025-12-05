@@ -11,35 +11,39 @@ source "$SCRIPT_DIR/lib/test_utils.sh"
 tmp_dir=$TEST_DIR/tmp
 mkdir -p tmp
 
-#scaffold_region=chr22:18000000-25000000
-#comparison_region=chr22:19000000-24000000
-scaffold_region=chr22:19000000-20000000
-comparison_region=chr22:19000000-20000000
+seed="${1:-42}"
+
+
+scaffold_region=chr22:18000000-25000000
+comparison_region=chr22:18000000-25000000
+#scaffold_region=chr22:19000000-20000000
+#comparison_region=chr22:19000000-20000000
 
 #scaffold_region=chr22:19000000-19300000
 #comparison_region=chr22:19000000-19300000
 
-in_bcf="${TEST_DIR}/wgs/1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.unphased.native_maps.biallelic.18000000-25000000.bcf"
+in_bcf="${TEST_DIR}/wgs/1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.unphased.native_maps.biallelic.18000000-25000000.renormed.bcf"
 scaffold_bcf_prefix="$tmp_dir/chr22.1KGP.18-25mb.phase_common"
-#if [[ 'x' == 'y' ]]; then
-# if [[ ! -s $scaffold_bcf_prefix.og.bcf ]]; then
+if [[ 'x' == 'y' ]]; then
 /usr/bin/time ./SHAPEIT5_phase_common_static_v1.1.1 \
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
-  --output $scaffold_bcf_prefix.og.small.bcf \
+  --output $scaffold_bcf_prefix.og.small.$seed.bcf \
+  --log $scaffold_bcf_prefix.og.small.$seed.log \
+  --seed $seed \
   --thread 64 &
-#fi
-
+fi
 /usr/bin/time ${TEST_DIR}/../phase_common/bin/phase_common \
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
-  --output $scaffold_bcf_prefix.main_algo.small.bcf \
-  --thread 64
-#fi
+  --output $scaffold_bcf_prefix.main_algo.small.$seed.bcf \
+  --log $scaffold_bcf_prefix.main_algo.small.$seed.log \
+  --seed $seed \
+  --thread 64 &
 
 #SHAPEIT5_TEST_TRACE=1 \
 ${TEST_DIR}/../phase_common/bin/phase_common \
@@ -47,33 +51,41 @@ ${TEST_DIR}/../phase_common/bin/phase_common \
   --filter-maf 0.001 \
   --region $scaffold_region \
   --map info/chr22.gmap.gz \
-  --output $scaffold_bcf_prefix.supersites.split_emissions.small.bcf \
+  --output $scaffold_bcf_prefix.supersites.split_emissions.small.$seed.bcf \
   --enable-supersites \
+  --log $scaffold_bcf_prefix.supersites.split_emissions.small.$seed.log \
+  --seed $seed \
   --thread 64
-#  --mcmc-iteration 3b,1p,1b,1p,3m
 #fi
 wait
-#exit 0
-${TEST_DIR}/../switch/bin/switch \
-  --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
-  --estimation "$scaffold_bcf_prefix.og.small.bcf" \
-  --region $comparison_region \
-  --output "$scaffold_bcf_prefix.og" \
-  --log "$scaffold_bcf_prefix.og.log" >/dev/null
+
+#${TEST_DIR}/../switch/bin/switch \
+#  --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
+#  --estimation "$scaffold_bcf_prefix.og.small.bcf" \
+#  --region $comparison_region \
+#  --output "$scaffold_bcf_prefix.og" \
+#  --log "$scaffold_bcf_prefix.og.log" >/dev/null
 
 ../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
-  --estimation "$scaffold_bcf_prefix.main_algo.small.bcf" \
+  --estimation "$scaffold_bcf_prefix.main_algo.small.$seed.bcf" \
   --region $comparison_region \
-  --output "$scaffold_bcf_prefix.main_algo" \
-  --log "$scaffold_bcf_prefix.main_algo.log" >/dev/null
+  --output "$scaffold_bcf_prefix.main_algo.2.$seed" \
+  --log "$scaffold_bcf_prefix.main_algo.$seed.log" >/dev/null
 
 ../switch/bin/switch \
   --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
-  --estimation "$scaffold_bcf_prefix.supersites.split_emissions.small.bcf" \
+  --estimation "$scaffold_bcf_prefix.supersites.split_emissions.small.$seed.bcf" \
   --region $comparison_region \
-  --output "$scaffold_bcf_prefix.supersites.split_emissions" \
-  --log "$scaffold_bcf_prefix.supersites.split_emissions.log" >/dev/null
+  --output "$scaffold_bcf_prefix.supersites.split_emissions.2.$seed" \
+  --log "$scaffold_bcf_prefix.supersites.split_emissions.$seed.log" >/dev/null
+
+#../switch/bin/switch \
+#  --validation wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf \
+#  --estimation "$scaffold_bcf_prefix.main_algo.reversions.small.bcf" \
+#  --region $comparison_region \
+#  --output "$scaffold_bcf_prefix.main_algo.reversions.small." \
+#  --log "$scaffold_bcf_prefix.main_algo.reversions.log" >/dev/null
 
 # Integration testing: Extract and compare switch error rates
 echo "=== Integration Test Results ==="
@@ -89,11 +101,13 @@ extract_switch_error() {
 }
 
 og_error=$(extract_switch_error "$scaffold_bcf_prefix.og.log")
-main_algo_error=$(extract_switch_error "$scaffold_bcf_prefix.main_algo.log")
-supersites_error=$(extract_switch_error "$scaffold_bcf_prefix.supersites.split_emissions.log")
+reversion_error=$(extract_switch_error "$scaffold_bcf_prefix.main_algo.reversions.log")
+main_algo_error=$(extract_switch_error "$scaffold_bcf_prefix.main_algo.$seed.log")
+supersites_error=$(extract_switch_error "$scaffold_bcf_prefix.supersites.split_emissions.$seed.log")
 
 echo "Original algorithm switch error rate: $og_error"
-echo "Main algorithm switch error rate: $main_algo_error"
+echo "Main algorithm switch error rate: $reversion_error"
+echo "Main algorithm with enhancements switch error rate: $main_algo_error"
 echo "Supersites algorithm switch error rate: $supersites_error"
 
 # Test logic: Fail if main_algo is worse than og

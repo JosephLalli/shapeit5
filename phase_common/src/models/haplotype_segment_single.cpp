@@ -102,7 +102,7 @@ void haplotype_segment_single::handle_sibling_bookkeeping(const SiteView& site_v
 		const int upper_exclusive = missing_last + 1;
 		assert(curr_abs_missing >= lower_inclusive && curr_abs_missing <= upper_exclusive);
 	}
-	if (supersite_trace_enabled()) {
+	if (supersite_site_trace_enabled()) {
 		supersite_trace_log("[SupersiteSibling] stage=%s locus=%d kind=%d curr_abs_amb=%d curr_abs_mis=%d\n",
 		                    trace_forward_active ? "FWD" : "BWD",
 		                    curr_abs_locus,
@@ -129,7 +129,7 @@ void haplotype_segment_single::COLLAPSE_SIB(const SiteView& site_view) {
 
 
 void haplotype_segment_single::trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling, int expected_delta) const {
-	if (!supersite_trace_enabled()) return;
+	if (!supersite_site_trace_enabled()) return;
 	if (!stage) stage = "";
 	if (ambiguous_first > ambiguous_last) return;
 
@@ -235,7 +235,7 @@ void haplotype_segment_single::trace_log_forward_state(int locus,
                                                        bool hmm_amb,
                                                        bool hmm_mis,
                                                        bool hmm_hom) {
-	if (!supersite_trace_enabled()) return;
+	if (!supersite_site_trace_enabled()) return;
 	if (!trace_forward_table_header_emitted) {
 		std::fprintf(stdout,
 		             "# Forward trace - sample=%s loci=[%d,%d] segments=[%d,%d] n_cond_haps=%u\n",
@@ -281,7 +281,7 @@ void haplotype_segment_single::trace_log_backward_state(int locus,
                                                         bool hmm_amb,
                                                         bool hmm_mis,
                                                         bool hmm_hom) {
-	if (!supersite_trace_enabled()) return;
+	if (!supersite_site_trace_enabled()) return;
 	if (!trace_backward_table_header_emitted) {
 		std::fprintf(stdout,
 		             "# Backward trace - sample=%s loci=[%d,%d] segments=[%d,%d] n_cond_haps=%u\n",
@@ -465,7 +465,7 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	trace_backward_table_header_emitted = false;
 
     // Test-only diagnostics
-    if (supersite_trace_enabled()) {
+    if (supersite_site_trace_enabled()) {
         std::fprintf(stdout,
             "HS_ctor seg=[%d,%d] loci=[%d,%d] n_cond_haps=%u n_missing=%u supersites=%s panel_codes=%s cond_idx=%s\n",
             segment_first, segment_last, locus_first, locus_last, n_cond_haps, n_missing,
@@ -503,13 +503,13 @@ haplotype_segment_single::~haplotype_segment_single() {
 }
 
 void haplotype_segment_single::forward() {
-    if (supersite_trace_enabled()) std::fprintf(stderr, "FWD0\n");
+    if (supersite_site_trace_enabled()) std::fprintf(stderr, "FWD0\n");
 	curr_segment_index = segment_first;
 	curr_segment_locus = 0;
 	curr_abs_ambiguous = ambiguous_first;
 	curr_abs_missing = missing_first;
 	prev_abs_locus = locus_first;
-	if (supersite_trace_enabled()) std::fprintf(stderr, "FWD1 seg=%d lf=%d ll=%d\n", curr_segment_index, locus_first, locus_last);
+	if (supersite_site_trace_enabled()) std::fprintf(stderr, "FWD1 seg=%d lf=%d ll=%d\n", curr_segment_index, locus_first, locus_last);
 	trace_forward_active = true;
 	trace_backward_active = false;
 	trace_forward_table_header_emitted = false;
@@ -521,9 +521,9 @@ void haplotype_segment_single::forward() {
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
 	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
-    if (supersite_trace_enabled()) std::fprintf(stderr, "FWD2 after adapters\n");
+    if (supersite_site_trace_enabled()) std::fprintf(stderr, "FWD2 after adapters\n");
 
-    if (supersite_trace_enabled()) {
+    if (supersite_site_trace_enabled()) {
         std::fprintf(stdout,
             "FWD_start loci=[%d,%d] seg=[%d,%d] n_cond_haps=%u supersites_enabled=%d prob_size=%zu probSumH=%zu\n",
             locus_first, locus_last, segment_first, segment_last, n_cond_haps, (int)supersites_enabled,
@@ -533,7 +533,7 @@ void haplotype_segment_single::forward() {
     trace_anchor_match_logs_remaining = 2;
 
     for (curr_abs_locus = locus_first ; curr_abs_locus <= locus_last ; curr_abs_locus++) {
-        if (supersite_trace_enabled()) std::fprintf(stderr, "FWD3 loop enter abs=%d rel_off=%d\n", curr_abs_locus, curr_rel_locus_offset);
+        if (supersite_site_trace_enabled()) std::fprintf(stderr, "FWD3 loop enter abs=%d rel_off=%d\n", curr_abs_locus, curr_rel_locus_offset);
         // Keep segment cursor in range before any Lengths_bio access (protects trailing siblings)
         if (curr_segment_index < segment_first) curr_segment_index = segment_first;
         if (curr_segment_index > segment_last) curr_segment_index = segment_last;
@@ -544,9 +544,9 @@ void haplotype_segment_single::forward() {
 		char rare_allele = M.rare_allele[curr_abs_locus];
 
 		SiteView site_view{};
-        if (supersite_trace_enabled()) std::fprintf(stderr, "FWD4 before build_view supersites_enabled=%d\n", (int)supersites_enabled);
+        if (supersite_site_trace_enabled()) std::fprintf(stderr, "FWD4 before build_view supersites_enabled=%d\n", (int)supersites_enabled);
 		bool has_supersite = supersites_enabled && supersite_adapter.build_view(curr_abs_locus, curr_abs_ambiguous, site_view);
-        if (supersite_trace_enabled()) std::fprintf(stderr, "FWD5 after build_view has_ss=%d kind=%d emit=%d\n", (int)has_supersite, (int)site_view.kind, (int)site_view.emit_kind);
+        if (supersite_site_trace_enabled()) std::fprintf(stderr, "FWD5 after build_view has_ss=%d kind=%d emit=%d\n", (int)has_supersite, (int)site_view.kind, (int)site_view.emit_kind);
 		if (!has_supersite) {
 			bial_adapter.build_view(curr_abs_locus, curr_abs_ambiguous, site_view);
 		}
@@ -557,7 +557,7 @@ void haplotype_segment_single::forward() {
 			const bool hmm_amb = (emit == EmitKind::Amb);
 			const bool hmm_hom = (emit == EmitKind::Hom);
 			// Debug: dump prob just before processing a target locus (e.g., missing anchors)
-			if (supersite_trace_enabled()) {
+			if (supersite_site_trace_enabled()) {
 				static int fwd_probe_budget = 16; // keep small
 				if (fwd_probe_budget > 0 && (curr_abs_locus == 0 || curr_abs_locus == 1 || curr_abs_locus == 2 || curr_abs_locus == 12)) {
 					std::fprintf(stdout, "[FWD_PROBE_BEFORE] locus=%d emit=%d is_anchor=%d is_sibling=%d prob_first_k:\n",
@@ -580,7 +580,7 @@ void haplotype_segment_single::forward() {
 		nt = 1.0f - yt;
 		trace_ambiguous_cursor("fwd_pre", curr_abs_locus, is_sibling, 0);
 
-		if (supersite_trace_enabled()) {
+		if (supersite_site_trace_enabled()) {
 			const bool dbg_is_anchor = (site_view.kind == SiteKind::SuperAnchor);
 			const bool dbg_is_sibling = (site_view.kind == SiteKind::SuperSibling);
 			std::fprintf(stdout,
@@ -700,7 +700,7 @@ void haplotype_segment_single::forward() {
 		if (curr_segment_locus == G->Lengths_bio[curr_segment_index] - 1) {
 			const int rel_seg = curr_segment_index - segment_first;
 			// Diagnostic guard: print sizes/indices when trace enabled to catch OOB
-			if (supersite_trace_enabled()) {
+			if (supersite_site_trace_enabled()) {
 				std::fprintf(stdout,
 					"DBG Alpha write: rel_seg=%d curr_segment_index=%d segment_first=%d Alpha.size=%zu AlphaSum.size=%zu AlphaLaneSum.size=%zu AlphaSumSum.size=%zu G.Lengths[curr_segment_index]=%d prob.size=%zu n_cond_haps=%u\n",
 					rel_seg, curr_segment_index, segment_first,
@@ -722,14 +722,14 @@ void haplotype_segment_single::forward() {
 						// or consume rel-missing slots for them, otherwise anchors may read sibling
 						// caches during backward SC.
 						if (is_sibling && supersites_enabled_flag) {
-							if (supersite_trace_enabled()) {
+							if (supersite_site_trace_enabled()) {
 								std::fprintf(stdout,
 									"[FWD_MIS_SKIP] locus=%d is_sibling=1 supersites=1 (skipping missing cache)\n",
 									curr_abs_locus);
 							}
 							// Do NOT advance curr_abs_missing / curr_rel_missing
 						} else {
-							if (supersite_trace_enabled()) {
+							if (supersite_site_trace_enabled()) {
 								static int forward_missing_trace_budget = 2; // keep small
 								if (forward_missing_trace_budget > 0) {
 									std::fprintf(stdout, "[FWD_MIS_TRACE] locus=%d rel_missing=%d is_anchor=%d is_sibling=%d\n",
@@ -748,7 +748,7 @@ void haplotype_segment_single::forward() {
 							// Record the rel-missing index for backward SC (supersites) or IMPUTE (biallelic)
 							int idx = curr_abs_locus - locus_first;
 							if (idx >= 0 && idx < (int)missing_index_by_locus.size()) missing_index_by_locus[idx] = curr_rel_missing;
-							if (supersite_trace_enabled()) {
+							if (supersite_site_trace_enabled()) {
 								std::fprintf(stdout,
 									"[FWD_MIS_MAP] locus=%d is_anchor=%d is_sibling=%d curr_abs_missing=%d rel_missing=%d locus_first=%d map_idx=%d mapped_rel=%d AlphaSumMissing:",
 									curr_abs_locus, is_anchor ? 1 : 0, is_sibling ? 1 : 0,
@@ -777,7 +777,7 @@ void haplotype_segment_single::forward() {
 		// Diagnostic accounting: count data_amb sites and actual advances
 		if (expected_delta) {
 			diag_expected_amb_sites++;
-			if (supersite_trace_enabled()) {
+			if (supersite_site_trace_enabled()) {
 				const char* amb_reason = is_anchor ? "super_anchor" : "biallelic";
 				std::fprintf(stdout,
 					"[AmbEncounter] locus=%d reason=%s curr_idx=%d range=[%d,%d] diag_expected=%d diag_advanced=%d\n",
@@ -790,7 +790,7 @@ void haplotype_segment_single::forward() {
 					diag_advanced_amb);
 			}
 		}
-		if (supersite_trace_enabled()) {
+		if (supersite_site_trace_enabled()) {
 			std::fprintf(stdout,
 				"FWD.delta locus=%d cursor_before=%d expected_delta=%d data_amb=%d data_mis=%d is_sibling=%d has_range=%d\n",
 				curr_abs_locus,
@@ -807,7 +807,7 @@ void haplotype_segment_single::forward() {
 		}
 		trace_ambiguous_cursor("fwd_post", curr_abs_locus, is_sibling, expected_delta);
 		if (has_amb_range && (curr_abs_ambiguous < ambiguous_first || curr_abs_ambiguous > ambiguous_last + 1)) {
-			if (supersite_trace_enabled()) {
+			if (supersite_site_trace_enabled()) {
 				int seg_len = (curr_segment_index >= 0 && curr_segment_index < (int)G->Lengths.size()) ? G->Lengths[curr_segment_index] : -1;
 				std::fprintf(stderr,
 					"[ss-amb-oob][single] stage=fwd_post locus=%d before=%d after=%d expected_delta=%d range=[%d,%d] seg_idx=%d seg_len=%d seg_loc=%d is_sibling=%d\n",
@@ -837,7 +837,7 @@ void haplotype_segment_single::forward() {
 			}
 
 		// End-of-window diagnostic: verify ambiguous-site bookkeeping parity
-		if (supersite_trace_enabled()) {
+		if (supersite_site_trace_enabled()) {
 			const bool has_amb_range = (ambiguous_first <= ambiguous_last);
 			int slots = has_amb_range ? (ambiguous_last - ambiguous_first + 1) : 0;
 			if (diag_expected_amb_sites > slots) {
@@ -850,7 +850,7 @@ void haplotype_segment_single::forward() {
 				assert(false && "ambiguous cursor advanced count mismatch");
 			}
 			else {
-				if (supersite_trace_enabled()) {
+				if (supersite_site_trace_enabled()) {
 					std::fprintf(stdout, "[ss-amb-diag-PASS][single] expected_amb_sites=%d advanced_amb=%d slots=%d\n",
 						 diag_expected_amb_sites, diag_advanced_amb, slots);
 				}
@@ -917,7 +917,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 		// Deferred initialization: if we started on a sibling, keep doing INIT_MIS until we hit a non-sibling
 		if (need_init && is_sibling) {
-			if (supersite_trace_enabled()) {
+			if (supersite_site_trace_enabled()) {
 				std::fprintf(stdout, "[DEFERRED_INIT] locus=%d is_sibling=1, advancing counters and continue\n", curr_abs_locus);
 			}
 			// Minimal interaction: just advance the counters as if this locus was processed, but do no HMM math.
@@ -952,19 +952,19 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	const bool data_mis = hmm_mis && !is_sibling;
 	const bool data_amb = hmm_amb && !is_sibling;
 		// Guarded transition probability calculation
-		if (supersite_trace_enabled()) {
+		if (supersite_site_trace_enabled()) {
 			std::fprintf(stderr, "[YT_DEBUG] locus=%d is_sibling=%d is_anchor=%d prev_abs=%d locus_last=%d yt_before=%.10f\n",
 			             curr_abs_locus, is_sibling, is_anchor, prev_abs_locus, locus_last, yt);
 		}
 		if (!is_sibling) {
 			yt = (curr_abs_locus == locus_last || curr_abs_locus == prev_abs_locus) ? 0.0f : M.getBackwardTransProb(prev_abs_locus, curr_abs_locus);
 			nt = 1.0f - yt;
-			if (supersite_trace_enabled()) {
+			if (supersite_site_trace_enabled()) {
 				std::fprintf(stderr, "[YT_DEBUG] locus=%d COMPUTED yt=%.10f (curr==last:%d curr==prev:%d)\n",
 				             curr_abs_locus, yt, (curr_abs_locus == locus_last), (curr_abs_locus == prev_abs_locus));
 			}
 		} else {
-			if (supersite_trace_enabled()) {
+			if (supersite_site_trace_enabled()) {
 				std::fprintf(stderr, "[YT_DEBUG] locus=%d SKIPPED (is_sibling=1), yt unchanged=%.10f\n",
 				             curr_abs_locus, yt);
 			}
@@ -973,7 +973,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 		// Deferred initialization: first non-sibling after starting on a sibling - use INIT
 		if (need_init && is_anchor) {
-			if (supersite_trace_enabled()) {
+			if (supersite_site_trace_enabled()) {
 				std::fprintf(stdout, "[DEFERRED_INIT] locus=%d is_anchor=1, need_init=true, using INIT_FROM_MASK\n", curr_abs_locus);
 			}
 			need_init = false;
@@ -1065,7 +1065,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		}
 		if (curr_segment_locus == 0) SUMK();
 		const int prev_after = update_prev_locus ? curr_abs_locus : prev_abs_locus;
-		if (supersite_trace_enabled()) {
+		if (supersite_site_trace_enabled()) {
 			fprintf(stderr, "[SIBLING_SKIP_TRACE] loc=%d, prev_loc_in=%d, kind=%d, is_sib=%d, update_prev=%d, yt=%.8f, prev_loc_out=%d\n",
 					curr_abs_locus,
 					prev_before,
@@ -1149,7 +1149,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 				int idx = -1;
 				int map_i = curr_abs_locus - locus_first;
 				if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) idx = missing_index_by_locus[map_i];
-				if (supersite_trace_enabled()) {
+				if (supersite_site_trace_enabled()) {
 					std::fprintf(stdout,
 						"[BWD_MIS_MAP] locus=%d is_anchor=%d map_i=%d idx=%d n_missing=%d curr_abs_missing=%d locus_first=%d\n",
 						curr_abs_locus, is_anchor ? 1 : 0, map_i, idx, n_missing, curr_abs_missing, locus_first);
@@ -1162,7 +1162,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 				if (idx >= 0) {
 					// Ensure supersite codes are loaded before any debug numerators
 					ss_load_cond_codes(*site_view.supersite, site_view.supersite_index);
-					if (supersite_trace_enabled()) {
+					if (supersite_site_trace_enabled()) {
 						std::fprintf(stdout, "SCTrace anchor=%d rel_missing=%d\n", curr_abs_locus, idx);
 						std::fprintf(stdout, "AlphaSumMissing:");
 						for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", AlphaSumMissing[idx][h]);
@@ -1205,7 +1205,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 					// Optional logging: dump SC rows for h0/h1 after normalization so we can
 					// see the per-class posterior before sampling.
-					if (supersite_trace_enabled()) {
+					if (supersite_site_trace_enabled()) {
 						const uint32_t offset = supersite_sc_offset ? (*supersite_sc_offset)[site_view.supersite_index]
 						                                           : static_cast<uint32_t>(site_view.supersite_index * HAP_NUMBER * site_view.supersite->n_classes);
 						const int C = site_view.supersite->n_classes;
@@ -1229,7 +1229,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 				int map_i = curr_abs_locus - locus_first;
 				int rel_missing_idx = -1;
 				if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) rel_missing_idx = missing_index_by_locus[map_i];
-				if (supersite_trace_enabled()) {
+				if (supersite_site_trace_enabled()) {
 					std::fprintf(stdout, "IMPUTE-guard locus=%d map_i=%d rel_missing_idx=%d n_missing=%d\n", curr_abs_locus, map_i, rel_missing_idx, n_missing);
 					if (rel_missing_idx >= 0 && rel_missing_idx < (int)AlphaMissing.size()) {
 						// Aggregate Beta over donors per lane to compare with AlphaMissing (forward)
@@ -1285,7 +1285,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 					IMPUTE(missing_probabilities);
 				} else {
 					// Nothing recorded in forward (e.g., sibling or no-missing window) -> skip IMPUTE
-					if (supersite_trace_enabled()) std::fprintf(stdout, "Skipping IMPUTE for locus=%d rel_missing_idx=%d n_missing=%d\n", curr_abs_locus, rel_missing_idx, n_missing);
+					if (supersite_site_trace_enabled()) std::fprintf(stdout, "Skipping IMPUTE for locus=%d rel_missing_idx=%d n_missing=%d\n", curr_abs_locus, rel_missing_idx, n_missing);
 				}
 			}
 			curr_abs_missing--;
@@ -1306,7 +1306,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		trace_ambiguous_cursor("bwd_post", curr_abs_locus, is_sibling, expected_delta);
 		const int lower_bound = ambiguous_first - 1;
 		if (has_amb_range && (curr_abs_ambiguous < lower_bound || curr_abs_ambiguous > ambiguous_last)) {
-			if (supersite_trace_enabled()) {
+			if (supersite_site_trace_enabled()) {
 				int seg_len = (curr_segment_index >= 0 && curr_segment_index < (int)G->Lengths.size()) ? G->Lengths[curr_segment_index] : -1;
 				std::fprintf(stderr,
 					"[ss-amb-oob][single] stage=bwd_post locus=%d before=%d after=%d expected_delta=%d range=[%d,%d] seg_idx=%d seg_len=%d seg_loc=%d is_sibling=%d\n",
@@ -1397,7 +1397,7 @@ void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_pr
 		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
 		return env && env[0] != '\0' && env[0] != '0';
 	}();
-	if (supersite_trace_enabled()) {
+	if (supersite_site_trace_enabled()) {
 		std::fprintf(stdout, "SET_FIRST_TRANS single: n_transitions=%u buf_size=%zu\n",
 					 n_transitions, transition_probabilities.size());
 	}
@@ -1566,7 +1566,7 @@ int haplotype_segment_single::SET_OTHER_TRANS(vector < double > & transition_pro
 			std::fprintf(stderr, "  trans[%u] DProb=%.15f final=%.15f\n", t, DProbs[t], DProbs[t] * scaleDip);
 		}
 	}
-	if (supersite_trace_enabled()) {
+	if (supersite_site_trace_enabled()) {
 		std::fprintf(stdout, "SET_OTHER_TRANS single: curr_abs_transition=%d n_transitions=%u buf_size=%zu\n",
 					 curr_abs_transition, n_transitions, transition_probabilities.size());
 	}

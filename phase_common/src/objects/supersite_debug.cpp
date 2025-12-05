@@ -156,6 +156,27 @@ bool check_supersite_consistency_for_sample(
 				viol->var_start = ss.var_start;
 				viol->var_count = ss.var_count;
 				viol->message = "multiple ALT classes across supersite members for a single haplotype";
+
+				// Optional detailed dump of per-sibling hap bits when verbose is enabled.
+				if (cfg.verbose) {
+					std::fprintf(stderr,
+						"[supersite-invariant-detail] sample=%s ss_idx=%u bp=%u hap=%d conflict=multiple-ALTs\n",
+						sample_g.name.c_str(),
+						static_cast<unsigned>(ss_idx),
+						static_cast<unsigned>(ss.bp),
+						hap);
+					for (uint32_t i = 0; i < ss.var_count; ++i) {
+						const int v_idx = super_site_var_index[ss.var_start + i];
+						const unsigned char v = sample_g.Variants[DIV2(v_idx)];
+						const bool is_mis = VAR_GET_MIS(MOD2(v_idx), v);
+						const bool h0 = VAR_GET_HAP0(MOD2(v_idx), v);
+						const bool h1 = VAR_GET_HAP1(MOD2(v_idx), v);
+						std::fprintf(stderr,
+							"  sib[%u] locus=%d mis=%d hap0=%d hap1=%d\n",
+							i, v_idx, (int)is_mis, (int)h0, (int)h1);
+					}
+				}
+
 				handle_violation(*viol);
 				return false;
 			}
@@ -175,6 +196,27 @@ bool check_supersite_consistency_for_sample(
 				viol->var_count = ss.var_count;
 				viol->message = "hap0 bits mismatch sampled class (expected h0=" + std::to_string(h0) +
 				                ", got class_from_bits=" + std::to_string(hap_class[0]) + ")";
+
+				if (cfg.verbose) {
+					std::fprintf(stderr,
+						"[supersite-invariant-detail] sample=%s ss_idx=%u bp=%u hap=0 expected_h=%u bits_class=%u\n",
+						sample_g.name.c_str(),
+						static_cast<unsigned>(ss_idx),
+						static_cast<unsigned>(ss.bp),
+						(unsigned)h0,
+						(unsigned)hap_class[0]);
+					for (uint32_t i = 0; i < ss.var_count; ++i) {
+						const int v_idx = super_site_var_index[ss.var_start + i];
+						const unsigned char v = sample_g.Variants[DIV2(v_idx)];
+						const bool is_mis = VAR_GET_MIS(MOD2(v_idx), v);
+						const bool h0_bit = VAR_GET_HAP0(MOD2(v_idx), v);
+						const bool h1_bit = VAR_GET_HAP1(MOD2(v_idx), v);
+						std::fprintf(stderr,
+							"  sib[%u] locus=%d mis=%d hap0=%d hap1=%d\n",
+							i, v_idx, (int)is_mis, (int)h0_bit, (int)h1_bit);
+					}
+				}
+
 				handle_violation(*viol);
 				return false;
 			}
@@ -189,6 +231,27 @@ bool check_supersite_consistency_for_sample(
 				viol->var_count = ss.var_count;
 				viol->message = "hap1 bits mismatch sampled class (expected h1=" + std::to_string(h1) +
 				                ", got class_from_bits=" + std::to_string(hap_class[1]) + ")";
+
+				if (cfg.verbose) {
+					std::fprintf(stderr,
+						"[supersite-invariant-detail] sample=%s ss_idx=%u bp=%u hap=1 expected_h=%u bits_class=%u\n",
+						sample_g.name.c_str(),
+						static_cast<unsigned>(ss_idx),
+						static_cast<unsigned>(ss.bp),
+						(unsigned)h1,
+						(unsigned)hap_class[1]);
+					for (uint32_t i = 0; i < ss.var_count; ++i) {
+						const int v_idx = super_site_var_index[ss.var_start + i];
+						const unsigned char v = sample_g.Variants[DIV2(v_idx)];
+						const bool is_mis = VAR_GET_MIS(MOD2(v_idx), v);
+						const bool h0_bit = VAR_GET_HAP0(MOD2(v_idx), v);
+						const bool h1_bit = VAR_GET_HAP1(MOD2(v_idx), v);
+						std::fprintf(stderr,
+							"  sib[%u] locus=%d mis=%d hap0=%d hap1=%d\n",
+							i, v_idx, (int)is_mis, (int)h0_bit, (int)h1_bit);
+					}
+				}
+
 				handle_violation(*viol);
 				return false;
 			}
