@@ -141,6 +141,14 @@ The supersite algorithm mirrors the structure of the biallelic pathway but intro
 
 6.  **Haplotype Update:** After the `projectSupersites()` function ensures the individual's `Variants` array has a biologically correct representation of the multi-allelic site, the update proceeds identically to the biallelic case. The main algorithm calls `H.updateHaplotypes(G)`, where the "global reference panel" (`H`, the `conditioning_set` object) is updated. This method copies the newly-phased and correctly projected haplotype data from the individual's `Variants` array into the central `H.H_opt_hap` matrix. This makes the improved, consistent haplotype available as a template for all other individuals in the next MCMC iteration.
 
+> **Important clarifications about c0/c1, h0/h1, and lane permutations**
+>
+> - The immutable class pair (`c0`,`c1`) for a supersite is snapshotted once per metadata build by `snapshotSupersiteBaseClasses(...)` and stored in `supersite_class_pairs_base`. These values are **not mutated** by MCMC sampling, segment pruning, or HMM forward/backward passes; only an explicit metadata rebuild may resnapshot them.
+> - The ephemeral pair (`h0`,`h1`) is per-epoch and per-supersite. It is derived from the sampled diplotype lanes at the anchor and lives in `supersite_class_pairs`. Projection uses (`h0`,`h1`) together with fixed (`c0`,`c1`) to decide which split record gets which ALT bit.
+> - The prune logic (`mapMerges` / `performMerges`) builds a temporary `Mhaps` table that maps merged hap pairs `(prev_h, next_h)` into up to 8 merged lanes. This mapping is *free to permute lanes* based solely on transition probabilities and diplotype masks; it does **not** try to keep any cross-representation (bial vs supersite) lane numbering invariant.
+> - As a result, even when the underlying biology is identical, the 8-way lane basis after pruning can differ between biallelic and supersite representations. This is expected and allowed in production.
+> - Some unit tests (e.g. the `test_supersite_expansion_epochs*` family) deliberately use a highly symmetric “dummy sibling 0/0” dataset where the biallelic and supersite views should, in principle, evolve identically. Those tests **do not enforce** parity in the code; instead, they *observe* whether Mhaps + pruning happen to yield the same lane configuration in both views. A deviation in that setting is treated as a bug in the supersite pipeline, not as a mandate to constrain Mhaps.
+
 ### 2.2. Functional Deep Dive
 
 The supersite pathway cleverly reuses the biallelic infrastructure by introducing a carefully designed abstraction layer.

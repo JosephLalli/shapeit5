@@ -551,21 +551,21 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				m++;
 			}
 			if (VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)])) {
+				const bool is_superdebug_target =
+					(!debug::SUPERDEBUG_SAMPLENAME.empty() &&
+					 this->name == debug::SUPERDEBUG_SAMPLENAME &&
+					 static_cast<int>(vabs) == debug::SUPERDEBUG_BP);
+
 				// Recompute ss_idx for this specific variant
 				int ss_idx_amb = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
 				
 				// Check if this is a heterozygous supersite
 				if (ss_idx_amb >= 0 && super_sites && super_site_var_index) {
 					const SuperSite& ss = (*super_sites)[ss_idx_amb];
-					
 					if (vabs == ss.global_site_id) {
 						// This is a heterozygous supersite anchor
                     // Determine h0/h1 (sampled classes for this epoch) from lanes and immutable c0/c1
                     
-                    const bool is_superdebug_target =
-							(!debug::SUPERDEBUG_SAMPLENAME.empty() &&
-							 this->name == debug::SUPERDEBUG_SAMPLENAME &&
-							 static_cast<int>(ss.global_site_id) == debug::SUPERDEBUG_BP);
                         if (is_superdebug_target) {
 							unsigned long dip_mask = Diplotypes[s];
 							std::cout << "[SUPERDEBUG] H2: Enter AMB block segment=" << s
@@ -591,6 +591,15 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						// If HAP_GET(amb_code, hap) == 1, this lane gets c1's allele
                     uint8_t h0 = HAP_GET(amb_code, hap0) ? current_c1 : current_c0;
                     uint8_t h1 = HAP_GET(amb_code, hap1) ? current_c1 : current_c0;
+
+					if (is_superdebug_target) {
+						std::cout << "[SUPERDEBUG] lane_class map:";
+						for (int h = 0; h < HAP_NUMBER; ++h) {
+							uint8_t lc = HAP_GET(amb_code, h) ? current_c1 : current_c0;
+							std::cout << " h" << h << "=" << (int)lc;
+						}
+						std::cout << std::endl;
+					}
 
 					// TRACE: Log amb_code interpretation for burn3 debugging
 					if (supersite_trace_enabled() && vabs == ss.global_site_id && ss.global_site_id == 0) {
@@ -660,31 +669,48 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				}
 				
 				// Normal biallelic heterozygous site
-				if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && static_cast<int>(vabs) == debug::SUPERDEBUG_BP) {
+				if (is_superdebug_target) {
 					unsigned long dip_mask = Diplotypes[s];
+					unsigned char amb_code = Ambiguous[a];
+					uint8_t lane_h0 = HAP_GET(amb_code, hap0) ? 1 : 0;
+					uint8_t lane_h1 = HAP_GET(amb_code, hap1) ? 1 : 0;
+
 					std::cout << "[SUPERDEBUG] BIAL: segment=" << s
 					          << " dip_mask=0x" << std::hex << dip_mask << std::dec
 					          << " DipSampled=" << static_cast<unsigned>(DipSampled[s])
 					          << " HapLanes(" << static_cast<int>(hap0) << "," << static_cast<int>(hap1) << ")"
-					          << " amb_code=" << static_cast<int>(Ambiguous[a])
+					          << " amb_code=" << static_cast<int>(amb_code)
 					          << std::endl;
+
+					std::cout << "[SUPERDEBUG] lane_class map:";
+					for (int h = 0; h < HAP_NUMBER; ++h) {
+						uint8_t lc = HAP_GET(amb_code, h) ? 1 : 0;
+						std::cout << " h" << h << "=" << static_cast<int>(lc);
+					}
+					std::cout << std::endl;
+
+					std::cout << "[SUPERDEBUG] BIAL: sampled_h0=" << static_cast<int>(lane_h0)
+					          << " sampled_h1=" << static_cast<int>(lane_h1) << std::endl;
 				}
-			// TRACE: Log biallelic ambiguous interpretation for burn3 debugging
-			if (supersite_trace_enabled() && vabs == 0) {
-				unsigned char amb_code = Ambiguous[a];
-				bool hap0_bit = HAP_GET(amb_code, hap0);
-				bool hap1_bit = HAP_GET(amb_code, hap1);
-				std::fprintf(stderr, "[MAKE_BIAL_AMB] sample=%s locus=%u\n",
-				             name.c_str(), vabs);
-				std::fprintf(stderr, "  sampled_lanes: hap0=%u hap1=%u\n",
-				             (unsigned)hap0, (unsigned)hap1);
-				std::fprintf(stderr, "  amb_code=0x%02x hap0_bit=%u hap1_bit=%u\n",
-				             (unsigned)amb_code, (unsigned)hap0_bit, (unsigned)hap1_bit);
-				std::fprintf(stderr, "  result: HAP0=%u HAP1=%u\n",
-				             (unsigned)hap0_bit, (unsigned)hap1_bit);
-			}
-				HAP_GET(Ambiguous[a], hap0)?VAR_SET_HAP0(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP0(MOD2(vabs),Variants[DIV2(vabs)]);
-				HAP_GET(Ambiguous[a], hap1)?VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
+				// TRACE: Log biallelic ambiguous interpretation for burn3 debugging
+				if (supersite_trace_enabled() && vabs == 0) {
+					unsigned char amb_code = Ambiguous[a];
+					bool hap0_bit = HAP_GET(amb_code, hap0);
+					bool hap1_bit = HAP_GET(amb_code, hap1);
+					std::fprintf(stderr, "[MAKE_BIAL_AMB] sample=%s locus=%u\n",
+					             name.c_str(), vabs);
+					std::fprintf(stderr, "  sampled_lanes: hap0=%u hap1=%u\n",
+					             (unsigned)hap0, (unsigned)hap1);
+					std::fprintf(stderr, "  amb_code=0x%02x hap0_bit=%u hap1_bit=%u\n",
+					             (unsigned)amb_code, (unsigned)hap0_bit, (unsigned)hap1_bit);
+					std::fprintf(stderr, "  result: HAP0=%u HAP1=%u\n",
+					             (unsigned)hap0_bit, (unsigned)hap1_bit);
+				}
+
+				bool hap0_bit = HAP_GET(Ambiguous[a], hap0);
+				bool hap1_bit = HAP_GET(Ambiguous[a], hap1);
+				hap0_bit ? VAR_SET_HAP0(MOD2(vabs), Variants[DIV2(vabs)]) : VAR_CLR_HAP0(MOD2(vabs), Variants[DIV2(vabs)]);
+				hap1_bit ? VAR_SET_HAP1(MOD2(vabs), Variants[DIV2(vabs)]) : VAR_CLR_HAP1(MOD2(vabs), Variants[DIV2(vabs)]);
 				a++;
 			}
 		}
@@ -712,7 +738,22 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 		unsigned char hap0 = DIP_HAP0(DipSampled[s]);
 		unsigned char hap1 = DIP_HAP1(DipSampled[s]);
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel++, vabs++) {
+			int ss_idx_mis = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
+
 			if (VAR_GET_MIS(MOD2(vabs), Variants[DIV2(vabs)])) {
+				if (ss_idx_mis >= 0) {
+					// Supersite member: anchor already determined classes; just clear MIS
+					// using the currently stored hap bits (set at the anchor projection).
+					unsigned char &vbyte = Variants[DIV2(vabs)];
+					bool hap0_bit = VAR_GET_HAP0(MOD2(vabs), vbyte);
+					bool hap1_bit = VAR_GET_HAP1(MOD2(vabs), vbyte);
+					if (hap0_bit == hap1_bit) {
+						VAR_SET_HOM(MOD2(vabs), vbyte);
+					} else {
+						VAR_SET_HET(MOD2(vabs), vbyte);
+					}
+					continue;
+				}
 				if (haploid) {
 					float p00 = (1.0f - ProbMissing[m*HAP_NUMBER+hap0] / n_storage_events) * (1.0f - ProbMissing[m*HAP_NUMBER+hap1] / n_storage_events);
 					float p11 = (ProbMissing[m*HAP_NUMBER+hap0] / n_storage_events) * (ProbMissing[m*HAP_NUMBER+hap1] / n_storage_events);
@@ -741,6 +782,11 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 			}
 
 			if (is_amb) {
+				const bool is_superdebug_target =
+					(!debug::SUPERDEBUG_SAMPLENAME.empty() &&
+					 this->name == debug::SUPERDEBUG_SAMPLENAME &&
+					 static_cast<int>(vabs) == debug::SUPERDEBUG_BP);
+
 				// Recompute ss_idx for this specific variant
 				int ss_idx_amb = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
 
@@ -806,8 +852,31 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 				}
 
 				// Normal biallelic heterozygous site
-				HAP_GET(Ambiguous[a], hap0)?VAR_SET_HAP0(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP0(MOD2(vabs),Variants[DIV2(vabs)]);
-				HAP_GET(Ambiguous[a], hap1)?VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
+				if (is_superdebug_target) {
+					unsigned long dip_mask = Diplotypes[s];
+					unsigned char amb_code = Ambiguous[a];
+					uint8_t lane_h0 = HAP_GET(amb_code, hap0) ? 1 : 0;
+					uint8_t lane_h1 = HAP_GET(amb_code, hap1) ? 1 : 0;
+					std::cout << "[SUPERDEBUG] BIAL: Enter AMB block (make) segment=" << s
+					          << " dip_mask=0x" << std::hex << dip_mask << std::dec
+					          << " DipSampled=" << static_cast<unsigned>(DipSampled[s])
+					          << " HapLanes(" << static_cast<int>(hap0) << "," << static_cast<int>(hap1) << ")"
+					          << " amb_code=" << static_cast<int>(amb_code)
+					          << " sampled_h0=" << static_cast<int>(lane_h0)
+					          << " sampled_h1=" << static_cast<int>(lane_h1)
+					          << std::endl;
+					std::cout << "[SUPERDEBUG] lane_class map:";
+					for (int h = 0; h < HAP_NUMBER; ++h) {
+						uint8_t lc = HAP_GET(amb_code, h) ? 1 : 0;
+						std::cout << " h" << h << "=" << static_cast<int>(lc);
+					}
+					std::cout << std::endl;
+				}
+
+				bool hap0_bit = HAP_GET(Ambiguous[a], hap0);
+				bool hap1_bit = HAP_GET(Ambiguous[a], hap1);
+				hap0_bit ? VAR_SET_HAP0(MOD2(vabs), Variants[DIV2(vabs)]) : VAR_CLR_HAP0(MOD2(vabs), Variants[DIV2(vabs)]);
+				hap1_bit ? VAR_SET_HAP1(MOD2(vabs), Variants[DIV2(vabs)]) : VAR_CLR_HAP1(MOD2(vabs), Variants[DIV2(vabs)]);
 				a++;
 			}
 		}

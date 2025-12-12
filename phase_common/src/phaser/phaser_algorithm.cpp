@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <sstream>
 #include <iostream>
+#include <unordered_set>
 
 using namespace std;
 
@@ -37,6 +38,34 @@ bool supersite_metadata_trace_enabled() {
 		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
 	}
 	return flag == 1;
+}
+
+// Parse comma-separated bp targets from SHAPEIT5_TRACE_BP
+const std::unordered_set<int>& bp_trace_targets() {
+	static std::unordered_set<int> targets;
+	static bool initialized = false;
+	if (!initialized) {
+		initialized = true;
+		const char* env = std::getenv("SHAPEIT5_TRACE_BP");
+		if (env && env[0]) {
+			std::stringstream ss(env);
+			std::string token;
+			while (std::getline(ss, token, ',')) {
+				try {
+					int bp = std::stoi(token);
+					targets.insert(bp);
+				} catch (const std::exception&) {
+					// ignore parse errors
+				}
+			}
+		}
+	}
+	return targets;
+}
+
+bool should_trace_bp(int bp) {
+	const auto& targets = bp_trace_targets();
+	return !targets.empty() && targets.find(bp) != targets.end();
 }
 
 const SuperSite* find_superdebug_supersite(const std::vector<SuperSite>& super_sites) {
@@ -283,6 +312,24 @@ void phaser::phaseWindow() {
 void phaser::phase() {
 	unsigned long n_old_segments = G.numberOfSegments(), n_new_segments = 0;
 	std::vector<uint8_t> supersite_codes_before_update;
+	static bool bp_trace_emitted = false;
+	if (!bp_trace_emitted && !bp_trace_targets().empty()) {
+		bp_trace_emitted = true;
+		for (int locus = 0; locus < V.size(); ++locus) {
+			const variant* vp = V.vec_pos[locus];
+			if (!vp) continue;
+			if (should_trace_bp(vp->bp)) {
+				std::ostringstream oss;
+				oss << "[BP_INDEX_TRACE] locus=" << locus
+				    << " chr=" << vp->chr
+				    << " bp=" << vp->bp
+				    << " id=" << vp->id
+				    << " ref=" << vp->ref
+				    << " alt=" << vp->alt;
+				vrb.bullet(oss.str());
+			}
+		}
+	}
 	for (iteration_stage = 0 ; iteration_stage < iteration_counts.size() ; iteration_stage ++) {
 		for (int iter = 0 ; iter < iteration_counts[iteration_stage] ; iter ++) {
 			//VERBOSE

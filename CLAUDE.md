@@ -47,215 +47,137 @@ awk '/Iteration 3\/15/,/Iteration 4\/15/' hmm_trace.log | awk '/# Backward.*supe
 
 ---
 
-## Scenario 8 (8x Replication) Probability Redistribution Bug (2025-11-26)
+## K-Inflation in Missing Data (2025-12-06)
 
 ### Problem Statement
 
-Test scenario 8 (40 supersites, 80 total variants, 8 segments) fails at iteration 9 (burn7) with divergent ambiguous masks:
+Real-world integration tests on chr22:18-25mb region show massive accuracy degradation in supersite mode when missing data is present:
 
-```
-Iteration 8/15 [prune2]
-[ITER_TRACE] amb_state post-prune2: bial(seg=2,amb0=0xaa) supersite(seg=2,amb0=0x6a)
+**Switch Error Rates:**
+- Biallelic mode: 0.39% (0.05% pure switch)
+- Supersite mode: 26.55% (7.5% pure switch)
+- **68x worse performance**
 
-Iteration 9/15 [burn7]
-Anchor mismatch at locus 0: bial (1|0) vs supersite (0|1)
-```
+**Key Finding:** Runs WITHOUT missing data do NOT show K-inflation. The bug is specific to missing data handling in supersite mode.
 
-**Status:**
-- ✅ Scenarios 1, 2, 4 (5, 10, 20 supersites) PASS
-- ❌ Scenario 8 (40 supersites, 8 segments) FAILS
+### Evidence
 
-### Root Cause Investigation (2025-11-26)
+Sample-level comparison shows every sample has 50-60x more errors in supersite mode:
+- HG00438: 0.41% → 24.30%
+- HG01891: 0.69% → 29.89% (worst case)
 
-#### Timeline of Divergence
+Test data: `test/tmp/chr22.1KGP.18-25mb.phase_common.*.42.full_unphased.*`
 
-Added comprehensive `BWD_PROB_DETAIL` logging to track backward emission probabilities (`prob[]`) at every locus:
+### Root Cause Hypotheses
 
+#### Hypothesis 1: Missing Index (`curr_abs_missing`) Mismatch (Most Likely)
+
+**Location:** `haplotype_segment_single.cpp` lines 721-760
+
+In supersite mode, sibling loci skip `AlphaMissing` caching:
 ```cpp
-fprintf(stderr, "[BWD_PROB_DETAIL] sample=%s locus=%d bio_anchor=%d is_sib=%d seg=%d seg_locus=%d probSumT=%.15f\n",
-        G->name.c_str(), curr_abs_locus, bio_anchor_idx, (int)is_sibling,
-        curr_segment_index, curr_segment_locus, (double)probSumT);
-fprintf(stderr, "  prob[0][0-7]= ");
-for (int i = 0; i < std::min(8, (int)prob.size()); i++) {
-    fprintf(stderr, "%.8e ", (double)prob[i]);
+if (is_sibling && supersites_enabled_flag) {
+    // Do NOT advance curr_abs_missing / curr_rel_missing
 }
 ```
 
-**Timeline Analysis:**
+If the backward pass doesn't use identical skip logic, `AlphaMissing[idx]` will retrieve wrong forward probabilities, causing K-inflation through incorrect probability aggregation.
 
-| Iteration | Phase | Segments | Divergence? | Details |
-|-----------|-------|----------|-------------|---------|
-| 5 | burn5 | 8 | ❌ NO | All prob[] values identical |
-| 6 | prune1 | 8→3 | ❌ NO | After merge: `amb0=0xa6` for BOTH |
-| 7 | burn6 | 3 | ✅ **YES** | **100x divergence first appears** |
-| 8 | prune2 | 3→2 | ✅ YES | Masks diverge: `0xaa` vs `0x6a` |
-| 9 | burn7 | 2 | ✅ YES | Test fails with haplotype mismatch |
+#### Hypothesis 2: `n_cond_haps` Semantic Mismatch
 
-**Critical Finding:** Divergence appears AFTER prune1 completes, during the first backward pass of burn6 (iteration 7). This indicates that **prune1's segment merging creates an inconsistent state** that manifests as divergent backward probabilities in scenario 8 (8 segments) but not in scenarios 1-4 (1-4 segments).
-
-#### Divergence Details
-
-**Location:** bio_anchor=36, prob[0] lane 2
-
-**Backward emission probabilities at bio_anchor=36 during burn6:**
-- Biallelic locus=36, seg=2, seg_locus=6: **probSumT=0.505000114440918**
-  ```
-  prob[0][0-7]= 3.90625000e-03 3.90624991e-05 3.90625000e-03 3.90624991e-05
-                3.90624991e-05 3.90624991e-05 3.90625000e-03 3.90625000e-03
-  ```
-
-- Supersite locus=72, seg=2, seg_locus=12: **probSumT=0.505000114440918** (IDENTICAL!)
-  ```
-  prob[0][0-7]= 3.90625000e-03 3.90624991e-05 3.90624991e-05 3.90625000e-03
-                3.90624991e-05 3.90625000e-03 3.90625000e-03 3.90624991e-05
-  ```
-
-**Analysis:**
-- Total probability `probSumT` is **identical** (0.5050001144)
-- But `prob[0][2]` differs by **100x**: biallelic=3.906e-03 vs supersite=3.906e-05
-- Also `prob[0][3]` is swapped: biallelic=3.906e-05 vs supersite=3.906e-03
-- The prob[] distribution pattern is **completely different** despite same total
-
-**Pattern visualization:**
-```
-Biallelic:  [hi, lo, HI, lo, lo, lo, hi, hi]   ← bit 2 is HIGH
-Supersite:  [hi, lo, LO, hi, lo, hi, hi, lo]   ← bit 2 is low, bit 3 is HIGH
-```
-
-### Root Cause Hypothesis
-
-This is a **probability redistribution bug**, NOT the 2x accumulation bug seen in scenario 4. The characteristics:
-
-1. **Total probability preserved:** probSumT is identical between biallelic and supersite
-2. **Distribution incorrect:** Probability mass is redistributed to different haplotype lanes
-3. **Triggered by pruning:** Appears after prune1 merges 8→3 segments
-4. **Affects merged segments:** bio_anchor=36 is in segment 2 (a merged segment)
-5. **Sibling-related:** Supersite has `seg_locus=12` (includes siblings) vs biallelic `seg_locus=6`
-
-**Hypothesis:** When prune1 rebuilds ambiguous masks for merged segments using `performMerges()` (genotype_prune.cpp:274-305), the segment membership logic (`vrel < Lengths[s-1]`) correctly identifies which variants belong to which segment, BUT there may be an additional bug in how the **probabilities** are distributed across haplotype lanes when:
-- The merged segment contains multiple supersites (each with siblings)
-- Segment boundaries don't align with supersite anchor/sibling patterns
-- The `Lengths[]` array (which includes siblings) is used inconsistently
-
-### Segment Structure at bio_anchor=36
-
-After prune1 merges 8→3 segments:
-- **Segment 2** (where bio_anchor=36 resides):
-  - Biallelic: `Lengths[2]` includes positions creating `seg_locus=6` for anchor 36
-  - Supersite: `Lengths[2]` includes positions + siblings creating `seg_locus=12` for anchor 36
-  - The 2x difference in `seg_locus` suggests siblings are counted in Lengths[]
-
-**Critical observation:** Despite segment structure differences, the HMM should produce identical prob[] distributions for anchors. The fact that probSumT matches but individual lanes differ suggests a lane-assignment or indexing bug.
-
-### Next Investigation Steps
-
-1. **Trace prune1 merge operation for segment 2:**
-   - Which original segments were merged to create segment 2?
-   - How were Ambiguous masks rebuilt during the merge?
-   - Check `performMerges()` logging for segment 2 in scenario 8
-
-2. **Compare lane assignments before/after prune1:**
-   - Check if conditioning haplotype indices are correct
-   - Verify that merged haplotypes map correctly to lanes
-   - Look for off-by-one errors in lane indexing
-
-3. **Check sibling handling in merged segments:**
-   - Are siblings correctly skipped in ambiguous mask rebuilding?
-   - Does `vrel < Lengths[s-1]` work correctly when Lengths[] includes siblings?
-   - Verify that `arel` (ambiguous anchor counter) increments correctly
-
-4. **Test hypothesis: Force identical Lengths[]:**
-   - Temporarily modify code to use `Lengths_bio[]` instead of `Lengths[]` in segment membership check
-   - If this fixes the divergence, confirms that sibling counting in Lengths[] is the issue
-
-### Files to Investigate
-
-1. **genotype_prune.cpp:274-305** - `performMerges()` ambiguous mask rebuilding
-   - The recent fix (2025-11-25) changed `arel < n_amb_first` to `vrel < Lengths[s-1]`
-   - This fixed scenarios 1-4 but scenario 8 still fails
-   - May need additional logic for multi-segment merges with siblings
-
-2. **haplotype_segment_single.cpp:786-1100** - Backward pass with merged segments
-   - Check if merged segments use correct Lengths[] values
-   - Verify sibling handling doesn't affect prob[] distribution
-
-3. **genotype_build.cpp:86-220** - Initial segment creation and Lengths[] calculation
-   - Confirm Lengths[] includes siblings while Lengths_bio[] counts only anchors
-   - Verify this is consistent across all segment operations
-
-### Diagnostic Commands
-
-**Extract prune1 merge details:**
-```bash
-SHAPEIT5_TEST_TRACE=1 timeout 30 tests/bin/test_supersite_expansion_epochs 2>&1 | \
-  awk '/Scenario: repeat_factor=8/,0' | \
-  awk '/Iteration 6\/15/,/Iteration 7\/15/' | \
-  grep "PRUNE_DEBUG\|performMerges" > /tmp/prune1_merge.log
-```
-
-**Compare prob[] at bio_anchor=36 before/after prune1:**
-```bash
-for iter in 5 6 7; do
-  echo "=== Iteration $iter ==="
-  awk "/Iteration $iter\/15/,/Iteration $((iter+1))\/15/" /tmp/scenario8_bwd_detail2.log | \
-    grep "BWD_PROB_DETAIL.*bio_anchor=36" -A1
-done
-```
-
-### Status
-
-- ✅ Identified that scenario 8 has a DIFFERENT bug than scenario 4 (100x redistribution vs 2x accumulation)
-- ✅ Pinpointed divergence first appears in burn6 (after prune1)
-- ✅ Confirmed probSumT matches but prob[] distribution differs
-- ✅ Identified bio_anchor=36 in merged segment 2 as divergence point
-- ❌ Root cause in prune1 segment merging not yet identified
-- 🔍 Next: Investigate performMerges() lane assignment logic for multi-segment merges with siblings
-
----
-
-## AMB Indexing Investigation - Hypothesis Disproven (2025-11-26)
-
-### Investigation Goal
-
-Verify whether siblings are incorrectly marked as AMB, causing the `a` counter in make() to increment incorrectly when indexing the Ambiguous[] array.
-
-### Key Findings
-
-**1. Siblings are correctly excluded from AMB counting**
-
-`window_set.cpp:78-86` defines `is_locus_ambiguous()` which explicitly filters siblings:
+**Location:** `haplotype_segment_single.cpp` line 350
 
 ```cpp
-auto is_locus_ambiguous = [&](unsigned int locus) -> bool {
-    if (ctx.is_member && !ctx.is_anchor) return false;  // SIBLINGS EXCLUDED
-    return ctx.has_het || ctx.has_sca;
-};
+n_cond_haps = idxH.size();  // Set once at construction
 ```
 
-**2. Verified with WindowAmbLocus trace**
+If conditioning set size differs between biallelic and supersite (due to different panel construction), all missing data normalization will be incorrect:
+- RUN_MIS: `yt / (n_cond_haps * probSumT)`
+- COLLAPSE_MIS: `yt / n_cond_haps`
 
-Scenario 1 supersite_sample shows siblings correctly excluded:
+#### Hypothesis 3: Supersite Missing Imputation Class Aggregation
 
-```
-[WindowAmbLocus] locus=0 is_amb=1  ← anchor (het)  ✓
-[WindowAmbLocus] locus=1 is_amb=0  ← sibling ✓ CORRECTLY EXCLUDED
-[WindowAmbLocus] locus=2 is_amb=1  ← anchor (het)  ✓
-[WindowAmbLocus] locus=3 is_amb=0  ← sibling ✓ CORRECTLY EXCLUDED
-```
+**Location:** `haplotype_segment_single.cpp` lines 1172-1200
 
-**3. genotype::build() correctly skips siblings** (genotype_build.cpp:318-319):
-
+The backward pass aggregates Alpha*Beta across donor codes at missing supersites:
 ```cpp
-if (ctx.is_member && !ctx.is_anchor) continue;  // Skip siblings when counting AMB
+for (int k = 0; k < n_cond_haps; ++k) {
+    uint8_t dcode = get_donor_code_at_ss(ss_idx, k);
+    for (int h = 0; h < HAP_NUMBER; ++h) {
+        class_sum[h][dcode] += AlphaMissing[idx][k*HAP_NUMBER+h] * prob[k*HAP_NUMBER+h];
+    }
+}
 ```
 
-### Conclusion
+If donor codes are incorrect or class aggregation is wrong, posteriors will be systematically biased.
 
-**AMB indexing hypothesis DISPROVEN.** Siblings are correctly excluded throughout. The 100x divergence in scenario 8 must have a different root cause.
+### Debugging Instrumentation
 
----
+Extensive tracing already in place via environment variables:
 
-**Document Status:** 2025-11-26 - AMB indexing hypothesis disproven
+| Variable | Traces |
+|----------|--------|
+| `SHAPEIT5_TEST_TRACE=1` | Supersite emissions, probSumK, missing cache |
+| `SHAPEIT5_SUPERDEBUG_SAMPLENAME=HG01891` | Focus on specific sample |
+| `SHAPEIT5_SUPERDEBUG_BP=19000000` | Focus on genomic position |
+| `SHAPEIT5_IMPUTE_DEEP=1` | Deep missing imputation traces |
+
+**Key trace patterns:**
+- `[FWD_MIS_TRACE]` - Forward missing cache (line 735)
+- `[FWD_MIS_MAP]` - Missing index mapping (line 752)
+- `[FWD_MIS_SKIP]` - Sibling skip logic (line 727)
+- `[BWD_MIS_MAP]` - Backward retrieval (line 1154)
+- `[SS_ALPHA_BETA_TRACE]` - Supersite Alpha*Beta (line 1184)
+- `[IMPUTE_BIAL_TRACE]` - Biallelic imputation (line 1251)
+
+### Investigation Commands
+
+```bash
+# Run biallelic with trace
+SHAPEIT5_TEST_TRACE=1 \
+./phase_common/bin/phase_common \
+  --input 1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.biallelic.filtered.bcf \
+  --filter-maf 0.001 \
+  --region chr22:18000000-25000000 \
+  --map test/info/chr22.gmap.gz \
+  --output test/tmp/debug_bial.bcf \
+  --seed 42 --thread 1 \
+  2>&1 | tee test/tmp/trace_bial_full.log
+
+# Run supersite with trace
+SHAPEIT5_TEST_TRACE=1 \
+./phase_common/bin/phase_common \
+  --input 1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.biallelic.filtered.bcf \
+  --filter-maf 0.001 \
+  --region chr22:18000000-25000000 \
+  --map test/info/chr22.gmap.gz \
+  --output test/tmp/debug_super.bcf \
+  --seed 42 --thread 1 --enable-supersites \
+  2>&1 | tee test/tmp/trace_super_full.log
+
+# Compare missing data handling
+grep -E "FWD_MIS|BWD_MIS|n_missing" test/tmp/trace_bial_full.log > test/tmp/mis_bial.txt
+grep -E "FWD_MIS|BWD_MIS|n_missing|SS_ALPHA_BETA" test/tmp/trace_super_full.log > test/tmp/mis_super.txt
+diff test/tmp/mis_bial.txt test/tmp/mis_super.txt | head -100
+```
+
+### Critical Files
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `phase_common/src/models/haplotype_segment_single.cpp` | 721-760 | Forward missing cache + sibling skip |
+| `phase_common/src/models/haplotype_segment_single.cpp` | 1154-1291 | Backward missing retrieval |
+| `phase_common/src/models/haplotype_segment_single.h` | 802-819 | SS_RUN_MIS |
+| `phase_common/src/models/haplotype_segment_single.h` | 1030-1055 | SS_COLLAPSE_MIS |
+| `phase_common/src/models/haplotype_segment_single.h` | 1629-1633 | SUMK() |
+
+### Next Steps
+
+1. Run full trace on 18-25mb region (both modes)
+2. Compare missing index advancement between modes
+3. Verify `n_cond_haps` is identical
+4. Analyze Alpha*Beta aggregation at missing supersites
+5. Identify first divergence point
 
 ---
 
@@ -306,5 +228,90 @@ Add detailed logging to prune2 to trace:
 2. Which segments are being merged
 3. Ambiguous mask rebuilding step-by-step
 4. Compare biallelic vs supersite at each merge step
+
+---
+
+## Supersite Imputation Produces Impossible Genotypes (2025-12-11)
+
+### Problem Statement
+
+When supersites are enabled, missing data imputation can produce **biologically impossible genotypes** where multiple mutually exclusive ALT alleles are assigned to the same haplotype at a multiallelic position.
+
+### Evidence
+
+**Test command:** `test/scripts/phase.chr22.wgs.sh 42 without_missing`
+
+**Results:**
+- Main algorithm: 9,142 incompatible sample-positions (0.29% of het positions at multiallelic sites)
+- Supersite algorithm: 3,820 incompatible sample-positions (0.12%)
+
+While supersites reduced incompatibility by 58%, **there should be exactly 0 incompatible haplotypes** with supersites enabled. Every remaining case is a bug.
+
+### Example Case
+
+**Position:** chr22:19010790
+**Sample:** HG00351
+**Status:** Missing genotype that was imputed
+
+**Supersite output shows:**
+```
+A>G       GT=1|0
+A>ATGTG   GT=1|0
+ATG>A     GT=1|0
+A>ATG     GT=0|0
+ATGTGTG>A GT=0|1
+ATGTG>A   GT=0|0
+```
+
+**Problem:** Haplotype 0 has THREE ALT alleles (G, ATGTG, and the deletion ATG>A). This is biologically impossible - each haplotype can only have one allele at any position.
+
+### Scope of Problem
+
+**Incompatibility breakdown by position complexity:**
+- 2 variants: 219 incompatible cases
+- 3 variants: 228 incompatible cases
+- 4 variants: 291 incompatible cases
+- 5 variants: 831 incompatible cases
+- 6 variants: 2,251 incompatible cases (59% of all errors)
+
+**Worst positions:** All have 5-6 variants
+- pos=21637703: 101 incompatible samples, 6 variants
+- pos=24196546: 97 incompatible samples, 6 variants
+- pos=19164186: 92 incompatible samples, 5 variants
+
+### Root Cause Hypothesis
+
+The supersite imputation logic is not correctly constraining imputed genotypes to valid supersite classes. When a site is missing, the imputation should:
+
+1. Compute posterior probability for each **supersite class** (not each biallelic variant independently)
+2. Select a single class per haplotype
+3. Expand that class back to biallelic genotypes
+
+If step 1 or 2 treats the biallelic variants independently, impossible combinations can be imputed.
+
+### Key Files to Investigate
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `haplotype_segment_single.cpp` | 1172-1291 | Backward pass missing imputation |
+| `haplotype_segment_single.h` | SS_RUN_MIS, SS_COLLAPSE_MIS | Supersite missing handling macros |
+| `genotype_build.cpp` | | How imputed genotypes are written |
+
+### Debugging Scripts
+
+```bash
+# Count incompatible haplotypes
+python3 scripts/count_incompatible_haplotypes.py <phased.bcf> [region]
+
+# Detailed analysis of incompatible sites
+python3 scripts/debug_incompatible_sites.py <phased.bcf> [region] [max_examples]
+```
+
+### Next Steps
+
+1. Trace the imputation path for sample HG00351 at position 19010790
+2. Verify supersite class assignments during backward pass
+3. Check if imputation is incorrectly treating biallelic loci independently
+4. Ensure genotype writing respects supersite mutual exclusivity
 
 ---

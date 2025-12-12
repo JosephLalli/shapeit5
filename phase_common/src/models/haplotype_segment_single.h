@@ -37,7 +37,6 @@
 #include <limits>
 #include <cstdlib>
 #include <cstring>
-#include <string>
 
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
@@ -50,6 +49,78 @@ inline bool trans_parity_trace_enabled_s() {
         flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
     }
     return flag == 1;
+}
+
+// Structured imputation trace (TSV) helpers, gated by SHAPEIT5_IMPUTE_TSV
+inline FILE* impute_tsv_file() {
+    static bool init = false;
+    static FILE* file = nullptr;
+    if (!init) {
+        init = true;
+        const char* path = std::getenv("SHAPEIT5_IMPUTE_TSV");
+        if (path && path[0]) {
+            if (std::strcmp(path, "-") == 0) {
+                file = stdout;
+            } else {
+                file = std::fopen(path, "w");
+                if (!file) {
+                    std::fprintf(stderr, "[IMPUTE_TSV] failed to open %s\n", path);
+                }
+            }
+        }
+    }
+    return file;
+}
+
+inline const char* impute_tsv_sample_filter() {
+    static bool init = false;
+    static const char* sample = nullptr;
+    if (!init) {
+        init = true;
+        const char* env = std::getenv("SHAPEIT5_IMPUTE_TSV_SAMPLE");
+        sample = (env && env[0]) ? env : nullptr;
+    }
+    return sample;
+}
+
+inline bool impute_tsv_should_log(const genotype* G) {
+    FILE* f = impute_tsv_file();
+    if (!f) return false;
+    const char* filter = impute_tsv_sample_filter();
+    if (!filter) return true;
+    return (G != nullptr && G->name == filter);
+}
+
+inline void impute_tsv_log_row(const char* mode,
+                               const genotype* G,
+                               int locus,
+                               int bio_locus,
+                               int ss_idx,
+                               int rel_mis,
+                               int C,
+                               unsigned int n_cond,
+                               int lane,
+                               float alpha_sum,
+                               float denom,
+                               const float* class_nums,
+                               const float* sc_row) {
+    FILE* f = impute_tsv_file();
+    if (!f || !class_nums || !sc_row) return;
+    const char* sample = G ? G->name.c_str() : "?";
+    std::fprintf(f,
+                 "IMPUTE_TSV\tsample=%s\tmode=%s\tlocus=%d\tbio_locus=%d\tss_idx=%d\trel_mis=%d\tC=%d\tn_cond=%u\tlane=%d\talpha_sum=%.8e\tdenom=%.8e\tnum=[",
+                 sample, mode, locus, bio_locus, ss_idx, rel_mis, C, n_cond, lane, alpha_sum, denom);
+    for (int c = 0; c < C; ++c) {
+        if (c) std::fputc(',', f);
+        std::fprintf(f, "%.8e", class_nums[c]);
+    }
+    std::fprintf(f, "]\tsc=[");
+    for (int c = 0; c < C; ++c) {
+        if (c) std::fputc(',', f);
+        std::fprintf(f, "%.8e", sc_row[c]);
+    }
+    std::fprintf(f, "]\n");
+    std::fflush(f);
 }
 
 class haplotype_segment_single {
@@ -183,46 +254,6 @@ private:
 
     // Trace noise guard: limit anchor emission logs per window
     int trace_anchor_match_logs_remaining = 0;
-
-    // Helper: gate supersite HMM tracing to a specific site / sample when desired.
-    //
-    // Behavior:
-    //   - Requires SHAPEIT5_TEST_TRACE to be non-zero.
-    //   - If SHAPEIT5_SUPERDEBUG_SAMPLENAME is set, only traces that sample.
-    //   - If SHAPEIT5_SUPERDEBUG_BP (>0) is set, only traces at that absolute locus.
-    //
-    // With no filters set, this is equivalent to supersite_trace_enabled() (preserves
-    // unit-test behavior). For large WGS windows, setting both env vars keeps
-    // SHAPEIT5_TEST_TRACE output limited to a single site/sample.
-    bool supersite_site_trace_enabled() const {
-        if (!supersite_trace_enabled()) return false;
-
-        struct TraceFilter {
-            bool initialized = false;
-            std::string sample;
-            int bp = -1;
-        };
-        static TraceFilter filter;
-        if (!filter.initialized) {
-            if (const char* s = std::getenv("SHAPEIT5_SUPERDEBUG_SAMPLENAME")) {
-                if (s[0] != '\0') filter.sample = std::string(s);
-            }
-            if (const char* b = std::getenv("SHAPEIT5_SUPERDEBUG_BP")) {
-                if (b && b[0] != '\0') {
-                    filter.bp = std::atoi(b);
-                }
-            }
-            filter.initialized = true;
-        }
-
-        if (!filter.sample.empty()) {
-            if (!G || G->name != filter.sample) return false;
-        }
-        if (filter.bp > 0) {
-            if (curr_abs_locus != filter.bp) return false;
-        }
-        return true;
-    }
 
     //INLINED AND UNROLLED ROUTINES
     void INIT_HOM();
@@ -1899,11 +1930,42 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
         }
         __m256 p = sum_classes[target_class];
         alignas(32) float pv[8], dv[8];
+        alignas(32) float denom_lanes[HAP_NUMBER];
+        alignas(32) float class_lanes[SUPERSITE_MAX_ALTS + 1][HAP_NUMBER];
         _mm256_store_ps(pv, p);
         _mm256_store_ps(dv, denom);
+        _mm256_store_ps(denom_lanes, denom);
+        for (int c = 0; c <= (int)ss.var_count; ++c) _mm256_store_ps(class_lanes[c], sum_classes[c]);
         for (int h = 0; h < HAP_NUMBER; ++h) {
             float d = dv[h];
             missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = (d > 0.0f) ? (pv[h] / d) : 0.0f;
+        }
+        // Structured TSV logging for supersite splits (non-anchor)
+        if (impute_tsv_should_log(G)) {
+            int C = static_cast<int>(ss.var_count) + 1;
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                float lane_nums[SUPERSITE_MAX_ALTS + 1];
+                float lane_sc[SUPERSITE_MAX_ALTS + 1];
+                const float denom_val = denom_lanes[h];
+                float uniform = 1.0f / static_cast<float>(C);
+                for (int c = 0; c < C; ++c) {
+                    lane_nums[c] = class_lanes[c][h];
+                    lane_sc[c] = (denom_val > 0.0f) ? (class_lanes[c][h] / denom_val) : uniform;
+                }
+                impute_tsv_log_row("supersite-split",
+                                   G,
+                                   curr_abs_locus,
+                                   ss.global_site_id,
+                                   ss_idx,
+                                   curr_rel_missing,
+                                   C,
+                                   n_cond_haps,
+                                   h,
+                                   AlphaSumMissing[curr_rel_missing][h],
+                                   denom_val,
+                                   lane_nums,
+                                   lane_sc);
+            }
         }
     } else {
         __m256 _sumA[2]; _sumA[0] = _mm256_set1_ps(0.0f); _sumA[1] = _mm256_set1_ps(0.0f);
@@ -1930,6 +1992,35 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
             std::fprintf(stderr, "  Result Probs (Alt):");
             for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, " %.6f", missing_probabilities[curr_abs_missing * HAP_NUMBER + h]);
             std::fprintf(stderr, "\n");
+        }
+
+        // Structured TSV logging for biallelic missing imputations
+        if (impute_tsv_should_log(G)) {
+            for (int h = 0; h < HAP_NUMBER; ++h) {
+                float denom = prob0[h] + prob1[h];
+                float lane_nums[2] = {prob0[h], prob1[h]};
+                float lane_sc[2];
+                if (denom > 0.0f) {
+                    lane_sc[0] = prob0[h] / denom;
+                    lane_sc[1] = prob1[h] / denom;
+                } else {
+                    lane_sc[0] = 0.5f;
+                    lane_sc[1] = 0.5f;
+                }
+                impute_tsv_log_row("bial",
+                                   G,
+                                   curr_abs_locus,
+                                   curr_abs_locus,
+                                   -1,
+                                   curr_rel_missing,
+                                   2,
+                                   n_cond_haps,
+                                   h,
+                                   AlphaSumMissing[curr_rel_missing][h],
+                                   denom,
+                                   lane_nums,
+                                   lane_sc);
+            }
         }
 
         // Optional side-by-side SC vs bial probability dump for comparison debugging
@@ -2106,30 +2197,57 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
     float denom_lanes[HAP_NUMBER];
 
         for (int c = 0; c < C; ++c) {
-            _mm256_storeu_ps(sum_lanes[c], sum[c]);
-        }
-        _mm256_storeu_ps(denom_lanes, denom);
+        _mm256_storeu_ps(sum_lanes[c], sum[c]);
+    }
+    _mm256_storeu_ps(denom_lanes, denom);
 
-        // Write normalized posteriors to SC
-        for (int h = 0; h < HAP_NUMBER; ++h) {
-            float d = denom_lanes[h];
-            if (d > 0.0f) {
-                for (int c = 0; c < C; ++c) {
-                    SC[offset + h * C + c] = sum_lanes[c][h] / d;
-                }
-            } else {
-                // Fallback: uniform distribution if denominator is zero
-                float uniform = 1.0f / (float)C;
-                for (int c = 0; c < C; ++c) {
-                    SC[offset + h * C + c] = uniform;
-                }
+    // Write normalized posteriors to SC
+    for (int h = 0; h < HAP_NUMBER; ++h) {
+        float d = denom_lanes[h];
+        if (d > 0.0f) {
+            for (int c = 0; c < C; ++c) {
+                SC[offset + h * C + c] = sum_lanes[c][h] / d;
+            }
+        } else {
+            // Fallback: uniform distribution if denominator is zero
+            float uniform = 1.0f / (float)C;
+            for (int c = 0; c < C; ++c) {
+                SC[offset + h * C + c] = uniform;
             }
         }
+    }
 
-        if (supersite_trace_enabled()) {
-            std::fprintf(stderr, "  Result SC (h0):");
-            for (int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", SC[offset + 0*C + c]);
-            std::fprintf(stderr, "\n");
+    // Structured TSV logging for supersite anchor missing imputations
+    if (impute_tsv_should_log(G)) {
+        for (int h = 0; h < HAP_NUMBER; ++h) {
+            float lane_nums[SUPERSITE_MAX_ALTS + 1];
+            float lane_sc[SUPERSITE_MAX_ALTS + 1];
+            float denom_val = denom_lanes[h];
+            float uniform = 1.0f / (float)C;
+            for (int c = 0; c < C; ++c) {
+                lane_nums[c] = sum_lanes[c][h];
+                lane_sc[c] = (denom_val > 0.0f) ? SC[offset + h * C + c] : uniform;
+            }
+            impute_tsv_log_row("supersite-anchor",
+                               G,
+                               curr_abs_locus,
+                               ss.global_site_id,
+                               ss_idx,
+                               rel_missing_index,
+                               C,
+                               n_cond_haps,
+                               h,
+                               AlphaSumMissing[rel_missing_index][h],
+                               denom_val,
+                               lane_nums,
+                               lane_sc);
+        }
+    }
+
+    if (supersite_trace_enabled()) {
+        std::fprintf(stderr, "  Result SC (h0):");
+        for (int c=0; c<C; ++c) std::fprintf(stderr, " %.6f", SC[offset + 0*C + c]);
+        std::fprintf(stderr, "\n");
         }
 
         // Guard: row-normalization and finiteness check for SC

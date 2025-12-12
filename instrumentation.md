@@ -14,10 +14,27 @@ This document provides a comprehensive guide to debugging SHAPEIT5, particularly
 | `SHAPEIT5_SUPERDEBUG_INVARIANTS` | `0` (off) / `1` (on) | `0` | When guards are on, emit concise invariant violations to stderr (init, projection, panel update). |
 | `SHAPEIT5_SUPERDEBUG_SAMPLENAME` | string | unset | If set, filters invariant checks/logging to this sample. |
 | `SHAPEIT5_SUPERDEBUG_BP` | integer bp | unset | If set, filters invariant checks/logging to supersite anchors at this bp. |
+| `SHAPEIT5_TRACE_BP` | comma-separated bp list | unset | When set, logs the mapping between genomic bp and 0-based locus indices during `phase()` and emits supersite-build details (kept/filtered variants, ss_idx, anchor locus/members). Useful for matching `bio_locus`/locus indexes to physical positions. |
 | `SHAPEIT5_SUPERSITE_GUARDS` | `0` (off) / `1` (on) | `1` | Enables supersite invariant guards (mutual exclusivity, h0/h1 vs bits, c0/c1 compatibility, packed code parity). |
 | `SHAPEIT5_SUPERDEBUG_INVARIANTS` | `0` (off) / `1` (on) | `0` | When guards are on, emit concise invariant violations to stderr (init, projection, panel update). |
 | `SHAPEIT5_SUPERDEBUG_SAMPLENAME` | string | unset | If set, invariant checks/logging are filtered to this sample. |
 | `SHAPEIT5_SUPERDEBUG_BP` | integer bp | unset | If set, invariant checks/logging are filtered to supersite anchors at this bp. |
+
+### Structured Imputation TSV Logging
+
+| Variable | Values | Default | Purpose |
+|----------|--------|---------|---------|
+| `SHAPEIT5_IMPUTE_TSV` | filepath or `-` | unset | When set, writes one TSV-style line per missing-site imputation (both biallelic and supersite). Use `-` to write to stdout. |
+| `SHAPEIT5_IMPUTE_TSV_SAMPLE` | string | unset | Optional sample filter for the TSV output. |
+
+Each `IMPUTE_TSV` line includes: `sample`, `mode` (`bial`, `supersite-anchor`, `supersite-split`), `locus` (DP index), `bio_locus` (anchor/global locus), `ss_idx`, `rel_mis`, `C` (number of classes), `n_cond`, `lane`, `alpha_sum`, `denom`, `num=[c0,...]` (per-class numerators), `sc=[p0,...]` (normalized per-class posteriors).
+
+Usage example:
+```bash
+SHAPEIT5_IMPUTE_TSV=/tmp/impute.tsv \
+SHAPEIT5_IMPUTE_TSV_SAMPLE=supersite_sample \
+./phase_common/bin/phase_common ... --enable-supersites
+```
 
 ### Usage Example
 ```bash

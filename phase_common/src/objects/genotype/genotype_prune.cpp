@@ -34,18 +34,22 @@ public:
 	~Transition() {}
 	bool operator < (const Transition & t) const {
 		// Fuzzy comparison to handle FP rounding differences between biallelic and supersite modes.
-		// Enable with SHAPEIT5_DETERMINISTIC_SORT=1 environment variable.
 		// This is needed because supersite processes anchor+siblings (multiple FP ops per locus)
 		// while biallelic processes single variants (one FP op per locus), causing ULP-level
 		// differences in transition probabilities that can affect sort order.
-		static bool use_epsilon = (std::getenv("SHAPEIT5_DETERMINISTIC_SORT") != nullptr);
-		static const double epsilon = 1e-12; // ~40 ULPs for values around 1e-9
+		// Deterministic sort is enabled by default; disable with SHAPEIT5_NONDETERMINISTIC_SORT=1.
+		static bool use_epsilon = (std::getenv("SHAPEIT5_NONDETERMINISTIC_SORT") == nullptr);
+		// NOTE: epsilon is treated as an *absolute* tolerance here so that tiny
+		// differences at any scale are considered ties and resolved by the
+		// transition index. This is intentionally conservative: it prefers
+		// stability of sort order (and thus MCMC trajectories) over preserving
+		// microscopic FP distinctions between biallelic and supersite paths.
+		static const double epsilon = 1e-9; // absolute FP drift tolerance
 
 		if (use_epsilon) {
 			double diff = std::abs(prob - t.prob);
-			double max_val = std::max(std::abs(prob), std::abs(t.prob));
-			// If probabilities differ by less than epsilon (relative), use index as tie-breaker
-			if (diff <= epsilon * max_val) {
+			// If probabilities differ by less than epsilon (absolute), use index as tie-breaker
+			if (diff <= epsilon) {
 				return idx < t.idx; // Deterministic tie-breaker
 			}
 		}
@@ -61,7 +65,19 @@ public:
 	bool merged;
 	TransStatistics() {entropy = 1000; idx = -1; merged = false; }
 	~TransStatistics() {};
-	bool operator < (const TransStatistics & s) const { return entropy < s.entropy; }
+	bool operator < (const TransStatistics & s) const {
+		// Deterministic ordering: break ties on idx so sort results do not
+		// depend on platform-specific quicksort behavior when entropies are
+		// effectively equal (observed to accumulate subtle divergence across
+		// epochs). Keep epsilon to avoid churn from FP noise.
+		static const double epsilon = 1e-12;
+		double diff = std::abs(entropy - s.entropy);
+		double max_val = std::max(std::abs(entropy), std::abs(s.entropy));
+		if (diff <= epsilon * (max_val > 0.0 ? max_val : 1.0)) {
+			return idx < s.idx;
+		}
+		return entropy < s.entropy;
+	}
 };
 
 void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass, vector < bool > & flagMerges) {
@@ -210,6 +226,17 @@ void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass
 void genotype::performMerges(vector < double > & currProbs, vector < bool > & flagMerges) {
 	const bool superdebug = (!debug::SUPERDEBUG_SAMPLENAME.empty() && name == debug::SUPERDEBUG_SAMPLENAME) ||
 							(name.find("_sample") != std::string::npos);
+	// NOTE: Mhaps lane remapping is intentionally free-form. Given a pair of
+	// segments s-1 and s, we build a merged hap basis by scanning the sorted
+	// transition list and assigning up to 8 distinct (prev_h, next_h) pairs
+	// to lanes 0..7. This means that, even when two different representations
+	// (biallelic vs supersite) describe the same biological site, Mhaps is
+	// allowed to pick different lane permutations if the underlying transition
+	// matrices or diplotype masks differ. Some tests (e.g.
+	// test_supersite_expansion_epochs*) rely on specially constructed dummy-alt
+	// data where those inputs *should* match, so that any observed divergence
+	// in lane assignments is interpreted as a supersite bug rather than a rule
+	// that Mhaps must enforce.
 	if (superdebug) {
 		std::cout << "[PRUNE_DEBUG] " << name << " enter performMerges n_segments=" << n_segments
 				  << " flagMerges.size=" << flagMerges.size()
@@ -219,10 +246,17 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 				  << " flagM[0]=" << (flagMerges.empty()?0:flagMerges[0])
 				  << std::endl;
 	}
+	auto is_superdebug_locus = [&](unsigned int locus) -> bool {
+		return superdebug &&
+		       !debug::SUPERDEBUG_SAMPLENAME.empty() &&
+		       name == debug::SUPERDEBUG_SAMPLENAME &&
+		       static_cast<int>(locus) == debug::SUPERDEBUG_BP;
+	};
+
 	auto logAmbiguousSite = [&](const char* ctx, int seg_idx, unsigned int vabs, unsigned int vrel,
 								unsigned int arel, unsigned char amb_code, unsigned int l_bio_left,
 								unsigned int l_bio_right) {
-		if (!superdebug) return;
+		if (!is_superdebug_locus(vabs)) return;
 		std::cout << "[PRUNE_DEBUG] " << name
 				  << " ctx=" << ctx
 				  << " seg=" << seg_idx
@@ -268,8 +302,11 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		bool is_amb = VAR_GET_AMB(MOD2(locus), Variants[DIV2(locus)]);
 		SuperSiteContext ctx = getSuperSiteContext(locus);
 		if (ctx.is_member) {
+			// Siblings never contribute separate ambiguous events; anchors are
+			// ambiguous if and only if they were marked AMB at build time,
+			// which is driven by heterozygosity only (supersite scaffolds are
+			// ignored to keep Ambiguous indexing in sync with bial).
 			if (!ctx.is_anchor) return false;
-			is_amb = ctx.has_het || ctx.has_sca;
 		}
 		return is_amb;
 	};
@@ -280,6 +317,11 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		curr_dipcount = countDiplotypes(Diplotypes[s]);
 		n_curr_transitions = prev_dipcount * curr_dipcount;
 		makeDiplotypes(Diplotypes[s]);
+		if (superdebug) {
+			std::fprintf(stderr, "[PRUNE_CTX] %s seg=%d len=%u len_bio=%u amb_idx=%u amb_code=0x%02x\n",
+			             name.c_str(), s, Lengths[s], Lengths_bio[s], aoffset,
+			             (aoffset < Ambiguous.size()) ? static_cast<int>(Ambiguous[aoffset]) : -1);
+		}
 
 		//case1: merge to be done
 		if (flagMerges[s]) {
@@ -331,6 +373,12 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 				if ((n_haps + new_h0 + new_h1) <= HAP_NUMBER) {
 					if (new_h0) {
 						Mhaps[merged_h0] = n_haps;
+						if (superdebug) {
+							std::fprintf(stderr,
+								"[PRUNE_TRACE] %s seg=%d t=%d prob=%.20g merged_h0=%u lane=%d prev_dip=%u next_dip=%u prev_h0=%u next_h0=%u\n",
+								name.c_str(), s, t, vecTransitions[t].prob, merged_h0, n_haps,
+								prev_dip, next_dip, prev_h0, next_h0);
+						}
 						// CRITICAL: Use vrel (all-variant index) to determine segment membership.
 						// vrel < Lengths[s-1] means we're in segment s-1, otherwise segment s.
 						// This works correctly for both biallelic and supersite because Lengths
@@ -345,9 +393,12 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 								unsigned int old_hap = in_first_segment ? prev_h0 : next_h0;
 								bool was_set = HAP_GET(Ambiguous[aoffset+arel], old_hap);
 								if (was_set) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h0]);
-								if (superdebug) {
-									std::fprintf(stderr, "  [H0] vrel=%u arel=%u locus=%u in_first=%d old_hap=%u was_set=%d new_val=%02x\n",
-												 vrel, arel, voffset+vrel, in_first_segment, old_hap, was_set, Ambiguous2[aoffset+arel]);
+								if (is_superdebug_locus(voffset + vrel)) {
+									std::fprintf(stderr,
+										"  [H0] vrel=%u arel=%u locus=%u in_first=%d merged_h=%u lane=%d prev_h0=%u next_h0=%u old_hap=%u was_set=%d new_val=%02x\n",
+										vrel, arel, voffset+vrel, in_first_segment,
+										merged_h0, Mhaps[merged_h0], prev_h0, next_h0,
+										old_hap, was_set, Ambiguous2[aoffset+arel]);
 								}
 								arel ++;
 							}
@@ -356,6 +407,12 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 					}
 					if (new_h1) {
 						Mhaps[merged_h1] = n_haps;
+						if (superdebug) {
+							std::fprintf(stderr,
+								"[PRUNE_TRACE] %s seg=%d t=%d prob=%.20g merged_h1=%u lane=%d prev_dip=%u next_dip=%u prev_h1=%u next_h1=%u\n",
+								name.c_str(), s, t, vecTransitions[t].prob, merged_h1, n_haps,
+								prev_dip, next_dip, prev_h1, next_h1);
+						}
 						// CRITICAL: Use vrel (all-variant index) to determine segment membership.
 						// vrel < Lengths[s-1] means we're in segment s-1, otherwise segment s.
 						// This works correctly for both biallelic and supersite because Lengths
@@ -364,7 +421,15 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 							if (isAmbiguous(voffset+vrel)) {
 								bool in_first_segment = (arel < n_amb_first);
 								unsigned int old_hap = in_first_segment ? prev_h1 : next_h1;
-								if (HAP_GET(Ambiguous[aoffset+arel], old_hap)) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h1]);
+								bool was_set = HAP_GET(Ambiguous[aoffset+arel], old_hap);
+								if (was_set) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h1]);
+								if (is_superdebug_locus(voffset + vrel)) {
+									std::fprintf(stderr,
+										"  [H1] vrel=%u arel=%u locus=%u in_first=%d merged_h=%u lane=%d prev_h1=%u next_h1=%u old_hap=%u was_set=%d new_val=%02x\n",
+										vrel, arel, voffset+vrel, in_first_segment,
+										merged_h1, Mhaps[merged_h1], prev_h1, next_h1,
+										old_hap, was_set, Ambiguous2[aoffset+arel]);
+								}
 								arel ++;
 							}
 						}
@@ -414,6 +479,8 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		for (unsigned int vrel = 0, arel = 0 ; vrel < Lengths.back() ; vrel ++) {
 			if (isAmbiguous(voffset + vrel)) {
 				Ambiguous2[aoffset+arel] = Ambiguous[aoffset+arel];
+				logAmbiguousSite("copy-last", n_segments-1, voffset + vrel, vrel, arel,
+								 Ambiguous[aoffset+arel], Lengths_bio.back(), 0);
 				arel ++;
 			}
 		}

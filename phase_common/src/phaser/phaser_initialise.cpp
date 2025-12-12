@@ -138,11 +138,8 @@ void phaser::read_files_and_initialise() {
 			updateSuperSiteAnchorEncoding(G, super_sites, super_site_var_index);
 
 			for (unsigned int i = 0; i < G.n_ind; i++) {
-				// First resolve/canonicalize classes and bits (c0/c1), then
-				// snapshot mutable h0/h1 so both snapshots see the same
-				// canonicalized hap-bit state.
-				G.vecG[i]->snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
 				G.vecG[i]->snapshotSupersiteClasses(super_sites, super_site_var_index);
+				G.vecG[i]->snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
 
 				// Lightweight invariant check: ensure initial c0/c1 snapshots are compatible
 				if (ss_cfg.guards_enabled) {

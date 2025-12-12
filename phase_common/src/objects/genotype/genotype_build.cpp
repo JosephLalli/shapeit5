@@ -250,18 +250,34 @@ void genotype::build() {
 			SuperSiteContext ctx = getSuperSiteContext(v_idx);
 			if (ctx.is_member && !ctx.is_anchor) continue;
 			if (ctx.is_anchor) {
-				f_sca = f_sca || ctx.has_sca;
 				f_het = ctx.has_het;
+			} else {
+				f_sca = f_sca || ctx.has_sca;
 			}
+			const bool f_sca_eff = f_sca && !(ctx.is_anchor && ctx.has_sca);
 			
-			if (f_sca) {
+			if (f_sca_eff) {
 				for (unsigned int h = 0 ; h < HAP_NUMBER ; h ++) {
 					bool allele = (h%2)?VAR_GET_HAP1(MOD2(v_idx), var_code):VAR_GET_HAP0(MOD2(v_idx), var_code);
 					if (allele) HAP_SET(Ambiguous[a0], h);
 				}
 				orderedSegments[s] = 1;
+				if (!debug::SUPERDEBUG_SAMPLENAME.empty() &&
+				    name == debug::SUPERDEBUG_SAMPLENAME &&
+				    static_cast<int>(v_idx) == debug::SUPERDEBUG_BP) {
+					std::cout << "[SUPERDEBUG] BUILD_SCA locus=" << v_idx
+					          << " seg=" << s
+					          << " amb_idx=" << a0
+					          << " amb_code=0x" << std::hex
+					          << static_cast<int>(Ambiguous[a0]) << std::dec
+					          << " ctx_anchor=" << ctx.is_anchor
+					          << " ctx_member=" << ctx.is_member
+					          << " ctx_has_het=" << ctx.has_het
+					          << " ctx_has_sca=" << ctx.has_sca
+					          << std::endl;
+				}
 			}
-			a0 += (f_sca||f_het);
+			a0 += (f_sca_eff||f_het);
 		}
 		unsigned int n_unf = orderedSegments[s];
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++) {
@@ -272,20 +288,73 @@ void genotype::build() {
 			SuperSiteContext ctx = getSuperSiteContext(v_idx);
 			if (ctx.is_member && !ctx.is_anchor) continue;
 			if (ctx.is_anchor) {
-				f_sca = f_sca || ctx.has_sca;
 				f_het = ctx.has_het;
+			} else {
+				f_sca = f_sca || ctx.has_sca;
 			}
+			const bool f_sca_eff = f_sca && !(ctx.is_anchor && ctx.has_sca);
 			
 			if (f_het) {
 				for (unsigned int h = 0 ; h < HAP_NUMBER ; h ++) {
 					bool allele = ((h>>n_unf)%2);
 					if (allele) HAP_SET(Ambiguous[a1], h);
 				}
+				if (!debug::SUPERDEBUG_SAMPLENAME.empty() &&
+				    name == debug::SUPERDEBUG_SAMPLENAME &&
+				    static_cast<int>(v_idx) == debug::SUPERDEBUG_BP) {
+					std::cout << "[SUPERDEBUG] BUILD_AMB locus=" << v_idx
+					          << " seg=" << s
+					          << " n_unf=" << n_unf
+					          << " amb_idx=" << a1
+					          << " amb_code=0x" << std::hex
+					          << static_cast<int>(Ambiguous[a1]) << std::dec
+					          << " ctx_anchor=" << ctx.is_anchor
+					          << " ctx_member=" << ctx.is_member
+					          << " ctx_has_het=" << ctx.has_het
+					          << " ctx_has_sca=" << ctx.has_sca
+					          << std::endl;
+				}
 				n_unf++;
 			}
-			a1 += (f_sca||f_het);
+			a1 += (f_sca_eff||f_het);
 		}
 		vabs += Lengths[s];
+	}
+
+	if (debug::SUPERDEBUG_BP > 0 &&
+	    !debug::SUPERDEBUG_SAMPLENAME.empty() &&
+	    name == debug::SUPERDEBUG_SAMPLENAME &&
+	    static_cast<int>(debug::SUPERDEBUG_BP) < static_cast<int>(n_variants)) {
+		// On rebuild, report the amb_code at the target locus
+		int amb_idx = 0;
+		int locus = debug::SUPERDEBUG_BP;
+		for (unsigned int s = 0, vabs2 = 0, a_idx = 0; s < n_segments; ++s) {
+			for (unsigned int vrel = 0; vrel < Lengths[s]; ++vrel) {
+				unsigned int v_idx2 = vabs2 + vrel;
+				unsigned char var_code = Variants[DIV2(v_idx2)];
+				bool f_sca = VAR_GET_SCA(MOD2(v_idx2), var_code);
+				bool f_het = VAR_GET_HET(MOD2(v_idx2), var_code);
+				SuperSiteContext ctx = getSuperSiteContext(v_idx2);
+				if (ctx.is_member && !ctx.is_anchor) continue;
+				if (ctx.is_anchor) {
+					f_sca = f_sca || ctx.has_sca;
+					f_het = ctx.has_het;
+				}
+				if (f_sca || f_het) {
+					if (static_cast<int>(v_idx2) == locus) amb_idx = a_idx;
+					++a_idx;
+				}
+			}
+			vabs2 += Lengths[s];
+		}
+		unsigned char amb_code = (amb_idx < Ambiguous.size()) ? Ambiguous[amb_idx] : 0;
+		std::cout << "[BUILD_SUMMARY] sample=" << name
+		          << " locus=" << locus
+		          << " amb_idx=" << amb_idx
+		          << " amb_code=0x" << std::hex << static_cast<int>(amb_code) << std::dec
+		          << " n_segments=" << n_segments
+		          << " n_ambiguous=" << n_ambiguous
+		          << std::endl;
 	}
 
 	//4. Build Diplotypes

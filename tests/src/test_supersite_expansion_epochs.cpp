@@ -225,6 +225,78 @@ struct IterationResult {
     std::vector<double> window_prob_sum;
 };
 
+static void maybe_dump_panel_anchor(const MiniContext& ctx,
+                                    const compute_job& job,
+                                    const StageDef& stage) {
+    if (!env_true("SHAPEIT5_SUPERDEBUG_PANEL")) return;
+
+    if (debug::SUPERDEBUG_BP == 0) debug::load_debug_settings();
+    if (debug::SUPERDEBUG_BP <= 0) return;
+
+    const int target_locus = ctx.enable_supersites ? debug::SUPERDEBUG_BP
+                                                   : debug::SUPERDEBUG_BP / 2;
+    if (target_locus < 0 ||
+        target_locus >= static_cast<int>(ctx.V.vec_pos.size())) return;
+
+    int win_idx = -1;
+    for (int w = 0; w < static_cast<int>(job.Windows.W.size()); ++w) {
+        const auto& win = job.Windows.W[w];
+        if (target_locus >= win.start_locus && target_locus <= win.stop_locus) {
+            win_idx = w;
+            break;
+        }
+    }
+    if (win_idx < 0 || win_idx >= static_cast<int>(job.Kstates.size())) {
+        std::fprintf(stderr,
+                     "[PANEL_DUMP] ctx=%s stage=%s locus=%d window=NA (not in window set)\n",
+                     ctx.name.c_str(), stage.label.c_str(), target_locus);
+        return;
+    }
+
+    const auto& ks = job.Kstates[win_idx];
+    genotype* g = ctx.Gset.vecG[0];
+    const unsigned char gbyte = g->Variants[DIV2(target_locus)];
+    const bool g_h0 = VAR_GET_HAP0(MOD2(target_locus), gbyte);
+    const bool g_h1 = VAR_GET_HAP1(MOD2(target_locus), gbyte);
+    const bool g_het = VAR_GET_HET(MOD2(target_locus), gbyte);
+    const bool g_mis = VAR_GET_MIS(MOD2(target_locus), gbyte);
+
+    std::fprintf(stderr,
+                 "[PANEL_DUMP] ctx=%s stage=%s locus=%d window=%d ksize=%zu sample=%s h=%d|%d het=%d mis=%d\n",
+                 ctx.name.c_str(), stage.label.c_str(), target_locus, win_idx, ks.size(),
+                 g->name.c_str(), static_cast<int>(g_h0), static_cast<int>(g_h1),
+                 static_cast<int>(g_het), static_cast<int>(g_mis));
+
+    int ss_idx = -1;
+    if (ctx.enable_supersites && target_locus < static_cast<int>(ctx.ss_context.locus_to_super_idx.size())) {
+        ss_idx = ctx.ss_context.locus_to_super_idx[target_locus];
+        if (ss_idx >= 0) {
+            const SuperSite& ss = ctx.ss_context.super_sites[ss_idx];
+            std::fprintf(stderr,
+                         "[PANEL_DUMP] supersite anchor ss_idx=%d global=%u n_alts=%u offset=%u span=%u\n",
+                         ss_idx, ss.global_site_id, static_cast<unsigned>(ss.n_alts),
+                         ss.panel_offset, ss.panel_span_bytes);
+        }
+    }
+
+    for (size_t i = 0; i < ks.size(); ++i) {
+        const unsigned int hap = ks[i];
+        const bool allele = ctx.H.H_opt_hap.get(hap, target_locus);
+        if (ss_idx >= 0 && !ctx.ss_context.packed_codes.empty()) {
+            const SuperSite& ss = ctx.ss_context.super_sites[ss_idx];
+            const uint8_t cls = unpackSuperSiteCode(ctx.ss_context.packed_codes.data(),
+                                                    ss.panel_offset, hap);
+            std::fprintf(stderr,
+                         "  donor[%zu]=%u allele=%d class=%u\n",
+                         i, hap, static_cast<int>(allele), static_cast<unsigned>(cls));
+        } else {
+            std::fprintf(stderr,
+                         "  donor[%zu]=%u allele=%d\n",
+                         i, hap, static_cast<int>(allele));
+        }
+    }
+}
+
 static genotype make_sample_from_phases(const std::vector<PhaseCode>& phases, const std::string& name) {
     genotype G(0);
     G.name = name;
@@ -254,6 +326,48 @@ static void copy_genotype_into_set(const genotype& src, genotype_set& GS) {
     genotype* dst = GS.vecG[0];
     *dst = src;
     dst->build();
+}
+
+// Compute amb_code at a specific locus by walking segments and counting ambiguous anchors.
+static unsigned char amb_code_at_locus(const genotype& g, int locus) {
+    if (locus < 0 || locus >= static_cast<int>(g.n_variants)) return 0;
+    unsigned int amb_idx = 0;
+    for (unsigned int s = 0, vabs = 0; s < g.n_segments; ++s) {
+        for (unsigned int vrel = 0; vrel < g.Lengths[s]; ++vrel) {
+            unsigned int v_idx = vabs + vrel;
+            unsigned char var_code = g.Variants[DIV2(v_idx)];
+            bool f_sca = VAR_GET_SCA(MOD2(v_idx), var_code);
+            bool f_het = VAR_GET_HET(MOD2(v_idx), var_code);
+            auto site_ctx = g.getSuperSiteContext(v_idx);
+            if (site_ctx.is_member && !site_ctx.is_anchor) continue;
+            if (site_ctx.is_anchor) {
+                f_sca = f_sca || site_ctx.has_sca;
+                f_het = site_ctx.has_het;
+            }
+            if (f_sca || f_het) {
+                if (static_cast<int>(v_idx) == locus) {
+                    return (amb_idx < g.Ambiguous.size()) ? g.Ambiguous[amb_idx] : 0;
+                }
+                ++amb_idx;
+            }
+        }
+        vabs += g.Lengths[s];
+    }
+    return 0;
+}
+
+static void maybe_log_amb_code(const MiniContext& ctx, const char* label) {
+    if (!env_true("SHAPEIT5_SUPERDEBUG_PANEL")) return;
+    if (debug::SUPERDEBUG_BP <= 0 || debug::SUPERDEBUG_SAMPLENAME.empty()) return;
+    const genotype* g = ctx.Gset.vecG[0];
+    if (g->name != debug::SUPERDEBUG_SAMPLENAME) return;
+
+    const int target_locus = ctx.enable_supersites ? debug::SUPERDEBUG_BP
+                                                   : debug::SUPERDEBUG_BP / 2;
+    unsigned char amb = amb_code_at_locus(*g, target_locus);
+    std::fprintf(stderr, "[AMB_SNAPSHOT] ctx=%s stage=%s locus=%d amb_code=0x%02x n_segments=%u n_amb=%zu\n",
+                 ctx.name.c_str(), label, target_locus, static_cast<int>(amb),
+                 g->n_segments, g->Ambiguous.size());
 }
 
 static void fill_reference_panel(conditioning_set& H,
@@ -481,6 +595,17 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
                                    nullptr, nullptr, nullptr);
         g_pre->snapshotSupersiteClasses(ctx.ss_context.super_sites,
                                         ctx.ss_context.super_site_var_index);
+        if (env_true("SHAPEIT5_SUPERDEBUG_PANEL") &&
+            !debug::SUPERDEBUG_SAMPLENAME.empty() &&
+            g_pre->name == debug::SUPERDEBUG_SAMPLENAME &&
+            debug::SUPERDEBUG_BP > 0) {
+            int locus = debug::SUPERDEBUG_BP;
+            unsigned char amb = (!g_pre->Ambiguous.empty()) ? g_pre->Ambiguous[0] : 0;
+            std::fprintf(stderr,
+                         "[PRESWEEP_BUILD] ctx=%s locus=%d amb_code=0x%02x\n",
+                         ctx.name.c_str(), locus, static_cast<int>(amb));
+        }
+        maybe_log_amb_code(ctx, "post_select");
     }
 
     const unsigned int max_transitions = 4096;
@@ -490,6 +615,10 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
                     ctx.enable_supersites ? &ctx.ss_context.locus_to_super_idx : nullptr,
                     ctx.enable_supersites ? &ctx.ss_context.super_site_var_index : nullptr);
     job.make(0, 0.0);
+    if (env_true("SHAPEIT5_SUPERDEBUG_PANEL") &&
+        (stage.label == "main4" || stage.label == "main5")) {
+        maybe_dump_panel_anchor(ctx, job, stage);
+    }
 
     IterationResult res;
     res.stage = stage.type;
@@ -583,6 +712,7 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
     ctx.H.Kbanned.collapse();
     ctx.H.updateHaplotypes(ctx.Gset, false);
     ctx.H.transposeHaplotypes_H2V(false);
+    maybe_log_amb_code(ctx, "post_transpose");
     return res;
 }
 
@@ -644,7 +774,10 @@ int main() {
         {2, false, "x2"}, // expanded block to exercise repeated anchors
         {4, false, "x4"}, // moderate expansion
         {8, true,  "x8"}, // repeated pattern to force multiple segments
-        {16, true, "x16"} // heavy expansion for deeper epoch coverage
+        {16, true, "x16"}, // heavy expansion for deeper epoch coverage
+        {32, true, "x32"}, // larger expansion
+        {64, true, "x64"}, // larger expansion
+        {128, true, "x128"} // largest expansion
     };
 
     const std::vector<StageDef> schedule = {
@@ -746,7 +879,9 @@ int main() {
                 const genotype* gs = ctx_ss.Gset.vecG[0];
 
                 // Log first 5 anchor haplotypes
-                const int anchors_to_log = std::min(5, repeat_factor * 5);
+                const bool log_all_anchors = env_true("SHAPEIT5_LOG_ALL_ANCHORS");
+                const int anchors_to_log = log_all_anchors ? (repeat_factor * 5)
+                                                           : std::min(5, repeat_factor * 5);
                 for (int i = 0; i < anchors_to_log; ++i) {
                     int b_idx = i;
                     int ss_idx = i * 2;

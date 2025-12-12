@@ -32,6 +32,38 @@
 #include <cassert>
 #include <random>
 #include <stdexcept>
+#include <unordered_set>
+#include <sstream>
+
+namespace {
+// Parse comma-separated bp targets from SHAPEIT5_TRACE_BP
+const std::unordered_set<int>& bp_trace_targets() {
+	static std::unordered_set<int> targets;
+	static bool initialized = false;
+	if (!initialized) {
+		initialized = true;
+		const char* env = std::getenv("SHAPEIT5_TRACE_BP");
+		if (env && env[0]) {
+			std::stringstream ss(env);
+			std::string tok;
+			while (std::getline(ss, tok, ',')) {
+				try {
+					int bp = std::stoi(tok);
+					targets.insert(bp);
+				} catch (const std::exception&) {
+					// ignore parse errors
+				}
+			}
+		}
+	}
+	return targets;
+}
+
+bool should_trace_bp(int bp) {
+	const auto& targets = bp_trace_targets();
+	return !targets.empty() && targets.find(bp) != targets.end();
+}
+} // namespace
 
 // Build super-sites by collapsing split biallelic records at identical (chr,bp)
 // positions into multi-allelic "super-sites" and packing per-haplotype 4-bit codes.
@@ -64,6 +96,20 @@ void buildSuperSites(
 
     for (auto& kv : sites_by_pos) {
         const std::vector<int>& variant_indices = kv.second;
+        const int site_bp = kv.first.second;
+        const bool trace_bp = should_trace_bp(site_bp);
+        if (trace_bp) {
+            std::fprintf(stdout,
+                         "[BP_SUPERSITE_TRACE] bp=%d variants=%zu mac_threshold=%d indices=",
+                         site_bp,
+                         variant_indices.size(),
+                         mac_threshold);
+            for (size_t i = 0; i < variant_indices.size(); ++i) {
+                if (i) std::fprintf(stdout, ",");
+                std::fprintf(stdout, "%d", variant_indices[i]);
+            }
+            std::fprintf(stdout, "\n");
+        }
         if (variant_indices.size() <= 1) continue; // not multi-allelic
 
         std::vector<int> kept_indices;
@@ -74,6 +120,14 @@ void buildSuperSites(
                 continue; // treat low-MAC sibling as biallelic
             }
             kept_indices.push_back(v_idx);
+        }
+
+        if (trace_bp) {
+            std::fprintf(stdout,
+                         "[BP_SUPERSITE_TRACE] bp=%d kept_after_mac=%zu (from %zu)\n",
+                         site_bp,
+                         kept_indices.size(),
+                         variant_indices.size());
         }
 
         if (kept_indices.size() <= 1) continue; // nothing left to form a supersite
@@ -149,6 +203,25 @@ void buildSuperSites(
             }
 
             super_sites_out.push_back(ss);
+
+            if (trace_bp) {
+                const size_t ss_idx = super_sites_out.size() - 1;
+                std::fprintf(stdout,
+                             "[BP_SUPERSITE_TRACE] bp=%d ss_idx=%zu anchor_locus=%u n_alts=%u members=",
+                             site_bp,
+                             ss_idx,
+                             ss.global_site_id,
+                             static_cast<unsigned>(ss.n_alts));
+                for (uint16_t ai = 0; ai < ss.n_alts; ++ai) {
+                    const size_t offset = ss.var_start + ai;
+                    if (offset >= super_site_var_index_out.size()) break;
+                    if (ai) std::fprintf(stdout, ",");
+                    std::fprintf(stdout, "%d", super_site_var_index_out[offset]);
+                }
+                std::fprintf(stdout, " panel_offset=%u span_bytes=%u\n",
+                             ss.panel_offset,
+                             ss.panel_span_bytes);
+            }
         }
     }
 
@@ -199,6 +272,36 @@ void resolveSupersiteClasses(
 	uint8_t& c0_out,
 	uint8_t& c1_out)
 {
+	// First pass: check for any missing variants
+	bool has_missing = false;
+	bool has_called = false;
+	for (uint16_t ai = 0; ai < ss.var_count; ++ai) {
+		const int v_idx = super_site_var_index[ss.var_start + ai];
+		unsigned char v_byte = g.Variants[DIV2(v_idx)];
+		if (VAR_GET_MIS(MOD2(v_idx), v_byte)) {
+			has_missing = true;
+		} else {
+			has_called = true;
+		}
+	}
+
+	// If mixed state detected, mark all as missing
+	if (has_missing && has_called) {
+		for (uint16_t ai = 0; ai < ss.var_count; ++ai) {
+			const int v_idx = super_site_var_index[ss.var_start + ai];
+			unsigned char v_byte = g.Variants[DIV2(v_idx)];
+			VAR_SET_MIS(MOD2(v_idx), v_byte);
+			g.Variants[DIV2(v_idx)] = v_byte;
+		}
+		// Mark anchor as missing
+		unsigned char anchor_byte = g.Variants[DIV2(ss.global_site_id)];
+		VAR_SET_MIS(MOD2(ss.global_site_id), anchor_byte);
+		g.Variants[DIV2(ss.global_site_id)] = anchor_byte;
+		c0_out = 0;
+		c1_out = 0;
+		return;
+	}
+
 	uint8_t c0 = 0, c1 = 0;           // 0 = REF / not yet assigned
 	int missing_state = -1;           // -1 unknown, 0 = non-missing, 1 = missing
 
@@ -207,14 +310,9 @@ void resolveSupersiteClasses(
 		unsigned char v_byte = g.Variants[DIV2(v_idx)];
 		const bool is_mis = VAR_GET_MIS(MOD2(v_idx), v_byte);
 
-		// Enforce all-or-none missing across siblings
+		// Track missing state (now guaranteed to be consistent)
 		if (missing_state == -1) {
 			missing_state = is_mis ? 1 : 0;
-		} else if (is_mis != (missing_state == 1)) {
-			throw std::runtime_error(
-				"Supersite conflict: sample " + g.name +
-				" has mixture of missing and non-missing splits at bp=" +
-				std::to_string(ss.bp));
 		}
 		if (is_mis) continue;
 

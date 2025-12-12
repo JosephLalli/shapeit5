@@ -73,6 +73,13 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
 		return env && env[0] != '\0' && env[0] != '0';
 	}();
+	const bool superdebug_sample_trace = []() {
+		const char* env = std::getenv("SHAPEIT5_SUPERDEBUG_PANEL");
+		return env && env[0] != '\0' && env[0] != '0';
+	}() && !debug::SUPERDEBUG_SAMPLENAME.empty() && name == debug::SUPERDEBUG_SAMPLENAME;
+	const int target_locus = (super_sites) ? debug::SUPERDEBUG_BP
+	                                       : (debug::SUPERDEBUG_BP > 0 ? debug::SUPERDEBUG_BP / 2 : -1);
+	unsigned int seg_start = 0;
 	const size_t trans_buf_size = CurrentTransProbabilities.size();
 	for (unsigned int s = 0, toffset = 0 ; s < n_segments ; s ++) {
 		sumProbs = 0.0;
@@ -120,10 +127,66 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 			}
 		}
 
-			prev_sampled = sample_rng.sample(currProbs, sumProbs);
+		// Draw with explicit RNG tracing to avoid consuming extra variates
+		double u = sample_rng.getDouble() * sumProbs;
+		prev_sampled = curr_dipcount - 1;
+		double csum = currProbs[0];
+		for (unsigned int i = 0; i < curr_dipcount - 1; ++i) {
+			if (u < csum) {
+				prev_sampled = i;
+				break;
+			}
+			csum += currProbs[i + 1];
+		}
+		if (superdebug_sample_trace && s == 0) {
+			std::fprintf(stderr,
+			             "[SAMPLE_RNG] sample=%s seg=%u sum=%.15f u=%.15f chosen_idx=%u dipcount=%u toffset=%u\n",
+			             name.c_str(), s, sumProbs, u, prev_sampled, curr_dipcount, toffset);
+		}
 
 		makeDiplotypes(Diplotypes[s]);
 		unsigned char selected_dipcode = curr_dipcodes[prev_sampled];
+		unsigned char hap0_lane = (selected_dipcode >> 3);
+		unsigned char hap1_lane = (selected_dipcode & 7);
+
+		if (superdebug_sample_trace) {
+			const unsigned char amb_code = (s < Ambiguous.size()) ? Ambiguous[s] : 0;
+			std::fprintf(stderr,
+			             "[DIPTABLE] sample=%s seg=%u dip_mask=0x%016llx amb_code=%u toffset=%u dipcount=%u sum=%.15f\n",
+			             name.c_str(), s,
+			             static_cast<unsigned long long>(Diplotypes[s]),
+			             static_cast<unsigned>(amb_code),
+			             toffset, curr_dipcount, sumProbs);
+			double cumulative = 0.0;
+			for (unsigned int i = 0; i < curr_dipcount; ++i) {
+				cumulative += currProbs[i];
+				unsigned char code = curr_dipcodes[i];
+				std::fprintf(stderr,
+				             "  dip[%u] code=%u h0=%u h1=%u prob=%.15f norm=%.15f cum=%.15f\n",
+				             i, static_cast<unsigned>(code),
+				             static_cast<unsigned>(code >> 3),
+				             static_cast<unsigned>(code & 7),
+				             currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
+			}
+		}
+
+		if (superdebug_sample_trace) {
+			const unsigned int seg_stop = seg_start + Lengths[s];
+			const bool hit_target = (target_locus >= 0 &&
+			                         static_cast<unsigned int>(target_locus) >= seg_start &&
+			                         static_cast<unsigned int>(target_locus) < seg_stop);
+			if (hit_target) {
+				std::fprintf(stderr,
+				             "[SAMPLE_SEG] sample=%s seg=%u start=%u stop=%u dip_mask=0x%016llx dipcode=%u hap0_lane=%u hap1_lane=%u toffset=%u\n",
+				             name.c_str(), s, seg_start, seg_stop,
+				             static_cast<unsigned long long>(Diplotypes[s]),
+				             static_cast<unsigned>(selected_dipcode),
+				             static_cast<unsigned>(hap0_lane),
+				             static_cast<unsigned>(hap1_lane),
+				             toffset);
+			}
+			seg_start = seg_stop;
+		}
 
 		// Targeted debug for dipcode divergence (burn3, repeat_factor=8, segment 3)
 		if (trace_sample && n_segments > 1 && s == 3) {
