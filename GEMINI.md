@@ -51,7 +51,7 @@ The project employs a robust testing framework:
 
 ## 6. Documentation
 *   **`AGENTS.md`**: The primary source of truth for the project's architecture, algorithms, and recent developments, mirroring `.github/copilot-instructions.md`.
-*   **Jekyll Site**: The `docs/` directory contains a Jekyll-based documentation website with detailed explanations, a glossary, and specific feature outlines (e.g., `SUPERSITE_ANCHOR_BOOKKEEPING.md`).
+*   **Jekyll Site**: The `docs/` directory contains a Jekyll-based documentation website with detailed explanations, a glossary, and specific feature outlines (e.g., `.AGENT_markdowns/SUPERSITE_ANCHOR_BOOKKEEPING.md`).
 
 ## 7. Deployment & Usage
 *   **Docker**: The `docker/` directory provides a `Dockerfile` and scripts (`build.sh`, `upload.sh`) for creating portable Docker images, facilitating deployment.

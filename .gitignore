@@ -18,6 +18,9 @@ tests/coverage
 test/logs/*
 tests/logs/*
 tests/out/*
+./*bcf
+**tsv
+**tsv.gz
 
 tests/out/**
 
@@ -33,3 +36,5 @@ gha-creds-*.json
 *.logging.md
 test/tmp
 test/tmp/*
+1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.biallelic.*
+.AGENT_markdowns

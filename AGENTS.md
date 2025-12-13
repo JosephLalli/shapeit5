@@ -2,9 +2,10 @@
 SHAPEIT5 — `phase_common` supersite (multiallelic) integration
 
 ## Source of Truth
-- This AGENTS.md mirrors `.github/copilot-instructions.md`, which is the authoritative, detailed guide distilled from `SUPERSITE_CONVERSATION_SUMMARY.md`.
+- This AGENTS.md mirrors `.github/copilot-instructions.md`, which is the authoritative, detailed guide distilled from `.AGENT_markdowns/SUPERSITE_CONVERSATION_SUMMARY.md`.
 - If anything diverges, prefer `.github/copilot-instructions.md` and update this file to match.
 - Runtime binaries depend on locally installed Boost/HTSlib libraries; before running any tests or executable directly, export `LD_LIBRARY_PATH="$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH"` so the dynamic loader can resolve shared libraries (e.g., `libboost_iostreams.so.1.89.0`).
+- For a deep dive into missing-variant imputation (biallelic and supersite), see `.AGENT_markdowns/MISSING_LOGIC.687eb2d.md`, which documents the implementation as of commit `687eb2d` (later commits may have changed behavior slightly).
 
 ## Context
 - SHAPEIT5 uses Li–Stephens (phase_common/phase_rare) to phase and impute genotypes.

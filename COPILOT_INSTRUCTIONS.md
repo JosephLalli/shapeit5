@@ -165,10 +165,11 @@ shapeit5/
 ├── .github/workflows/
 │   ├── build.yml                # Standard CI workflow
 │   └── copilot.yml              # Copilot CI workflow (optional)
-├── ENVIRONMENT_ISSUES.md        # Detailed problem analysis
-├── COPILOT_INSTRUCTIONS.md      # This file
-├── HMM_CALCULATION_GUIDE.md     # Beginner-friendly HMM explanation
-└── TEST_RESULTS.md              # Test execution summary
+├── .AGENT_markdowns/
+│   ├── ENVIRONMENT_ISSUES.md    # Detailed problem analysis
+│   ├── HMM_CALCULATION_GUIDE.md # Beginner-friendly HMM explanation
+│   └── TEST_RESULTS.md          # Test execution summary
+└── COPILOT_INSTRUCTIONS.md      # This file
 ```
 
 ## Key Points for Copilot Agents
@@ -226,6 +227,6 @@ All tests passed!
 ## Contact
 
 For issues with this setup, check:
-- ENVIRONMENT_ISSUES.md (detailed problem analysis)
-- TEST_RESULTS.md (what tests should output)
-- HMM_CALCULATION_GUIDE.md (understanding HMM calculations)
+- .AGENT_markdowns/ENVIRONMENT_ISSUES.md (detailed problem analysis)
+- .AGENT_markdowns/TEST_RESULTS.md (what tests should output)
+- .AGENT_markdowns/HMM_CALCULATION_GUIDE.md (understanding HMM calculations)

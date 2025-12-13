@@ -34,8 +34,8 @@ awk '/Iteration 3\/15/,/Iteration 4\/15/' hmm_trace.log | awk '/# Backward.*supe
    - `phase_common/src/models/haplotype_segment_single.cpp` (lines 810-826)
 
 2. **Documentation:**
-   - `bug_report_2025-11-18_backward_yt_zero.md` - Initial investigation
-   - `bug_fix_2025-11-18_variable_shadowing.md` - Fix documentation
+   - `.AGENT_markdowns/bug_report_2025-11-18_backward_yt_zero.md` - Initial investigation
+   - `.AGENT_markdowns/bug_fix_2025-11-18_variable_shadowing.md` - Fix documentation
 
 ## Test Configuration
 
