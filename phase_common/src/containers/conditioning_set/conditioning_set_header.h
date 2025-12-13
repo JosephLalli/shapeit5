@@ -86,9 +86,11 @@ public:
 
 	//STATES PROCESSING
 	void store(int l, std::vector < int > & A, std::vector < int > & C);
-	void select(int chunk);
-	void select();
-	void transposePBWTneighbours();
+		void select(int chunk);
+		void select();
+		void transposePBWTneighbours();
+		bool isSupersiteAnchor(int locus) const;
+		uint8_t class_code(int locus, int hap) const;
 
 	//PBWT PHASING SWEEP
 	void solve(int chunk, genotype_set *);

@@ -22,6 +22,7 @@
 
 #include <containers/conditioning_set/conditioning_set_header.h>
 #include <models/supersite_trace_utils.h>
+#include <models/super_site_accessor.h>
 #include <algorithm>
 
 using namespace std;
@@ -61,6 +62,38 @@ inline bool pbwt_stats_enabled() {
 }
 
 } // namespace
+
+bool conditioning_set::isSupersiteAnchor(int locus) const {
+	if (locus < 0) return false;
+	if (supersite_pbwt_super_sites == nullptr || supersite_pbwt_locus_to_super_idx == nullptr) return false;
+	if (static_cast<size_t>(locus) >= supersite_pbwt_locus_to_super_idx->size()) return false;
+	const int ss_idx = (*supersite_pbwt_locus_to_super_idx)[locus];
+	if (ss_idx < 0 || static_cast<size_t>(ss_idx) >= supersite_pbwt_super_sites->size()) return false;
+	return (*supersite_pbwt_super_sites)[ss_idx].global_site_id == static_cast<uint32_t>(locus);
+}
+
+uint8_t conditioning_set::class_code(int locus, int hap) const {
+	if (hap < 0 || hap >= n_hap) return 0;
+	if (!isSupersiteAnchor(locus)) {
+		return static_cast<uint8_t>(H_opt_var.get(locus, hap));
+	}
+
+	// Supersite anchor path
+	if (supersite_pbwt_super_sites == nullptr || supersite_pbwt_packed_codes == nullptr) return 0;
+	const int ss_idx = (*supersite_pbwt_locus_to_super_idx)[locus];
+	if (ss_idx < 0 || static_cast<size_t>(ss_idx) >= supersite_pbwt_super_sites->size()) return 0;
+	const SuperSite& ss = (*supersite_pbwt_super_sites)[ss_idx];
+	const uint8_t code = unpackSuperSiteCode(supersite_pbwt_packed_codes, ss.panel_offset, static_cast<uint32_t>(hap));
+#ifndef NDEBUG
+	if (code >= ss.n_classes) {
+		std::fprintf(stderr,
+		             "[PBWT_SUPERSITE_DEBUG] class_code out of range: locus=%d ss_idx=%d code=%u n_classes=%u\n",
+		             locus, ss_idx, static_cast<unsigned>(code), static_cast<unsigned>(ss.n_classes));
+	}
+#endif
+	if (code >= ss.n_classes) return 0;
+	return code;
+}
 
 void * selecter_callback(void * ptr) {
 	conditioning_set * S = static_cast< conditioning_set * >( ptr );
