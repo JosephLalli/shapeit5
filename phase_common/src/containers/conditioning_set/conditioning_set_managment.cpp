@@ -29,6 +29,10 @@ conditioning_set::conditioning_set() {
 	depth = 0;
 	nthread = 0;
 	supersite_anchor_redirect_enabled = false;
+	supersite_pbwt_super_sites = nullptr;
+	supersite_pbwt_locus_to_super_idx = nullptr;
+	supersite_pbwt_packed_codes = nullptr;
+	supersite_pbwt_packed_codes_size = 0;
 }
 
 conditioning_set::~conditioning_set() {
@@ -47,6 +51,7 @@ conditioning_set::~conditioning_set() {
 	indexes_pbwt_neighbour.clear();
 	supersite_anchor_redirect.clear();
 	supersite_anchor_redirect_enabled = false;
+	clearSupersitePBWTContext();
 }
 
 
@@ -78,6 +83,7 @@ void conditioning_set::initialize(variant_map & V, float _modulo_selection, floa
 	//SETTING PARAMETERS
 	depth = _depth;
 	nthread = _nthread;
+	clearSupersitePBWTContext();
 	if (nthread > 1) {
 		i_worker = 0;
 		i_job = 0;
@@ -131,6 +137,7 @@ void conditioning_set::initialize_for_test(variant_map & V, int _depth, int _nth
 
 	depth = _depth;
 	nthread = _nthread;
+	clearSupersitePBWTContext();
 	if (nthread > 1) {
 		i_worker = 0;
 		i_job = 0;
@@ -184,4 +191,25 @@ void conditioning_set::applySupersiteAnchorMask(const std::vector<SuperSite>& su
 void conditioning_set::setSupersiteAnchorRedirect(const std::vector<int>& anchor_map) {
 	supersite_anchor_redirect = anchor_map;
 	supersite_anchor_redirect_enabled = !supersite_anchor_redirect.empty();
+}
+
+void conditioning_set::setSupersitePBWTContext(const std::vector<SuperSite>* super_sites,
+                                               const std::vector<int>* locus_to_super_idx,
+                                               const std::vector<uint8_t>* packed_codes) {
+	supersite_pbwt_super_sites = super_sites;
+	supersite_pbwt_locus_to_super_idx = locus_to_super_idx;
+	if (packed_codes && !packed_codes->empty()) {
+		supersite_pbwt_packed_codes = packed_codes->data();
+		supersite_pbwt_packed_codes_size = packed_codes->size();
+	} else {
+		supersite_pbwt_packed_codes = nullptr;
+		supersite_pbwt_packed_codes_size = 0;
+	}
+}
+
+void conditioning_set::clearSupersitePBWTContext() {
+	supersite_pbwt_super_sites = nullptr;
+	supersite_pbwt_locus_to_super_idx = nullptr;
+	supersite_pbwt_packed_codes = nullptr;
+	supersite_pbwt_packed_codes_size = 0;
 }

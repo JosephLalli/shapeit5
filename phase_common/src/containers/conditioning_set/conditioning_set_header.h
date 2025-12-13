@@ -49,30 +49,40 @@ public:
 	ibd2_tracks Kbanned;
 
 	//STATE DATA
-	std::vector < int > indexes_pbwt_neighbour;
+		std::vector < int > indexes_pbwt_neighbour;
 
-	//SOLVER DATA
-	std::vector < float > scoreBit;
+		//SOLVER DATA
+		std::vector < float > scoreBit;
 
-	//MULTI-THREADING
-	int i_worker, i_job, d_job;
-	pthread_mutex_t mutex_workers;
-	std::vector < pthread_t > id_workers;
-	std::vector < int > supersite_anchor_redirect;
+		//SUPER-SITE PBWT CONTEXT (non-owning)
+		const std::vector<SuperSite>* supersite_pbwt_super_sites;
+		const std::vector<int>* supersite_pbwt_locus_to_super_idx;
+		const uint8_t* supersite_pbwt_packed_codes;
+		size_t supersite_pbwt_packed_codes_size;
+
+		//MULTI-THREADING
+		int i_worker, i_job, d_job;
+		pthread_mutex_t mutex_workers;
+		std::vector < pthread_t > id_workers;
+		std::vector < int > supersite_anchor_redirect;
 	bool supersite_anchor_redirect_enabled;
 
 	//CONSTRUCTOR/DESTRUCTOR
 	conditioning_set();
 	~conditioning_set();
-	void initialize(variant_map & V, float _modulo_selection, float _modulo_multithreading, float _mdr, int _depth, int _mac, int _nthread);
-	// Test-only simplified initializer: select/evaluate all sites, single chunk.
-	void initialize_for_test(variant_map & V, int _depth = 8, int _nthread = 1);
-	void applySupersiteAnchorMask(const std::vector<SuperSite>& super_sites,
-	                              const std::vector<int>& super_site_var_index);
-	void setSupersiteAnchorRedirect(const std::vector<int>& anchor_map);
+		void initialize(variant_map & V, float _modulo_selection, float _modulo_multithreading, float _mdr, int _depth, int _mac, int _nthread);
+		// Test-only simplified initializer: select/evaluate all sites, single chunk.
+		void initialize_for_test(variant_map & V, int _depth = 8, int _nthread = 1);
+		void applySupersiteAnchorMask(const std::vector<SuperSite>& super_sites,
+		                              const std::vector<int>& super_site_var_index);
+		void setSupersiteAnchorRedirect(const std::vector<int>& anchor_map);
+		void setSupersitePBWTContext(const std::vector<SuperSite>* super_sites,
+		                             const std::vector<int>* locus_to_super_idx,
+		                             const std::vector<uint8_t>* packed_codes);
+		void clearSupersitePBWTContext();
 
-	//VARIANT PROCESSING
-	bool split(variant_map & V, float min_length, int left_index, int right_index, std::vector < int > & output);
+		//VARIANT PROCESSING
+		bool split(variant_map & V, float min_length, int left_index, int right_index, std::vector < int > & output);
 
 	//STATES PROCESSING
 	void store(int l, std::vector < int > & A, std::vector < int > & C);
