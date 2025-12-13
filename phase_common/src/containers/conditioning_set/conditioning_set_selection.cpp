@@ -142,6 +142,8 @@ void conditioning_set::select(int chunk) {
 	vector < int > B = vector < int > (n_hap, 0);
 	vector < int > C = vector < int > (n_hap, 0);
 	vector < int > D = vector < int > (n_hap, 0);
+	vector < uint8_t > bucket_id;
+	vector < int > bucket_p;
 	iota(A.begin(), A.end(), 0);
 	fill(C.begin(), C.end(), 0);
 
@@ -152,25 +154,61 @@ void conditioning_set::select(int chunk) {
 		bool buff = (sites_pbwt_mthreading[l] < chunk) && (l >= starts_pbwt_mthreading[chunk]);
 
 		if (eval && (chnk || buff)) {
-			int u = 0, v = 0, p = l, q = l;
-			for (int h = 0 ; h < n_hap ; h ++) {
-				int alookup = A[h], dlookup = C[h];
-				if (dlookup > p) p = dlookup;
-				if (dlookup > q) q = dlookup;
-				if (!H_opt_var.get(l, alookup)) {
-					A[u] = alookup;
-					C[u] = p;
-					p = 0;
-					u++;
-				} else {
-					B[v] = alookup;
-					D[v] = q;
-					q = 0;
-					v++;
+			if (isSupersiteAnchor(l)) {
+				const int ss_idx = (*supersite_pbwt_locus_to_super_idx)[l];
+				const SuperSite& ss = (*supersite_pbwt_super_sites)[ss_idx];
+				const int t = static_cast<int>(ss.n_classes);
+				if (static_cast<int>(bucket_id.size()) < n_hap) bucket_id.resize(n_hap);
+				if (static_cast<int>(bucket_p.size()) < t) bucket_p.resize(t);
+				std::fill(bucket_p.begin(), bucket_p.begin() + t, 0);
+
+				// Generalized Durbin update: update all p[c] per scanned hap, emit p[class], reset that bucket.
+				int u = 0;
+				for (int h = 0; h < n_hap; h++) {
+					const uint8_t cls = class_code(l, A[h]);
+					const int dlookup = C[h];
+					for (int c = 0; c < t; ++c) {
+						if (dlookup > bucket_p[c]) bucket_p[c] = dlookup;
+					}
+					bucket_id[u] = cls;
+					B[u] = A[h];
+					D[u] = bucket_p[cls];
+					bucket_p[cls] = 0;
+					++u;
 				}
+
+				// Stable bucket emit in class-id order 0..t-1
+				int out = 0;
+				for (int cls = 0; cls < t; ++cls) {
+					for (int h = 0; h < n_hap; ++h) {
+						if (bucket_id[h] == cls) {
+							A[out] = B[h];
+							C[out] = D[h];
+							++out;
+						}
+					}
+				}
+			} else {
+				int u = 0, v = 0, p = l, q = l;
+				for (int h = 0 ; h < n_hap ; h ++) {
+					int alookup = A[h], dlookup = C[h];
+					if (dlookup > p) p = dlookup;
+					if (dlookup > q) q = dlookup;
+					if (!H_opt_var.get(l, alookup)) {
+						A[u] = alookup;
+						C[u] = p;
+						p = 0;
+						u++;
+					} else {
+						B[v] = alookup;
+						D[v] = q;
+						q = 0;
+						v++;
+					}
+				}
+				std::copy(B.begin(), B.begin()+v, A.begin()+u);
+				std::copy(D.begin(), D.begin()+v, C.begin()+u);
 			}
-			std::copy(B.begin(), B.begin()+v, A.begin()+u);
-			std::copy(D.begin(), D.begin()+v, C.begin()+u);
 			if (selc && chnk) store(l, A, C);
 		}
 	}
