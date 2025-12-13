@@ -23,6 +23,7 @@
 #include <phaser/phaser_header.h>
 #include <objects/super_site_builder.h>
 #include <algorithm>
+#include <limits>
 #include <sstream>
 #include <iostream>
 #include <unordered_set>
@@ -39,6 +40,91 @@ bool supersite_metadata_trace_enabled() {
 	}
 	return flag == 1;
 }
+
+bool pbwt_stats_enabled() {
+	static const bool enabled = []() {
+		const char* env = std::getenv("SHAPEIT5_PBWT_STATS");
+		return (env && env[0] != '\0' && env[0] != '0');
+	}();
+	return enabled;
+}
+
+constexpr size_t PBWT_K_HIST_BIN_WIDTH = 50;
+
+struct PbwtKHistogram {
+	size_t min_k = std::numeric_limits<size_t>::max();
+	size_t max_k = 0;
+	unsigned long long total = 0;
+	std::vector<unsigned long long> bins;
+
+	void reset(size_t max_possible_k) {
+		min_k = std::numeric_limits<size_t>::max();
+		max_k = 0;
+		total = 0;
+		const size_t n_bins = (max_possible_k / PBWT_K_HIST_BIN_WIDTH) + 2;
+		bins.assign(n_bins, 0);
+	}
+
+	inline void record(size_t k) {
+		if (k < min_k) min_k = k;
+		if (k > max_k) max_k = k;
+		++total;
+		const size_t bin = k / PBWT_K_HIST_BIN_WIDTH;
+		if (bin >= bins.size()) bins.resize(bin + 1, 0);
+		++bins[bin];
+	}
+
+	std::string render() const {
+		std::ostringstream oss;
+		if (total == 0) {
+			oss << "PBWT Kstates histogram [bin=" << PBWT_K_HIST_BIN_WIDTH << " n=0]";
+			return oss.str();
+		}
+
+		const size_t min_k_print = (min_k == std::numeric_limits<size_t>::max()) ? 0 : min_k;
+		oss << "PBWT Kstates histogram [bin=" << PBWT_K_HIST_BIN_WIDTH
+		    << " n=" << total
+		    << " min=" << min_k_print
+		    << " max=" << max_k
+		    << "] ";
+
+		std::vector<std::pair<size_t, unsigned long long>> nonzero;
+		nonzero.reserve(bins.size());
+		for (size_t i = 0; i < bins.size(); ++i) {
+			if (bins[i]) nonzero.emplace_back(i, bins[i]);
+		}
+
+		auto emit_bin = [&](size_t bin_idx, unsigned long long count) {
+			const size_t start = bin_idx * PBWT_K_HIST_BIN_WIDTH;
+			const size_t end = start + PBWT_K_HIST_BIN_WIDTH - 1;
+			oss << start << "-" << end << ":" << count;
+		};
+
+		const size_t max_bins_to_print = 12;
+		if (nonzero.size() <= max_bins_to_print) {
+			for (size_t i = 0; i < nonzero.size(); ++i) {
+				if (i) oss << " ";
+				emit_bin(nonzero[i].first, nonzero[i].second);
+			}
+			return oss.str();
+		}
+
+		const size_t head = 6;
+		const size_t tail = 6;
+		for (size_t i = 0; i < head; ++i) {
+			if (i) oss << " ";
+			emit_bin(nonzero[i].first, nonzero[i].second);
+		}
+		oss << " ... ";
+		for (size_t i = nonzero.size() - tail; i < nonzero.size(); ++i) {
+			if (i != nonzero.size() - tail) oss << " ";
+			emit_bin(nonzero[i].first, nonzero[i].second);
+		}
+		return oss.str();
+	}
+};
+
+PbwtKHistogram pbwt_k_histogram;
 
 // Parse comma-separated bp targets from SHAPEIT5_TRACE_BP
 const std::unordered_set<int>& bp_trace_targets() {
@@ -193,9 +279,11 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 
 	//HMM compute in windows
 	for (int w = 0 ; w < threadData[id_worker].size() ; w ++) {
+		const size_t kstates_size = threadData[id_worker].Kstates[w].size();
 		if (options["thread"].as < int > () > 1) pthread_mutex_lock(&mutex_workers);
-		statH.push(threadData[id_worker].Kstates[w].size()*1.0);
+		statH.push(kstates_size * 1.0);
 		statS.push(threadData[id_worker].Windows.W[w].lengthBP(V) * 1.0e-6);
+		if (pbwt_stats_enabled()) pbwt_k_histogram.record(kstates_size);
 		if (options["thread"].as < int > () > 1) pthread_mutex_unlock(&mutex_workers);
 
 		int outcome = 0;
@@ -299,6 +387,7 @@ void phaser::phaseWindow() {
 	i_workers = 0; i_jobs = 0;
 	statH.clear(); statS.clear();
 	storedKsizes.clear();
+	if (pbwt_stats_enabled()) pbwt_k_histogram.reset(static_cast<size_t>(H.n_hap));
 	if (n_thread > 1) {
 		for (int t = 0 ; t < n_thread ; t++) pthread_create( &id_workers[t] , NULL, phaseWindow_callback, static_cast<void *>(this));
 		for (int t = 0 ; t < n_thread ; t++) pthread_join( id_workers[t] , NULL);
@@ -307,6 +396,7 @@ void phaser::phaseWindow() {
 		vrb.progress("  * HMM computations", (i+1)*1.0/G.n_ind);
 	}
 	vrb.bullet("HMM computations [K=" + stb.str(statH.mean(), 1) + "+/-" + stb.str(statH.sd(), 1) + " / W=" + stb.str(statS.mean(), 2) + "Mb / US=" + stb.str(n_underflow_recovered_summing) + " / UP=" + stb.str(n_underflow_recovered_precision) + "] (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
+	if (pbwt_stats_enabled()) vrb.bullet(pbwt_k_histogram.render());
 }
 
 void phaser::phase() {

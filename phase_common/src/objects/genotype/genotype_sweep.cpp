@@ -557,4 +557,31 @@ void genotype::store(vector < double > & CurrentTransProbabilities, vector < flo
 	}
 	for (unsigned int m = 0 ; m < (n_missing * HAP_NUMBER) ; m ++) ProbMissing[m] += CurrentMissingProbabilities[m];
 	n_storage_events ++;
+
+	// Supersite multivariant posterior aggregation (mirrors biallelic ProbMissing)
+	if (super_sites && SC && anchor_has_missing && supersite_sc_offset) {
+		const size_t n_ss = super_sites->size();
+		constexpr int MAX_CLASSES = SUPERSITE_MAX_ALTS + 1;
+
+		if (ProbSuperClass.size() != n_ss * HAP_NUMBER * MAX_CLASSES) {
+			ProbSuperClass.assign(n_ss * HAP_NUMBER * MAX_CLASSES, 0.0f);
+			sc_storage_events = 0;
+		}
+
+		for (size_t ss_idx = 0; ss_idx < n_ss; ++ss_idx) {
+			if (!(*anchor_has_missing)[ss_idx]) continue; // only aggregate missing anchors
+			const SuperSite& ss = (*super_sites)[ss_idx];
+			const int C = static_cast<int>(ss.n_classes);
+			const uint32_t offset = (*supersite_sc_offset)[ss_idx];
+
+			for (int h = 0; h < HAP_NUMBER; ++h) {
+				for (int c = 0; c < C; ++c) {
+					const size_t dst = supersite_class_index(static_cast<int>(ss_idx), h, c);
+					ProbSuperClass[dst] += (*SC)[offset + h * C + c];
+				}
+			}
+		}
+
+		++sc_storage_events;
+	}
 }

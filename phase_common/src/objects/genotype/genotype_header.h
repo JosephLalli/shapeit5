@@ -27,6 +27,11 @@
 
 #include <utils/otools.h>
 
+// Supersite constants (fallback if super_site_accessor.h not included yet)
+#ifndef SUPERSITE_MAX_ALTS
+#define SUPERSITE_MAX_ALTS 15
+#endif
+
 // Forward declaration to avoid circular dependency
 struct SuperSite;
 
@@ -133,6 +138,9 @@ public:
 	std::vector < bool > ProbMask;
 	std::vector < float > ProbStored;
 	std::vector < float > ProbMissing;
+	std::vector < float > ProbSuperClass;   // Aggregated supersite class posteriors
+
+	unsigned int sc_storage_events;         // Number of supersite SC aggregation events
 
 	// Supersite aggregate flags (per supersite index; cached in build())
 	std::vector<uint8_t> supersite_flags;
@@ -189,6 +197,7 @@ public:
 	void scaffoldDuoFather(genotype *, std::vector < unsigned int > &);
 	void scaffoldDuoMother(genotype *, std::vector < unsigned int > &);
 	uint32_t setHetsAsMissing();
+	size_t supersite_class_index(int ss_idx, int lane, int cls) const;
 
 	//INLINES
 	unsigned int countDiplotypes(unsigned long);
@@ -239,6 +248,13 @@ unsigned int genotype::countTransitions() {
 		prev_dipcount = curr_dipcount;
 	}
 	return c;
+}
+
+inline size_t genotype::supersite_class_index(int ss_idx, int lane, int cls) const {
+	constexpr int MAX_CLASSES = SUPERSITE_MAX_ALTS + 1;
+	return static_cast<size_t>(ss_idx) * HAP_NUMBER * MAX_CLASSES +
+	       static_cast<size_t>(lane) * MAX_CLASSES +
+	       static_cast<size_t>(cls);
 }
 
 

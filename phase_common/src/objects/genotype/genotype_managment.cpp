@@ -107,6 +107,7 @@ genotype::genotype(unsigned int _index) {
 	n_ambiguous = 0;
 	n_stored_transitionProbs = 0;
 	n_storage_events = 0;
+	sc_storage_events = 0;
 	std::fill(curr_dipcodes, curr_dipcodes + 64, 0);
 	this->name = "";
 	double_precision = false;
@@ -136,6 +137,8 @@ void genotype::free() {
 	vector < uint8_t > ().swap(supersite_flags);
 	vector < uint8_t > ().swap(supersite_class_pairs);
 	vector < uint8_t > ().swap(supersite_class_pairs_base);
+	vector < float > ().swap(ProbSuperClass);
+	sc_storage_events = 0;
 }
 
 void genotype::seedRng(unsigned int base_seed) {
@@ -438,18 +441,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                         } else {
                             VAR_CLR_HAP1(MOD2(split_vabs), split_byte);
                         }
-
-                        // Keep anchor flagged missing if desired for emission semantics; clear MIS on siblings so
-                        // downstream class readers can see the imputed allele.
-                        if (split_vabs != ss.global_site_id) {
-                            if (h0 == alt_class && h1 == alt_class) {
-                                VAR_SET_HOM(MOD2(split_vabs), split_byte);
-                            } else if (h0 == alt_class || h1 == alt_class) {
-                                VAR_SET_HET(MOD2(split_vabs), split_byte);
-                            } else {
-                                VAR_SET_HOM(MOD2(split_vabs), split_byte);
-                            }
-                        }
                     }
 					if (supersite_trace_enabled()) {
 						supersite_trace_log("[SupersiteSample] projection sample=%s ss_idx=%d alt_count_h0=%d alt_count_h1=%d\n",
@@ -726,32 +717,66 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 		std::fflush(stderr);
 		std::abort();
 	}
+	bool needs_supersite_projection = false;
 	for (unsigned int s = 0, vabs = 0, a = 0, m = 0 ; s < n_segments ; s ++) {
 		if (!DIP_GET(Diplotypes[s], DipSampled[s])) {
 			std::fprintf(stderr,
 			             "[MAKE_OOB] sample=%s seg=%u dipcode=%u not in mask dipcount=%u mask=0x%016llx (no missing probs)\n",
 			             name.c_str(), s, static_cast<unsigned>(DipSampled[s]), countDiplotypes(Diplotypes[s]),
 			             static_cast<unsigned long long>(Diplotypes[s]));
-		std::fflush(stderr);
-		std::abort();
-	}
+			std::fflush(stderr);
+			std::abort();
+		}
 		unsigned char hap0 = DIP_HAP0(DipSampled[s]);
 		unsigned char hap1 = DIP_HAP1(DipSampled[s]);
 		for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel++, vabs++) {
 			int ss_idx_mis = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
 
 			if (VAR_GET_MIS(MOD2(vabs), Variants[DIV2(vabs)])) {
-				if (ss_idx_mis >= 0) {
-					// Supersite member: anchor already determined classes; just clear MIS
-					// using the currently stored hap bits (set at the anchor projection).
-					unsigned char &vbyte = Variants[DIV2(vabs)];
-					bool hap0_bit = VAR_GET_HAP0(MOD2(vabs), vbyte);
-					bool hap1_bit = VAR_GET_HAP1(MOD2(vabs), vbyte);
-					if (hap0_bit == hap1_bit) {
-						VAR_SET_HOM(MOD2(vabs), vbyte);
-					} else {
-						VAR_SET_HET(MOD2(vabs), vbyte);
+				if (ss_idx_mis >= 0 && super_sites && super_site_var_index) {
+					const SuperSite& ss = (*super_sites)[ss_idx_mis];
+
+					// Sibling: anchor will project
+					if (static_cast<uint32_t>(vabs) != ss.global_site_id) {
+						continue;
 					}
+
+					// Anchor: pick class per hap from aggregated SC posteriors
+					const int C = static_cast<int>(ss.n_classes);
+					auto avg_supersite_class = [&](int lane) -> uint8_t {
+						if (ProbSuperClass.empty() || sc_storage_events == 0) {
+							return SUPERSITE_CODE_REF;
+						}
+						float best_p = -1.0f;
+						int best_c = 0;
+						for (int c = 0; c < C; ++c) {
+							const size_t idx = supersite_class_index(ss_idx_mis, lane, c);
+							const float p = ProbSuperClass[idx] / static_cast<float>(sc_storage_events);
+							if (p > best_p) {
+								best_p = p;
+								best_c = c;
+							}
+						}
+						return static_cast<uint8_t>(best_c);
+					};
+
+					uint8_t final_c0 = avg_supersite_class(hap0);
+					uint8_t final_c1 = avg_supersite_class(hap1);
+
+					for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+						unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
+						uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
+						unsigned char& vbyte = Variants[DIV2(split_vabs)];
+
+						if (final_c0 == alt_class) VAR_SET_HAP0(MOD2(split_vabs), vbyte);
+						else                       VAR_CLR_HAP0(MOD2(split_vabs), vbyte);
+
+						if (final_c1 == alt_class) VAR_SET_HAP1(MOD2(split_vabs), vbyte);
+						else                       VAR_CLR_HAP1(MOD2(split_vabs), vbyte);
+					}
+
+					setSupersiteClassPair(ss_idx_mis, final_c0, final_c1);
+					needs_supersite_projection = true;
 					continue;
 				}
 				if (haploid) {
@@ -880,6 +905,9 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 				a++;
 			}
 		}
+	}
+	if (needs_supersite_projection && super_sites) {
+		projectSupersites();
 	}
 }
 

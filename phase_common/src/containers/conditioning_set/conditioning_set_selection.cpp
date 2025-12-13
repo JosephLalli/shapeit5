@@ -52,6 +52,14 @@ void trace_pbwt_neighbours(const conditioning_set& H) {
 	supersite_trace_log("[PBWTTrace] Kbanned groups=%zu\n", H.Kbanned.IBD2.size());
 }
 
+inline bool pbwt_stats_enabled() {
+	static const bool enabled = []() {
+		const char* env = std::getenv("SHAPEIT5_PBWT_STATS");
+		return (env && env[0] != '\0' && env[0] != '0');
+	}();
+	return enabled;
+}
+
 } // namespace
 
 void * selecter_callback(void * ptr) {
@@ -202,10 +210,18 @@ void conditioning_set::select() {
 		}
 	}
 	sites_pbwt_selection = vector < bool > (n_site , false);
+	int n_selected_loci = 0;
 	for (int g = 0 ; g < candidates.size() ; g++) {
 		if (candidates[g].size() > 0) {
 			sites_pbwt_selection[candidates[g][rng.getInt(candidates[g].size())]] = true;
+			++n_selected_loci;
 		}
+	}
+
+	if (pbwt_stats_enabled()) {
+		vrb.bullet("PBWT selected loci [n=" + stb.str(n_selected_loci) +
+		           " / groups=" + stb.str(sites_pbwt_ngroups) +
+		           " / depth=" + stb.str(depth) + "]");
 	}
 
 	// PBWT_SELECT_TRACE: Log selected loci
