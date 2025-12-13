@@ -518,7 +518,10 @@ void phaser::traceSupersiteAnchors(const std::string& context, const std::vector
 }
 
 void phaser::rebuildSupersiteMetadata(const std::string& context, const std::vector<uint8_t>* diff_against) {
-	if (!enable_supersites) return;
+	if (!enable_supersites) {
+		H.clearSupersitePBWTContext();
+		return;
+	}
 
 	super_sites.clear();
 	is_super_site.clear();
@@ -550,6 +553,7 @@ void phaser::rebuildSupersiteMetadata(const std::string& context, const std::vec
 	traceSupersiteAnchors(context, packed_allele_codes);
 
 	applySupersiteAnchorGuards();
+	H.setSupersitePBWTContext(&super_sites, &locus_to_super_idx, &packed_allele_codes);
 
 	for (unsigned int i = 0; i < G.n_ind; ++i) {
 		G.vecG[i]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
