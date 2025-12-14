@@ -362,7 +362,7 @@ void haplotype_segment_double::forward() {
                             std::fprintf(stdout, "forward: INIT via mask at anchor locus=%d (double)\n", curr_abs_locus);
                         }
                         supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-                        INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
+                        INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
                     } else {
 					switch (emit) {
 						case EmitKind::Hom: SS_INIT_HOM(); break;
@@ -379,7 +379,7 @@ void haplotype_segment_double::forward() {
 					INIT_MIS();
 				} else {
 					bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
-					INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
+					INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
 				}
 			}
             } else if (curr_segment_locus != 0) {
@@ -390,7 +390,7 @@ void haplotype_segment_double::forward() {
                             std::fprintf(stdout, "forward: RUN via mask at anchor locus=%d (double)\n", curr_abs_locus);
                         }
                         supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-                        RUN_FROM_MASK(init_match_mask, M.ed/M.ee);
+                        RUN_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
                     } else {
 					switch (emit) {
 						case EmitKind::Hom:
@@ -420,7 +420,7 @@ void haplotype_segment_double::forward() {
                             std::fprintf(stdout, "forward: COLLAPSE via mask at anchor locus=%d (double)\n", curr_abs_locus);
                         }
                         supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-                        COLLAPSE_FROM_MASK(init_match_mask, M.ed/M.ee);
+                        COLLAPSE_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
                     } else {
 					switch (emit) {
 						case EmitKind::Hom: SS_COLLAPSE_HOM(); break;
@@ -668,7 +668,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			pending_collapse = false;
 			if (M.ss_anchor_split_emissions) {
 				supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-				INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
+				INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
 			} else {
 				switch (emit) {
 					case EmitKind::Hom: SS_INIT_HOM(); break;
@@ -684,13 +684,13 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 				INIT_MIS();
 			} else {
 				bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
-				INIT_FROM_MASK(init_match_mask, M.ed/M.ee);
+				INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
 			}
 		} else if (!pending_collapse) {
 			if (is_anchor) {
 				if (M.ss_anchor_split_emissions) {
 					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-					RUN_FROM_MASK(init_match_mask, M.ed/M.ee);
+					RUN_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
 				} else {
 					switch (emit) {
 						case EmitKind::Hom:
@@ -717,7 +717,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			if (is_anchor) {
 				if (M.ss_anchor_split_emissions) {
 					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-					COLLAPSE_FROM_MASK(init_match_mask, M.ed/M.ee);
+					COLLAPSE_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
 				} else {
 					switch (emit) {
 						case EmitKind::Hom: SS_COLLAPSE_HOM(); break;

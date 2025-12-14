@@ -38,6 +38,7 @@ public :
 	unsigned int cref;
 	unsigned int calt;
 	unsigned int cmis;
+	bool is_snp;  // true if single nucleotide substitution, false for indels
 
 	//CONSTRUCTOR/DESTRUCTOR
 	variant(std::string & chr, int bp, std::string & id, std::string & ref, std::string & alt, int idx);

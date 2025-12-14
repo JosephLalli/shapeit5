@@ -36,6 +36,13 @@ public :
 	std::vector < char > rare_allele;
 	double ee;
 	double ed;
+	// Separate error rates for SNPs vs indels
+	float ed_snp;
+	float ee_snp;
+	float ed_indel;
+	float ee_indel;
+	// Per-locus precomputed error ratio (ed/ee for each variant)
+	std::vector<float> error_ratio;
 	// Supersite configuration
 	bool ss_anchor_split_emissions; // when true, use biallelic split semantics at supersite anchors
 	bool restore_legacy_min_transitions; // when true, mimic pre-guard transition distance handling

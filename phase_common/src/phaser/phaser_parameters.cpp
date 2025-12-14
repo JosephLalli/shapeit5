@@ -61,7 +61,9 @@ void phaser::declare_options() {
 	bpo::options_description opt_hmm ("HMM parameters");
 	opt_hmm.add_options()
 			("hmm-window", bpo::value < double >()->default_value(4), "Minimal size of the phasing window in cM (default 4cM)")
-			("hmm-ne", bpo::value < int >()->default_value(15000), "Effective size of the population (default 15,000)");
+			("hmm-ne", bpo::value < int >()->default_value(15000), "Effective size of the population (default 15,000)")
+			("error-rate-snp", bpo::value < float >()->default_value(0.0001f), "SNP genotyping error rate (default 0.0001)")
+			("error-rate-indel", bpo::value < float >()->default_value(0.0001f), "Indel genotyping error rate (default 0.0001)");
 
 	bpo::options_description opt_legacy ("Legacy behavior toggles (debug)");
 	opt_legacy.add_options()
@@ -135,6 +137,18 @@ void phaser::check_options() {
 	if (!options["hmm-ne"].defaulted() && options["hmm-ne"].as < int > () < 1)
 		vrb.error("You must specify a positive effective size");
 
+	// Validate and set error rates
+	float snp_err = options["error-rate-snp"].as<float>();
+	float indel_err = options["error-rate-indel"].as<float>();
+	if (snp_err <= 0.0f || snp_err >= 1.0f)
+		vrb.error("SNP error rate must be between 0 and 1 (exclusive)");
+	if (indel_err <= 0.0f || indel_err >= 1.0f)
+		vrb.error("Indel error rate must be between 0 and 1 (exclusive)");
+	M.ed_snp = snp_err;
+	M.ee_snp = 1.0f - snp_err;
+	M.ed_indel = indel_err;
+	M.ee_indel = 1.0f - indel_err;
+
 	if (!options["hmm-window"].defaulted() && (options["hmm-window"].as < double > () < 0.5 || options["hmm-window"].as < double > () > 10))
 		vrb.error("You must specify a HMM window size comprised between 0.5 and 10 cM");
 
@@ -200,6 +214,7 @@ void phaser::verbose_options() {
 
 	if (options.count("map"))  vrb.bullet("HMM     : [window = " + stb.str(options["hmm-window"].as < double > ()) + "cM / Ne = " + stb.str(options["hmm-ne"].as < int > ()) + " / Recombination rates given by genetic map]");
 	else vrb.bullet("HMM     : [window = " + stb.str(options["hmm-window"].as < double > ()) + "cM / Ne = " + stb.str(options["hmm-ne"].as < int > ()) + " / Constant recombination rate of 1cM per Mb]");
+	vrb.bullet("Errors  : [SNP = " + stb.str(options["error-rate-snp"].as < float > ()) + " / Indel = " + stb.str(options["error-rate-indel"].as < float > ()) + "]");
 	if (options.count("filter-snp") || (!options["filter-maf"].defaulted()))
 		vrb.bullet("FILTERS : [snp only = " + stb.str(options.count("filter-snp")) + " / MAF = " + stb.str(options["filter-maf"].as < double > ()) + "]");
 

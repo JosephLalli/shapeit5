@@ -51,7 +51,7 @@ do { \
 		/* Precompute emissions using AVX2 */ \
 		aligned_vector32<double> emissions(n_cond_haps); \
 		double match_prob = 1.0; \
-		double mismatch_prob = M.ed / M.ee; \
+		double mismatch_prob = M.error_ratio[curr_abs_locus]; \
 		precomputeSuperSiteEmissions_AVX2( \
 			cond_codes.data(), \
 			n_cond_haps, \
@@ -106,7 +106,7 @@ do { \
 		/* Precompute emissions */ \
 		aligned_vector32<double> emissions(n_cond_haps); \
 		double match_prob = 1.0; \
-		double mismatch_prob = M.ed / M.ee; \
+		double mismatch_prob = M.error_ratio[curr_abs_locus]; \
 		precomputeSuperSiteEmissions_AVX2( \
 			cond_codes.data(), \
 			n_cond_haps, \
@@ -169,7 +169,7 @@ do { \
 		/* Precompute emissions */ \
 		aligned_vector32<double> emissions(n_cond_haps); \
 		double match_prob = 1.0; \
-		double mismatch_prob = M.ed / M.ee; \
+		double mismatch_prob = M.error_ratio[curr_abs_locus]; \
 		precomputeSuperSiteEmissions_AVX2( \
 			cond_codes.data(), \
 			n_cond_haps, \

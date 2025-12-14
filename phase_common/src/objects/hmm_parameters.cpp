@@ -28,6 +28,11 @@ using namespace std;
 hmm_parameters::hmm_parameters() {
     ed = 0.0001f;
     ee = 0.9999f;
+    // Separate error rates for SNPs vs indels (default to same as legacy)
+    ed_snp = 0.0001f;
+    ee_snp = 0.9999f;
+    ed_indel = 0.0001f;
+    ee_indel = 0.9999f;
     // Default to classic supersite emission semantics until explicitly enabled
     ss_anchor_split_emissions = false;
     restore_legacy_min_transitions = false;
@@ -67,7 +72,18 @@ void hmm_parameters::initialise(variant_map & V, int _Neff, int _Nhap) {
 		rare_allele[l] = (V.vec_pos[l]->getAF() > 0.5f);
 		count_rare ++;
 	}
-	vrb.bullet("HMM parameters [Ne=" + stb.str(Neff) + " / Error=" + stb.str(ed) + " / #rare=" + stb.str(count_rare) + "]");
+	// Precompute per-locus error ratios based on variant type (SNP vs indel)
+	int count_snp = 0;
+	error_ratio = vector<float>(V.size(), 0.0f);
+	for (int l = 0; l < V.size(); l++) {
+		if (V.vec_pos[l]->is_snp) {
+			error_ratio[l] = ed_snp / ee_snp;
+			count_snp++;
+		} else {
+			error_ratio[l] = ed_indel / ee_indel;
+		}
+	}
+	vrb.bullet("HMM parameters [Ne=" + stb.str(Neff) + " / SNP_Error=" + stb.str(ed_snp) + " / Indel_Error=" + stb.str(ed_indel) + " / #SNPs=" + stb.str(count_snp) + " / #Indels=" + stb.str((int)V.size() - count_snp) + " / #rare=" + stb.str(count_rare) + "]");
 }
 
 float hmm_parameters::getForwardTransProb(int prev_idx, int curr_idx) {
