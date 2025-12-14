@@ -15,10 +15,10 @@ source "$SCRIPT_DIR/lib/test_utils.sh"
 tmp_dir=$TEST_DIR/tmp
 mkdir -p tmp
 
-scaffold_region=chr22:18000000-25000000
-comparison_region=chr22:18000000-25000000
-#scaffold_region=chr22:19000000-20000000
-#comparison_region=chr22:19000000-20000000
+#scaffold_region=chr22:18000000-25000000
+#comparison_region=chr22:18000000-25000000
+scaffold_region=chr22:19000000-20000000
+comparison_region=chr22:19000000-20000000
 
 #scaffold_region=chr22:19000000-19100000
 #comparison_region=chr22:19000000-19100000

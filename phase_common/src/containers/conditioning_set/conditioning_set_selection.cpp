@@ -160,7 +160,8 @@ void conditioning_set::select(int chunk) {
 				const int t = static_cast<int>(ss.n_classes);
 				if (static_cast<int>(bucket_id.size()) < n_hap) bucket_id.resize(n_hap);
 				if (static_cast<int>(bucket_p.size()) < t) bucket_p.resize(t);
-				std::fill(bucket_p.begin(), bucket_p.begin() + t, 0);
+				// Start each bucket divergence at current locus (matches binary p/q init).
+				std::fill(bucket_p.begin(), bucket_p.begin() + t, l);
 
 				// Generalized Durbin update: update all p[c] per scanned hap, emit p[class], reset that bucket.
 				int u = 0;
