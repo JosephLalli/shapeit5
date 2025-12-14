@@ -53,9 +53,9 @@ struct SuperSite;
 //#define VAR_GET_AMB(e,v)	((((v)>>((e)<<2))&3)!=0)
 #define VAR_GET_AMB(e,v)	((((v)>>((e)<<2))&3)>1)
 #define VAR_SET_HOM(e,v)	((e)?((v)&=207):((v)&=252))
-#define VAR_SET_MIS(e,v)	((v)|=(1<<((e)<<2)))
-#define VAR_SET_HET(e,v)	((v)|=(2<<((e)<<2)))
-#define VAR_SET_SCA(e,v)	((v)|=(3<<((e)<<2)))
+#define VAR_SET_MIS(e,v)	((v)=((v)&~(3<<((e)<<2)))|(1<<((e)<<2)))
+#define VAR_SET_HET(e,v)	((v)=((v)&~(3<<((e)<<2)))|(2<<((e)<<2)))
+#define VAR_SET_SCA(e,v)	((v)=((v)&~(3<<((e)<<2)))|(3<<((e)<<2)))
 
 #define VAR_GET_HAP0(e,v)	(((v)&(4<<((e)<<2)))!=0)
 #define VAR_SET_HAP0(e,v)	((v)|=(4<<((e)<<2)))

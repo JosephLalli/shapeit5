@@ -38,3 +38,4 @@ test/tmp
 test/tmp/*
 1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.biallelic.*
 .AGENT_markdowns
+1KGP.CHM13v2.0.chr22.snp_indel.biallelic.samesites_as_filtered.bcf
