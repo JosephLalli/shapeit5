@@ -837,10 +837,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		size_t window_expected = 0;
 		const long long window_range = static_cast<long long>(transition_last) - static_cast<long long>(transition_first) + 1;
 		if (window_range > 0) window_expected = static_cast<size_t>(window_range);
-		// If the window includes the first segment, add its initial transitions (handled via SET_FIRST_TRANS).
-		if (segment_first == 0) {
-			window_expected += static_cast<size_t>(G->countDiplotypes(G->Diplotypes[0]));
-		}
+		// NOTE: First segment's transitions are now included in window_range (via window_set.cpp fix)
 		if (debug_transitions_written != window_expected) {
 			std::fprintf(stderr, "[TRANS_MISMATCH_ERROR] Sample=%s: Backward pass stored %u transitions but expected %zu for window\n",
 			             G->name.c_str(), debug_transitions_written, window_expected);

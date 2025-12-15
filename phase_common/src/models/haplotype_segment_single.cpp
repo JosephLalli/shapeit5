@@ -924,22 +924,8 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			// This ensures that when the first anchor is reached, prev_abs_locus is equal to it, making yt=0,
 			// which is correct for the start of a backward pass.
 			INIT_SIB(site_view);
-			// CRITICAL: Check for segment boundary BEFORE decrementing, since we'll skip the normal check with continue
-			if (curr_segment_locus == 0 && curr_abs_locus != locus_first && curr_segment_index > segment_first) {
-				if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
-					unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
-					unsigned int prev_dipcount = (curr_segment_index > 0) ? G->countDiplotypes(G->Diplotypes[curr_segment_index-1]) : 0;
-					unsigned int n_trans = curr_dipcount * prev_dipcount;
-					std::fprintf(stdout,
-					             "[TRANS_TRACE][single][skip-sib] sample=%s curr_abs_locus=%d seg_idx=%d n_trans=%u curr_abs_transition=%d buf_size=%zu\n",
-					             G->name.c_str(), curr_abs_locus, curr_segment_index, n_trans, curr_abs_transition, transition_probabilities.size());
-					std::fflush(stdout);
-				}
-				int ret = SET_OTHER_TRANS(transition_probabilities);
-				if (ret < 0) return ret;
-				else n_underflow_recovered += ret;
-			}
 			// Siblings don't count toward segment length, so don't decrement curr_segment_locus
+			// NOTE: No SET_OTHER_TRANS here - deferred init doesn't write transitions
 			continue;
 		}
 

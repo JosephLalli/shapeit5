@@ -206,8 +206,45 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size, ran
 			W[w].stop_missing = static_cast<int>(mis_before_start + mis_count - 1);
 		}
 
-		W[w].start_transition = tra_idx[W[w].start_segment] + tra_siz[W[w].start_segment];
+		// Transition bounds for this window: include all transitions for segments within [start_segment, stop_segment]
+		// A segment's transitions correspond to the boundary (prev_segment -> segment), with segment 0 using a dummy prev count of 1.
+		W[w].start_transition = tra_idx[W[w].start_segment];
 		W[w].stop_transition = tra_idx[W[w].stop_segment] + tra_siz[W[w].stop_segment] - 1;
+		if (supersite_trace_enabled() || std::getenv("SHAPEIT5_DEBUG_TRANS_PARITY")) {
+			// Compute expected transitions within this window to sanity-check bounds.
+			unsigned int expected_trans = 0;
+			unsigned int prev_dip = (W[w].start_segment == 0)
+				? 1u
+				: g->countDiplotypes(g->Diplotypes[W[w].start_segment - 1]);
+			for (unsigned int s = W[w].start_segment; s <= W[w].stop_segment; ++s) {
+				const unsigned int curr_dip = g->countDiplotypes(g->Diplotypes[s]);
+				const unsigned int trans_here = prev_dip * curr_dip;
+				expected_trans += trans_here;
+				prev_dip = curr_dip;
+			}
+			if (W[w].stop_transition < W[w].start_transition ||
+			    static_cast<unsigned int>(W[w].stop_transition - W[w].start_transition + 1) < expected_trans) {
+				std::fprintf(stderr,
+					"[WINDOW_TRANS_BOUNDS] sample=%s w=%u seg=[%u,%u] locus=[%u,%u] "
+					"start_tr=%d stop_tr=%d span=%d expected_trans=%u\n",
+					g ? g->name.c_str() : "?", w,
+					W[w].start_segment, W[w].stop_segment,
+					W[w].start_locus, W[w].stop_locus,
+					W[w].start_transition, W[w].stop_transition,
+					(W[w].stop_transition - W[w].start_transition + 1),
+					expected_trans);
+			} else if (w < 3) {
+				std::fprintf(stderr,
+					"[WINDOW_TRANS_BOUNDS] sample=%s w=%u seg=[%u,%u] locus=[%u,%u] "
+					"start_tr=%d stop_tr=%d span=%d expected_trans=%u\n",
+					g ? g->name.c_str() : "?", w,
+					W[w].start_segment, W[w].stop_segment,
+					W[w].start_locus, W[w].stop_locus,
+					W[w].start_transition, W[w].stop_transition,
+					(W[w].stop_transition - W[w].start_transition + 1),
+					expected_trans);
+			}
+		}
 		if (supersite_trace_enabled()) {
 			genotype::SuperSiteContext ctx = g->getSuperSiteContext(W[w].start_locus);
 			if (ctx.is_member && !ctx.is_anchor) {
