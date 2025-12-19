@@ -489,7 +489,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						                    (unsigned)h1);
 					}
 
-					// Do not attempt range skip: members may be non-consecutive after MAC pruning
+					// Do not attempt range skip: supersite members are not guaranteed contiguous
 					// Count a single missing event for the supersite and proceed; siblings are skipped below
 					m++;  // One missing event per supersite
 					continue;
@@ -643,7 +643,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                     // Persist sampled h0/h1 for this supersite anchor
                     setSupersiteClassPair(ss_idx_amb, h0, h1);
 						
-							// Do not perform range skip: members may be non-consecutive after MAC pruning
+							// Do not perform range skip: supersite members are not guaranteed contiguous
 							a++;  // One ambiguous event per supersite
 							continue;
 					} else {
@@ -860,7 +860,7 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 						// Persist sampled h0/h1 for this supersite anchor
 						setSupersiteClassPair(ss_idx_amb, h0, h1);
 
-						// Do not perform range skip: members may be non-consecutive after MAC pruning
+						// Do not perform range skip: supersite members are not guaranteed contiguous
 						a++;  // One ambiguous event per supersite
 						continue;
 					} else {

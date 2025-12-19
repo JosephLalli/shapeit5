@@ -78,6 +78,7 @@ void buildSuperSites(
     std::vector<uint8_t>& /*sample_supersite_genotypes_out*/,
     int mac_threshold)
 {
+    (void)mac_threshold;
     super_sites_out.clear();
     packed_allele_codes_out.clear();
     super_site_var_index_out.clear();
@@ -100,10 +101,9 @@ void buildSuperSites(
         const bool trace_bp = should_trace_bp(site_bp);
         if (trace_bp) {
             std::fprintf(stdout,
-                         "[BP_SUPERSITE_TRACE] bp=%d variants=%zu mac_threshold=%d indices=",
+                         "[BP_SUPERSITE_TRACE] bp=%d variants=%zu indices=",
                          site_bp,
-                         variant_indices.size(),
-                         mac_threshold);
+                         variant_indices.size());
             for (size_t i = 0; i < variant_indices.size(); ++i) {
                 if (i) std::fprintf(stdout, ",");
                 std::fprintf(stdout, "%d", variant_indices[i]);
@@ -112,30 +112,12 @@ void buildSuperSites(
         }
         if (variant_indices.size() <= 1) continue; // not multi-allelic
 
-        std::vector<int> kept_indices;
-        kept_indices.reserve(variant_indices.size());
-        for (int v_idx : variant_indices) {
-            variant* vp = V.vec_pos[v_idx];
-            if (mac_threshold > 0 && vp->getMAC() < static_cast<unsigned int>(mac_threshold)) {
-                continue; // treat low-MAC sibling as biallelic
-            }
-            kept_indices.push_back(v_idx);
-        }
-
-        if (trace_bp) {
-            std::fprintf(stdout,
-                         "[BP_SUPERSITE_TRACE] bp=%d kept_after_mac=%zu (from %zu)\n",
-                         site_bp,
-                         kept_indices.size(),
-                         variant_indices.size());
-        }
-
-        if (kept_indices.size() <= 1) continue; // nothing left to form a supersite
+        const std::vector<int>& kept_indices = variant_indices;
 
         // Split groups larger than SUPERSITE_MAX_ALTS into deterministic chunks
         for (size_t chunk_start = 0; chunk_start < kept_indices.size(); chunk_start += SUPERSITE_MAX_ALTS) {
             uint8_t n_alts = static_cast<uint8_t>(std::min<size_t>(SUPERSITE_MAX_ALTS, kept_indices.size() - chunk_start));
-            if (n_alts <= 1) continue; // chunk degenerates to biallelic after filtering
+            if (n_alts <= 1) continue; // chunk degenerates to a single split
 
             SuperSite ss;
             ss.global_site_id = kept_indices[chunk_start];
@@ -153,6 +135,23 @@ void buildSuperSites(
                 super_site_var_index_out.push_back(v_idx);
                 is_super_site_out[v_idx] = true;
                 locus_to_super_idx_out[v_idx] = static_cast<int>(super_sites_out.size());
+            }
+
+            // DEBUG: Log supersites containing problematic variant indices
+            bool has_debug_variant = false;
+            for (uint8_t ai = 0; ai < n_alts; ++ai) {
+                int v_idx = kept_indices[chunk_start + ai];
+                if (v_idx >= 47090 && v_idx <= 47105) has_debug_variant = true;
+            }
+            if (has_debug_variant) {
+                std::fprintf(stderr, "[SUPERSITE_DEBUG] ss_idx=%zu anchor=%u bp=%u n_alts=%u members:\n",
+                             super_sites_out.size(), ss.global_site_id, ss.bp, (unsigned)n_alts);
+                for (uint8_t ai = 0; ai < n_alts; ++ai) {
+                    int v_idx = kept_indices[chunk_start + ai];
+                    variant* vp = V.vec_pos[v_idx];
+                    std::fprintf(stderr, "  [%u] v_idx=%d bp=%d ref=%s alt=%s\n",
+                                 (unsigned)ai, v_idx, vp->bp, vp->ref.c_str(), vp->alt.c_str());
+                }
             }
 
             // Build per-haplotype codes (0=REF, 1..n_alts=first ALT seen)
