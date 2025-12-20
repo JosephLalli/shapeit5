@@ -289,6 +289,13 @@ void haplotype_segment_double::forward() {
 	// segment bookkeeping; mirrors the single-precision path.
 	const std::vector<unsigned short>& lengths_bio = G->Lengths_bio.empty() ? G->Lengths : G->Lengths_bio;
 	assert(!lengths_bio.empty());
+	// Debug-only sanity check; remove once cursor accounting is stable (perf).
+	const bool sanity_check = supersite_trace_enabled_d();
+	int expected_bio_sites = 0;
+	int observed_bio_sites = 0;
+	if (sanity_check) {
+		for (int s = segment_first; s <= segment_last; ++s) expected_bio_sites += lengths_bio[s];
+	}
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
@@ -303,6 +310,9 @@ void haplotype_segment_double::forward() {
     }
 
 	for (curr_abs_locus = locus_first ; curr_abs_locus <= locus_last ; curr_abs_locus++) {
+		// Keep segment cursor in range before any Lengths_bio access (protects trailing siblings)
+		if (curr_segment_index < segment_first) curr_segment_index = segment_first;
+		if (curr_segment_index > segment_last) curr_segment_index = segment_last;
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
 		bool update_prev_locus = true;
@@ -342,6 +352,7 @@ void haplotype_segment_double::forward() {
 		const bool hmm_hom = (emit == EmitKind::Hom);
 		const bool data_mis = hmm_mis && !is_sibling;
 		const bool data_amb = hmm_amb && !is_sibling;
+		if (sanity_check && !is_sibling) observed_bio_sites++;
 		trace_ambiguous_cursor("bwd_pre", curr_abs_locus, is_sibling, 0);
 		trace_ambiguous_cursor("fwd_pre", curr_abs_locus, is_sibling, 0);
 
@@ -554,8 +565,14 @@ void haplotype_segment_double::forward() {
 		assert(false && "forward ambiguous cursor moved out of window bounds");
 	}
 		if (curr_segment_locus >= lengths_bio[curr_segment_index]) {
-			curr_segment_index++;
-			curr_segment_locus = 0;
+			// Avoid advancing past the last segment when trailing siblings are present
+			if (curr_segment_index < segment_last) {
+				curr_segment_index++;
+				curr_segment_locus = 0;
+			} else {
+				// Pin to last valid slot to keep Lengths_bio accesses in range
+				curr_segment_locus = lengths_bio[curr_segment_index] - 1;
+			}
 		}
 
 		// End-of-window diagnostic: verify ambiguous-site bookkeeping parity
@@ -583,6 +600,13 @@ void haplotype_segment_double::forward() {
 		}
 	}
 	trace_forward_active = false;
+	if (sanity_check && expected_bio_sites != observed_bio_sites) {
+		std::fprintf(stderr,
+		             "[ss-bio-mismatch][double] sample=%s seg=[%d,%d] locus=[%d,%d] expected_bio=%d observed_bio=%d\n",
+		             G ? G->name.c_str() : "?",
+		             segment_first, segment_last, locus_first, locus_last,
+		             expected_bio_sites, observed_bio_sites);
+	}
 }
 
 int haplotype_segment_double::backward(vector < double > & transition_probabilities, vector < float > & missing_probabilities,
