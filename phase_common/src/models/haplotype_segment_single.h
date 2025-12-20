@@ -145,13 +145,17 @@ private:
     unsigned int n_missing;
 
     //CURSORS
+    // === SUPERSITE INDEXING SEMANTICS ===
+    // PER-VARIANT cursors: Include all biallelic splits (anchor + siblings)
+    // PER-BASEPAIR cursors: Only biological positions (anchors=1, siblings excluded)
     int curr_segment_index;
-    int curr_segment_locus;
-    int curr_abs_locus;
+    int curr_segment_locus;     // PER-BASEPAIR: biological position within segment
+    int curr_abs_locus;         // PER-VARIANT: absolute variant index [0, n_variants)
     int prev_abs_locus;
     int curr_rel_locus;
     int curr_rel_locus_offset;
-    int curr_abs_ambiguous;
+    int curr_abs_ambiguous;     // PER-BASEPAIR: index into G->Ambiguous[], siblings excluded
+                                // Controlled by data_amb = hmm_amb && !is_sibling
     int curr_abs_transition;
     int curr_abs_missing;
     int curr_rel_missing;
@@ -1878,8 +1882,8 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
     if (supersite_trace_enabled()) {
         std::fprintf(stderr, "[IMPUTE_TRACE] locus=%d rel_mis=%d ss_idx=%d n_cond=%u\n",
                      curr_abs_locus, curr_rel_missing, ss_idx, n_cond_haps);
-        std::fprintf(stderr, "  AlphaSumInv: ");
-        for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, "%.6e ", 1.0f/AlphaSumMissing[curr_rel_missing][h]);
+        std::fprintf(stderr, "  AlphaSum: ");
+        for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, "%.6e ", AlphaSumMissing[curr_rel_missing][h]);
         std::fprintf(stderr, "\n");
     }
 
@@ -1904,9 +1908,9 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
     }
 
     __m256 _sum = _mm256_set1_ps(0.0f);
-    __m256 _alphaSum = _mm256_load_ps(&AlphaSumMissing[curr_rel_missing][0]);
-    __m256 _ones = _mm256_set1_ps(1.0f);
-    _alphaSum = _mm256_div_ps(_ones, _alphaSum);
+    // NOTE: We intentionally do NOT divide by AlphaSumMissing here.
+    // The 1/AlphaSum factor cancels out in the final ratio normalization.
+    // Removing it avoids overflow when AlphaSum is subnormal (< FLT_MIN).
 
     if (ss_idx >= 0) {
         const SuperSite& ss = (*super_sites)[ss_idx];
@@ -1924,7 +1928,7 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
             int code = (int)ss_cond_codes[k]; if (code > (int)ss.var_count) code = 0;
             __m256 _prob = _mm256_load_ps(&prob[i]);
             __m256 _alpha = _mm256_load_ps(&AlphaMissing[curr_rel_missing][i]);
-            _sum = _mm256_mul_ps(_mm256_mul_ps(_alpha, _alphaSum), _prob);
+            _sum = _mm256_mul_ps(_alpha, _prob);  // No AlphaSum division needed
             sum_classes[code] = _mm256_add_ps(sum_classes[code], _sum);
             denom = _mm256_add_ps(denom, _sum);
         }
@@ -1973,7 +1977,7 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
             bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
             __m256 _prob = _mm256_load_ps(&prob[i]);
             __m256 _alpha = _mm256_load_ps(&AlphaMissing[curr_rel_missing][i]);
-            _sum = _mm256_mul_ps(_mm256_mul_ps(_alpha, _alphaSum), _prob);
+            _sum = _mm256_mul_ps(_alpha, _prob);  // No AlphaSum division needed
             _sumA[ah] = _mm256_add_ps(_sumA[ah], _sum);
 
             if (supersite_trace_enabled()) {
@@ -2072,8 +2076,8 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
     if (supersite_trace_enabled()) {
         std::fprintf(stderr, "[IMPUTE_SS_TRACE] locus=%d rel_mis=%d ss_idx=%d n_cond=%u offset=%u C=%d\n",
                      curr_abs_locus, rel_missing_index, ss_idx, n_cond_haps, offset, C);
-        std::fprintf(stderr, "  AlphaSumInv: ");
-        for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, "%.6e ", 1.0f/AlphaSumMissing[rel_missing_index][h]);
+        std::fprintf(stderr, "  AlphaSum: ");
+        for (int h=0; h<HAP_NUMBER; ++h) std::fprintf(stderr, "%.6e ", AlphaSumMissing[rel_missing_index][h]);
         std::fprintf(stderr, "\n");
         // Show donor mapping for the first few conditioning states to confirm parity
         unsigned int dbg_k = std::min(16u, n_cond_haps);
@@ -2161,21 +2165,20 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
                             ss_idx, offset, C, rel_missing_index, (unsigned)n_cond_haps);
     }
 
-    // Load AlphaSumInv for normalization
-    __m256 _alphaSum = _mm256_load_ps(&AlphaSumMissing[rel_missing_index][0]);
-    __m256 _ones = _mm256_set1_ps(1.0f);
-    __m256 _alphaSum_inv = _mm256_div_ps(_ones, _alphaSum);
-    if (supersite_trace_enabled()) supersite_trace_log("[SupersiteImpute] alphaSum loaded\n");
-    
+    // NOTE: We intentionally do NOT divide by AlphaSumMissing here.
+    // The 1/AlphaSum factor would be a per-lane constant that multiplies every term,
+    // so it cancels out in the final SC = sum[c] / denom normalization.
+    // Removing it avoids overflow when AlphaSum is subnormal (< FLT_MIN).
+
     // Accumulate: for each conditioning donor haplotype k
     for (int k = 0, i = 0; k < (int)n_cond_haps; ++k, i += HAP_NUMBER) {
         uint8_t code = ss_cond_codes[k];  // 0=REF, 1..n_alts
         if (code >= C) code = 0;  // Safety: invalid code -> REF
 
-        // term = Alpha[k] x Beta[k] / AlphaSum (8 lanes)
+        // term = Alpha[k] x Beta[k] (8 lanes) - no AlphaSum division needed
         __m256 _alpha = _mm256_load_ps(&AlphaMissing[rel_missing_index][i]);
         __m256 _beta  = _mm256_load_ps(&prob[i]);  // prob=Beta in backward pass
-        __m256 term = _mm256_mul_ps(_mm256_mul_ps(_alpha, _alphaSum_inv), _beta);
+        __m256 term = _mm256_mul_ps(_alpha, _beta);
 
         // Add to class bucket
         sum[code] = _mm256_add_ps(sum[code], term);
@@ -2186,7 +2189,7 @@ void haplotype_segment_single::IMPUTE_SUPERSITE_MULTIVARIATE(
             _mm256_store_ps(av, _alpha);
             _mm256_store_ps(bv, _beta);
             _mm256_store_ps(tv, term);
-            std::fprintf(stderr, "  k=%d code=%u Alpha=%.2e Beta=%.2e AlphaSumInv=%.2e Term=%.2e\n", k, code, av[0], bv[0], _alphaSum_inv[0], tv[0]);
+            std::fprintf(stderr, "  k=%d code=%u Alpha=%.2e Beta=%.2e Term=%.2e\n", k, code, av[0], bv[0], tv[0]);
         }
     }
     if (supersite_trace_enabled()) supersite_trace_log("[SupersiteImpute] accumulation complete\n");

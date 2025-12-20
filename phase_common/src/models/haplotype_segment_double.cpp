@@ -647,6 +647,29 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 	const bool debug_track_transitions = !transition_probabilities.empty();
 	const bool trans_trace = trans_trace_enabled_d();
 	const char* trans_trace_sample = trans_trace_sample_d();
+	const int seg_count = segment_last - segment_first + 1;
+	std::vector<uint8_t> seg_has_anchor(seg_count, 0);
+	std::vector<uint8_t> seg_has_sibling(seg_count, 0);
+	std::vector<uint8_t> seg_wrote_transition(seg_count, 0);
+	std::vector<std::vector<int>> seg_anchor_ss(seg_count);
+	std::vector<std::vector<int>> seg_sibling_ss(seg_count);
+	std::vector<unsigned int> seg_non_sib_count(seg_count, 0);
+	std::vector<int> seg_first_non_sib_locus(seg_count, -1);
+	std::vector<int> seg_last_non_sib_locus(seg_count, -1);
+	bool wrote_first_transition = false;
+	// TEMP DEBUG (TRANS_MISMATCH_ERROR): one-off trace to capture skipped segment boundaries.
+	// Remove after confirming why transition counts diverge in supersite windows.
+	const bool trans_mismatch_trace = std::getenv("SHAPEIT5_TRACE_TRANS_MISMATCH");
+	static bool trans_mismatch_trace_dumped = false;
+	struct trans_mismatch_event {
+		int locus;
+		int seg_idx;
+		int seg_locus;
+		unsigned int n_trans;
+		const char* reason;
+	};
+	std::vector<trans_mismatch_event> trans_mismatch_events;
+	if (trans_mismatch_trace && !trans_mismatch_trace_dumped) trans_mismatch_events.reserve(16);
 
 	for (curr_abs_locus = locus_last ; curr_abs_locus >= locus_first ; curr_abs_locus--) {
 		if (curr_segment_locus == lengths_bio[curr_segment_index] - 1) pending_collapse = true;
@@ -662,6 +685,26 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		}
 		const bool is_anchor = (site_view.kind == SiteKind::SuperAnchor);
 		const bool is_sibling = (site_view.kind == SiteKind::SuperSibling);
+		const int rel_seg = curr_segment_index - segment_first;
+		if (rel_seg >= 0 && rel_seg < seg_count) {
+			if (is_sibling) seg_has_sibling[rel_seg] = 1;
+			else seg_has_anchor[rel_seg] = 1;
+			if (!is_sibling) {
+				seg_non_sib_count[rel_seg] += 1u;
+				if (seg_first_non_sib_locus[rel_seg] < 0) seg_first_non_sib_locus[rel_seg] = curr_abs_locus;
+				seg_last_non_sib_locus[rel_seg] = curr_abs_locus;
+			}
+			const int ss_idx = site_view.supersite_index;
+			auto add_unique = [](std::vector<int>& vec, int val) {
+				if (val < 0) return;
+				for (int existing : vec) {
+					if (existing == val) return;
+				}
+				vec.push_back(val);
+			};
+			if (is_anchor) add_unique(seg_anchor_ss[rel_seg], ss_idx);
+			else if (is_sibling) add_unique(seg_sibling_ss[rel_seg], ss_idx);
+		}
 
 		// Deferred initialization: if we started on a sibling, keep doing INIT_SIB until we hit a non-sibling
 		if (need_init && is_sibling) {
@@ -773,7 +816,20 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 				std::fflush(stdout);
 			}
 			SET_FIRST_TRANS(transition_probabilities);
+			wrote_first_transition = true;
 			if (debug_track_transitions) debug_transitions_written += n_trans;
+		}
+		const bool at_segment_boundary = (curr_segment_locus == 0 && curr_segment_index > segment_first);
+		if (at_segment_boundary && trans_mismatch_trace && !trans_mismatch_trace_dumped) {
+			const unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
+			const unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index - 1]);
+			const unsigned int n_trans = curr_dipcount * prev_dipcount;
+			const char* reason = nullptr;
+			if (curr_abs_locus == locus_first) reason = "window_start";
+			else if (is_sibling) reason = "sibling_boundary";
+			if (reason && trans_mismatch_events.size() < 16) {
+				trans_mismatch_events.push_back({curr_abs_locus, curr_segment_index, curr_segment_locus, n_trans, reason});
+			}
 		}
 		if (!is_sibling && curr_segment_locus == 0 && curr_abs_locus != locus_first && curr_segment_index > segment_first) {
 			if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
@@ -786,6 +842,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 				std::fflush(stdout);
 			}
 			int ret = SET_OTHER_TRANS(transition_probabilities);
+			if (rel_seg >= 0 && rel_seg < seg_count) seg_wrote_transition[rel_seg] = 1;
 			if (debug_track_transitions) {
 				unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
 				unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
@@ -858,17 +915,60 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 
 	// DIAGNOSTIC: Check if transitions_stored matches expected for THIS WINDOW only.
 	if (debug_track_transitions) {
-		size_t window_expected = 0;
-		const long long window_range = static_cast<long long>(transition_last) - static_cast<long long>(transition_first) + 1;
-		if (window_range > 0) window_expected = static_cast<size_t>(window_range);
-		// NOTE: First segment's transitions are now included in window_range (via window_set.cpp fix)
-		if (debug_transitions_written != window_expected) {
-			std::fprintf(stderr, "[TRANS_MISMATCH_ERROR] Sample=%s: Backward pass stored %u transitions but expected %zu for window\n",
-			             G->name.c_str(), debug_transitions_written, window_expected);
-			std::fprintf(stderr, "  Transition span=[%d,%d] segments=[%d,%d] locus_range=[%d,%d]\n",
-			             transition_first, transition_last, segment_first, segment_last, locus_first, locus_last);
-			std::fprintf(stderr, "  Whole-sample expectation=%u, vector size=%zu\n",
+		bool error = false;
+		if (segment_first == 0 && locus_first == 0 && !wrote_first_transition) {
+			std::fprintf(stderr, "[TRANS_MISMATCH_ERROR] Sample=%s: Missing first-segment transition write in window\n",
+			             G->name.c_str());
+			error = true;
+		}
+		for (int s = segment_first; s <= segment_last; ++s) {
+			const int rel = s - segment_first;
+			if (rel < 0 || rel >= seg_count) continue;
+			if (!seg_sibling_ss[rel].empty()) {
+				for (int ss_idx : seg_sibling_ss[rel]) {
+					bool has_anchor = false;
+					for (int anchor_idx : seg_anchor_ss[rel]) {
+						if (anchor_idx == ss_idx) {
+							has_anchor = true;
+							break;
+						}
+					}
+					if (!has_anchor) {
+						std::fprintf(stderr,
+						             "[TRANS_MISMATCH_ERROR] Sample=%s: Segment %d has sibling ss_idx=%d without its anchor\n",
+						             G->name.c_str(), s, ss_idx);
+						error = true;
+					}
+				}
+			}
+		}
+		for (int s = segment_first + 1; s <= segment_last; ++s) {
+			const int rel = s - segment_first;
+			if (rel < 0 || rel >= seg_count) continue;
+			if (seg_has_anchor[rel] && !seg_wrote_transition[rel]) {
+				const unsigned int len_bio = (s >= 0 && s < (int)lengths_bio.size()) ? lengths_bio[s] : 0u;
+				std::fprintf(stderr,
+				             "[TRANS_MISMATCH_ERROR] Sample=%s: Missing transition write for segment %d in window (len_bio=%u non_sib=%u first_non_sib=%d last_non_sib=%d)\n",
+				             G->name.c_str(), s, len_bio, seg_non_sib_count[rel], seg_first_non_sib_locus[rel], seg_last_non_sib_locus[rel]);
+				error = true;
+			}
+		}
+		if (error) {
+			std::fprintf(stderr, "  segments=[%d,%d] locus_range=[%d,%d]\n",
+			             segment_first, segment_last, locus_first, locus_last);
+			std::fprintf(stderr, "  Whole-sample transitions=%u, buffer size=%zu\n",
 			             G->n_transitions, transition_probabilities.size());
+			// TEMP DEBUG (TRANS_MISMATCH_ERROR): dump the first few skipped boundaries once.
+			if (trans_mismatch_trace && !trans_mismatch_trace_dumped) {
+				std::fprintf(stderr, "[TRANS_MISMATCH_TRACE] sample=%s skipped_boundaries=%zu (max 16)\n",
+				             G->name.c_str(), trans_mismatch_events.size());
+				for (const auto& ev : trans_mismatch_events) {
+					std::fprintf(stderr,
+					             "  [TRANS_MISMATCH_TRACE] reason=%s locus=%d seg=%d seg_locus=%d n_trans=%u\n",
+					             ev.reason, ev.locus, ev.seg_idx, ev.seg_locus, ev.n_trans);
+				}
+				trans_mismatch_trace_dumped = true;
+			}
 		}
 	}
 	return n_underflow_recovered;

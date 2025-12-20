@@ -45,6 +45,7 @@ public :
 	std::vector<float> error_ratio;
 	// Supersite configuration
 	bool ss_anchor_split_emissions; // when true, use biallelic split semantics at supersite anchors
+	bool ss_safe_math;              // when true, skip AlphaSum inversion in imputation (prevents subnormal overflow)
 	bool restore_legacy_min_transitions; // when true, mimic pre-guard transition distance handling
 
 	//CONSTRUCTOR/DESTRUCTOR

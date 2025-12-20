@@ -137,23 +137,6 @@ void buildSuperSites(
                 locus_to_super_idx_out[v_idx] = static_cast<int>(super_sites_out.size());
             }
 
-            // DEBUG: Log supersites containing problematic variant indices
-            bool has_debug_variant = false;
-            for (uint8_t ai = 0; ai < n_alts; ++ai) {
-                int v_idx = kept_indices[chunk_start + ai];
-                if (v_idx >= 47090 && v_idx <= 47105) has_debug_variant = true;
-            }
-            if (has_debug_variant) {
-                std::fprintf(stderr, "[SUPERSITE_DEBUG] ss_idx=%zu anchor=%u bp=%u n_alts=%u members:\n",
-                             super_sites_out.size(), ss.global_site_id, ss.bp, (unsigned)n_alts);
-                for (uint8_t ai = 0; ai < n_alts; ++ai) {
-                    int v_idx = kept_indices[chunk_start + ai];
-                    variant* vp = V.vec_pos[v_idx];
-                    std::fprintf(stderr, "  [%u] v_idx=%d bp=%d ref=%s alt=%s\n",
-                                 (unsigned)ai, v_idx, vp->bp, vp->ref.c_str(), vp->alt.c_str());
-                }
-            }
-
             // Build per-haplotype codes (0=REF, 1..n_alts=first ALT seen)
             std::vector<uint8_t> hap_codes;
             hap_codes.resize(static_cast<size_t>(H.n_hap), 0);

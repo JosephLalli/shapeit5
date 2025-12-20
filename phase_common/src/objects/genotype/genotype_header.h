@@ -116,8 +116,23 @@ public:
 	std::string name;
 	unsigned int index;						// Index in containers
 	unsigned int n_segments;				// Number of segments
-	unsigned int n_variants;				// Number of variants	(to iterate over Variants)
-	unsigned int n_ambiguous;				// Number of ambiguous variants
+
+	// === SUPERSITE INDEXING SEMANTICS ===
+	// When supersites are enabled, arrays are either:
+	//   PER-VARIANT: Includes all biallelic splits (anchor + siblings)
+	//   PER-BASEPAIR: Only biological positions (anchors count as 1, siblings excluded)
+
+	// PER-VARIANT: Total variant count including all supersite siblings
+	// Used to iterate over Variants[], which stores raw genotype data for every variant
+	unsigned int n_variants;
+
+	// PER-BASEPAIR: Count of ambiguous biological positions (het or sca)
+	// Siblings are excluded because:
+	// 1. Loop 3 in build() skips siblings: if (ctx.is_member && !ctx.is_anchor) continue;
+	// 2. HMM excludes siblings from cursor advancement: data_amb = hmm_amb && !is_sibling;
+	// Used to size Ambiguous[], which has 1 entry per ambiguous biological position
+	unsigned int n_ambiguous;
+
 	unsigned int n_missing;					// Number of missing
 	unsigned int n_transitions;				// Number of transitions
 	unsigned int n_stored_transitionProbs;	// Number of transition probabilities stored in memory
@@ -128,11 +143,24 @@ public:
 	bool haploid;							//Is this sample haploid?
 
 	// VARIANT / HAPLOTYPE / DIPLOTYPE DATA
-	std::vector < unsigned char > Variants;		// 0.5 byte per variant
-	std::vector < unsigned char > Ambiguous;	// 1 byte per ambiguous variant
+	// === SUPERSITE INDEXING (see n_variants/n_ambiguous comments above) ===
+
+	// PER-VARIANT: Raw genotype data, 0.5 byte per variant (including siblings)
+	// Indexed by variant index [0, n_variants), packed 2 variants per byte
+	std::vector < unsigned char > Variants;
+
+	// PER-BASEPAIR: Ambiguous site masks, 1 byte per ambiguous biological position
+	// Indexed by ambiguous index [0, n_ambiguous), siblings excluded
+	// HMM cursor curr_abs_ambiguous indexes into this array
+	std::vector < unsigned char > Ambiguous;
+
 	std::vector < unsigned long > Diplotypes;	// 8 bytes per segment
-	std::vector < unsigned short > Lengths;		// Raw variant span per segment (anchors count all splits)
-	std::vector < unsigned short > Lengths_bio;	// Biological span per segment (anchors=1)
+
+	// PER-SEGMENT variant spans (both stored per segment, but measure different things):
+	// Lengths[]: PER-VARIANT span - raw variant count including all sibling splits
+	// Lengths_bio[]: PER-BASEPAIR span - biological position count (anchors=1, siblings=0)
+	std::vector < unsigned short > Lengths;
+	std::vector < unsigned short > Lengths_bio;
 
 	//PHASE PROBS
 	std::vector < bool > ProbMask;

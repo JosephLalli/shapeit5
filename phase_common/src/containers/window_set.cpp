@@ -76,21 +76,25 @@ bool window_set::split(double min_length_cm, int left_index, int right_index,
 
 int window_set::build (variant_map & V, genotype * g, float min_window_size, random_number_generator & rng) {
 
+	// PER-BASEPAIR: Returns true only for ambiguous biological positions
+	// Siblings are excluded (return false) to match genotype::n_ambiguous semantics
 	auto is_locus_ambiguous = [&](unsigned int locus) -> bool {
 		bool is_amb = VAR_GET_AMB(MOD2(locus), g->Variants[DIV2(locus)]);
 		genotype::SuperSiteContext ctx = g->getSuperSiteContext(locus);
 		if (ctx.is_member) {
-			if (!ctx.is_anchor) return false;
+			if (!ctx.is_anchor) return false;  // Siblings excluded
 			return ctx.has_het || ctx.has_sca;
 		}
 		return is_amb;
 	};
 
+	// PER-BASEPAIR: Returns true only for missing biological positions
+	// Siblings are excluded (return false) to match PER-BASEPAIR semantics
 	auto is_locus_missing = [&](unsigned int locus) -> bool {
 		bool is_mis = VAR_GET_MIS(MOD2(locus), g->Variants[DIV2(locus)]);
 		genotype::SuperSiteContext ctx = g->getSuperSiteContext(locus);
 		if (ctx.is_member) {
-			if (!ctx.is_anchor) return false;
+			if (!ctx.is_anchor) return false;  // Siblings excluded
 			return ctx.all_missing;
 		}
 		return is_mis;
@@ -212,11 +216,15 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size, ran
 		W[w].stop_transition = tra_idx[W[w].stop_segment] + tra_siz[W[w].stop_segment] - 1;
 		if (supersite_trace_enabled() || std::getenv("SHAPEIT5_DEBUG_TRANS_PARITY")) {
 			// Compute expected transitions within this window to sanity-check bounds.
+			// The backward pass skips the first segment's boundary for windows starting at segment > 0
+			// (SET_OTHER_TRANS requires curr_segment_index > segment_first).
+			// So for non-zero start segments, we count from start_segment+1 instead.
 			unsigned int expected_trans = 0;
-			unsigned int prev_dip = (W[w].start_segment == 0)
+			unsigned int loop_start = (W[w].start_segment == 0) ? 0 : W[w].start_segment + 1;
+			unsigned int prev_dip = (loop_start == 0)
 				? 1u
-				: g->countDiplotypes(g->Diplotypes[W[w].start_segment - 1]);
-			for (unsigned int s = W[w].start_segment; s <= W[w].stop_segment; ++s) {
+				: g->countDiplotypes(g->Diplotypes[loop_start - 1]);
+			for (unsigned int s = loop_start; s <= W[w].stop_segment; ++s) {
 				const unsigned int curr_dip = g->countDiplotypes(g->Diplotypes[s]);
 				const unsigned int trans_here = prev_dip * curr_dip;
 				expected_trans += trans_here;

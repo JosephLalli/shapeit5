@@ -69,13 +69,17 @@ private:
 	unsigned int n_missing;
 
 	//CURSORS
+	// === SUPERSITE INDEXING SEMANTICS ===
+	// PER-VARIANT cursors: Include all biallelic splits (anchor + siblings)
+	// PER-BASEPAIR cursors: Only biological positions (anchors=1, siblings excluded)
 	int curr_segment_index;
-	int curr_segment_locus;
-	int curr_abs_locus;
+	int curr_segment_locus;     // PER-BASEPAIR: biological position within segment
+	int curr_abs_locus;         // PER-VARIANT: absolute variant index [0, n_variants)
 	int prev_abs_locus;
 	int curr_rel_locus;
 	int curr_rel_locus_offset;
-	int curr_abs_ambiguous;
+	int curr_abs_ambiguous;     // PER-BASEPAIR: index into G->Ambiguous[], siblings excluded
+	                            // Controlled by data_amb = hmm_amb && !is_sibling
 	int curr_abs_transition;
 	int curr_abs_missing;
 	int curr_rel_missing;
