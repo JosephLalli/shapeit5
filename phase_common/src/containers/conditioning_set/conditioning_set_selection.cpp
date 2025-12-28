@@ -154,7 +154,7 @@ void conditioning_set::select(int chunk) {
 		bool buff = (sites_pbwt_mthreading[l] < chunk) && (l >= starts_pbwt_mthreading[chunk]);
 
 		if (eval && (chnk || buff)) {
-			if (isSupersiteAnchor(l)) {
+			if (supersite_pbwt_active() && isSupersiteAnchor(l)) {
 				const int ss_idx = (*supersite_pbwt_locus_to_super_idx)[l];
 				const SuperSite& ss = (*supersite_pbwt_super_sites)[ss_idx];
 				const int t = static_cast<int>(ss.n_classes);

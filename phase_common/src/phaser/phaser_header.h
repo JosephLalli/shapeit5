@@ -53,6 +53,7 @@ public:
 
 	//SUPER-SITE DATA
 	bool enable_supersites;
+	bool supersite_pbwt_enabled;  // Whether to use supersite-aware PBWT (t-way Durbin)
 	bool revert_buffer_fix;                 // Opt-in legacy sampler behavior
 	bool restore_legacy_min_transitions;    // Opt-in legacy transition distance handling
 	std::vector<SuperSite> super_sites;

@@ -84,6 +84,7 @@ void phaser::declare_options() {
 	bpo::options_description opt_supersites ("Super-site support (experimental)");
 	opt_supersites.add_options()
 		("enable-supersites", "Enable super-site support for multiallelic positions (STRs) with 4-bit encoding")
+		("no-supersite-pbwt", "Disable supersite-aware PBWT algorithm (use standard biallelic PBWT even when supersites enabled)")
 		("ss-anchor-split-emissions", "Use biallelic split semantics for supersite anchors (treat other ALT as REF at the anchor split)")
 		("no-ss-anchor-split-emissions", "Disable biallelic split semantics for supersite anchors (use strict multivariant classes)");
 
@@ -166,6 +167,7 @@ void phaser::check_options() {
 
 	// Initialize super-site support flag
 	enable_supersites = options.count("enable-supersites") > 0;
+	supersite_pbwt_enabled = enable_supersites && (options.count("no-supersite-pbwt") == 0);
 
 	const bool anchor_split_on = options.count("ss-anchor-split-emissions") > 0;
 	const bool anchor_split_off = options.count("no-ss-anchor-split-emissions") > 0;
@@ -224,7 +226,7 @@ void phaser::verbose_options() {
 	}
 
 	if (enable_supersites) {
-		vrb.bullet("Supersites : [enabled / anchor emissions = " + string(M.ss_anchor_split_emissions ? "split" : "strict") + "]");
+		vrb.bullet("Supersites : [enabled / PBWT = " + string(supersite_pbwt_enabled ? "supersite-aware" : "biallelic") + " / anchor emissions = " + string(M.ss_anchor_split_emissions ? "split" : "strict") + "]");
 	} else {
 		vrb.bullet("Supersites : [disabled]");
 	}

@@ -89,6 +89,7 @@ public:
 		void select(int chunk);
 		void select();
 		void transposePBWTneighbours();
+		bool supersite_pbwt_active() const { return supersite_pbwt_super_sites != nullptr; }
 		bool isSupersiteAnchor(int locus) const;
 		uint8_t class_code(int locus, int hap) const;
 
