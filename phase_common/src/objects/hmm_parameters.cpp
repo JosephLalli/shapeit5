@@ -33,8 +33,6 @@ hmm_parameters::hmm_parameters() {
     ee_snp = 0.9999f;
     ed_indel = 0.0001f;
     ee_indel = 0.9999f;
-    // Default to classic supersite emission semantics until explicitly enabled
-    ss_anchor_split_emissions = false;
     restore_legacy_min_transitions = false;
 }
 

@@ -84,9 +84,7 @@ void phaser::declare_options() {
 	bpo::options_description opt_supersites ("Super-site support (experimental)");
 	opt_supersites.add_options()
 		("enable-supersites", "Enable super-site support for multiallelic positions (STRs) with 4-bit encoding")
-		("no-supersite-pbwt", "Disable supersite-aware PBWT algorithm (use standard biallelic PBWT even when supersites enabled)")
-		("ss-anchor-split-emissions", "Use biallelic split semantics for supersite anchors (treat other ALT as REF at the anchor split)")
-		("no-ss-anchor-split-emissions", "Disable biallelic split semantics for supersite anchors (use strict multivariant classes)");
+		("no-supersite-pbwt", "Disable supersite-aware PBWT algorithm (use standard biallelic PBWT even when supersites enabled)");
 
 	descriptions.add(opt_base)
 		.add(opt_input)
@@ -169,18 +167,6 @@ void phaser::check_options() {
 	enable_supersites = options.count("enable-supersites") > 0;
 	supersite_pbwt_enabled = enable_supersites && (options.count("no-supersite-pbwt") == 0);
 
-	const bool anchor_split_on = options.count("ss-anchor-split-emissions") > 0;
-	const bool anchor_split_off = options.count("no-ss-anchor-split-emissions") > 0;
-	if (anchor_split_on && anchor_split_off)
-		vrb.error("Options --ss-anchor-split-emissions and --no-ss-anchor-split-emissions cannot be used together");
-
-	if (anchor_split_on) M.ss_anchor_split_emissions = true;
-	else if (anchor_split_off) M.ss_anchor_split_emissions = false;
-	else M.ss_anchor_split_emissions = false;  // Default to strict 4-bit equality semantics
-
-	if (!enable_supersites && (anchor_split_on || anchor_split_off))
-		vrb.warning("Supersite anchor emission flags specified but supersites are disabled; option will be ignored");
-
 	if (enable_supersites && (revert_buffer_fix || restore_legacy_min_transitions)) {
 		vrb.error("Reversion flags (--revert-buffer-fix/--restore-legacy-min-transitions) are incompatible with --enable-supersites");
 	}
@@ -226,7 +212,7 @@ void phaser::verbose_options() {
 	}
 
 	if (enable_supersites) {
-		vrb.bullet("Supersites : [enabled / PBWT = " + string(supersite_pbwt_enabled ? "supersite-aware" : "biallelic") + " / anchor emissions = " + string(M.ss_anchor_split_emissions ? "split" : "strict") + "]");
+		vrb.bullet("Supersites : [enabled / PBWT = " + string(supersite_pbwt_enabled ? "supersite-aware" : "biallelic") + "]");
 	} else {
 		vrb.bullet("Supersites : [disabled]");
 	}
