@@ -65,7 +65,6 @@ struct SuperSiteContext {
     std::vector<uint8_t> packed_codes;
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
-    std::vector<uint8_t> sample_codes_unused;
 };
 
 enum PhaseCode : int { REF_REF = 0, ALT_ALT = 1, ALT_REF = 2, REF_ALT = 3 };
@@ -133,7 +132,6 @@ static hmm_parameters make_hmm_params_5var(size_t n_variants, unsigned int Nhap)
     hmm_parameters M;
     M.ed = 0.01;
     M.ee = 1.0;
-    M.ss_anchor_split_emissions = false;
     M.cm = std::vector<float>(n_variants, 0.0f);
     if (n_variants >= 5) {
         M.cm[0] = 0.005f;
@@ -153,7 +151,6 @@ static hmm_parameters make_hmm_params_10var(size_t n_variants, unsigned int Nhap
     hmm_parameters M;
     M.ed = 0.01;
     M.ee = 1.0;
-    M.ss_anchor_split_emissions = false;
     M.cm = std::vector<float>(n_variants, 0.0f);
     if (n_variants >= 10) {
         M.cm[0] = 0.005f;
@@ -177,7 +174,7 @@ static hmm_parameters make_hmm_params_10var(size_t n_variants, unsigned int Nhap
 static SuperSiteContext build_supersites(variant_map& V, conditioning_set& H) {
     SuperSiteContext ctx;
     buildSuperSites(V, H, ctx.super_sites, ctx.is_super_site, ctx.packed_codes,
-                    ctx.locus_to_super_idx, ctx.super_site_var_index, ctx.sample_codes_unused);
+                    ctx.locus_to_super_idx, ctx.super_site_var_index);
     return ctx;
 }
 

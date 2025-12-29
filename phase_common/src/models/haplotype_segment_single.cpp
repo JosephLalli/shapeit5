@@ -365,7 +365,6 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	}
 	// Map: locus -> rel_missing index for anchors
 	missing_index_by_locus.assign(locus_last - locus_first + 1, -1);
-	init_match_mask.resize(static_cast<std::size_t>(n_cond_haps) * HAP_NUMBER);
 	//Cache efficient data transfer for conditioning haplotypes
 	curr_rel_locus_offset = Hhap.subset(H, idxH, locus_first, locus_last);
 	Hvar.allocateFast(Hhap.n_cols, Hhap.n_rows);
@@ -382,12 +381,6 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
         ss_cond_codes = aligned_vector32<uint8_t>(n_cond_haps, 0);
         ss_emissions = aligned_vector32<float>(n_cond_haps, 1.0f);
         ss_emissions_h1 = aligned_vector32<float>(n_cond_haps, 1.0f);
-        // Initialize cache tracking - sized to number of supersites, all false
-        // Cache is per-segment and automatically reset when new segment created
-        // (segments are created fresh for each window, so no explicit invalidation needed)
-        if (super_sites) {
-            ss_cached.resize(super_sites->size(), false);
-        }
 
         // Populate static panel code matrix (like Hvar for biallelic)
         // Take a snapshot of current cond_idx to avoid dynamic dependency
@@ -520,7 +513,7 @@ void haplotype_segment_single::forward() {
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
-	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
+	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index);
     if (supersite_trace_enabled()) std::fprintf(stderr, "FWD2 after adapters\n");
 
     if (supersite_trace_enabled()) {
@@ -599,51 +592,38 @@ void haplotype_segment_single::forward() {
 
         if (curr_rel_locus == 0) {
             if (is_anchor) {
-                if (M.ss_anchor_split_emissions) {
-                    supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/false, init_match_mask);
-                    INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-                } else {
-                    switch (emit) {
-                        case EmitKind::Hom:
-                            SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
-                            break;
-                        case EmitKind::Amb:
-                            SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
-                            break;
-                        case EmitKind::Mis:
-                            SS_INIT_MIS();
-                            break;
-                    }
+                switch (emit) {
+                    case EmitKind::Hom:
+                        SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+                        break;
+                    case EmitKind::Amb:
+                        SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+                        break;
+                    case EmitKind::Mis:
+                        SS_INIT_MIS();
+                        break;
                 }
             } else if (is_sibling) {
                 // Sibling at window start: neutral init but no prev_locus advance
                 INIT_MIS();
                 update_prev_locus = false;
             } else {
-				if (hmm_mis) {
-					INIT_MIS();
-				} else {
-					bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
-					INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-				}
+				if (hmm_hom) INIT_HOM();
+				else if (hmm_amb) INIT_AMB();
+				else INIT_MIS();
 			}
         } else if (curr_segment_locus != 0) {
             if (is_anchor) {
-                if (M.ss_anchor_split_emissions) {
-                    supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/false, init_match_mask);
-                    RUN_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-                } else {
-                    switch (emit) {
-                        case EmitKind::Hom:
-                            update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
-                            break;
-                        case EmitKind::Amb:
-                            update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
-                            break;
-                        case EmitKind::Mis:
-                            update_prev_locus = SS_RUN_MIS();
-                            break;
-                    }
+                switch (emit) {
+                    case EmitKind::Hom:
+                        update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+                        break;
+                    case EmitKind::Amb:
+                        update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+                        break;
+                    case EmitKind::Mis:
+                        update_prev_locus = SS_RUN_MIS();
+                        break;
                 }
 			} else if (is_sibling) {
 				// Sibling within window: no-op DP but perform bookkeeping
@@ -656,21 +636,16 @@ void haplotype_segment_single::forward() {
 			}
         } else {
             if (is_anchor) {
-                if (M.ss_anchor_split_emissions) {
-                    supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/false, init_match_mask);
-                    COLLAPSE_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-                } else {
-                    switch (emit) {
-                        case EmitKind::Hom:
-                            SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
-                            break;
-                        case EmitKind::Amb:
-                            SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
-                            break;
-                        case EmitKind::Mis:
-                            SS_COLLAPSE_MIS();
-                            break;
-                    }
+                switch (emit) {
+                    case EmitKind::Hom:
+                        SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+                        break;
+                    case EmitKind::Amb:
+                        SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+                        break;
+                    case EmitKind::Mis:
+                        SS_COLLAPSE_MIS();
+                        break;
                 }
 			} else if (is_sibling) {
 				// Sibling at segment boundary: no-op DP with bookkeeping
@@ -914,7 +889,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
-	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
+	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index);
 
 	// Flag: backward pass always starts with initialization; if locus_last is a sibling, defer until first non-sibling
 	bool need_init = true;
@@ -1003,55 +978,42 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		// Deferred initialization: first non-sibling after starting on a sibling - use INIT
 		if (need_init && is_anchor) {
 			if (supersite_trace_enabled()) {
-				std::fprintf(stdout, "[DEFERRED_INIT] locus=%d is_anchor=1, need_init=true, using INIT_FROM_MASK\n", curr_abs_locus);
+				std::fprintf(stdout, "[DEFERRED_INIT] locus=%d is_anchor=1, need_init=true\n", curr_abs_locus);
 			}
 			need_init = false;
 			pending_collapse = false;
 			// FIX: Set prev_abs_locus to curr_abs_locus to ensure yt=0 for the first anchor
 			prev_abs_locus = curr_abs_locus;
-			if (M.ss_anchor_split_emissions) {
-				supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/false, init_match_mask);
-				INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-			} else {
-				switch (emit) {
-					case EmitKind::Hom:
-						SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
-						break;
-					case EmitKind::Amb:
-						SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
-						break;
-					case EmitKind::Mis:
-						SS_INIT_MIS();
-						break;
-				}
+			switch (emit) {
+				case EmitKind::Hom:
+					SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+					break;
+				case EmitKind::Amb:
+					SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+					break;
+				case EmitKind::Mis:
+					SS_INIT_MIS();
+					break;
 			}
 		} else if (need_init && !is_sibling) {
 			// Deferred initialization: first biallelic after starting on a sibling - use INIT
 			need_init = false;
 			pending_collapse = false;
-			if (hmm_mis) {
-				INIT_MIS();
-			} else {
-				bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
-				INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-			}
+			if (hmm_hom) INIT_HOM();
+			else if (hmm_amb) INIT_AMB();
+			else INIT_MIS();
 		} else if (!pending_collapse) {
 			if (is_anchor) {
-				if (M.ss_anchor_split_emissions) {
-					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/false, init_match_mask);
-					RUN_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-				} else {
-					switch (emit) {
-						case EmitKind::Hom:
-							update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
-							break;
-						case EmitKind::Amb:
-							update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
-							break;
-						case EmitKind::Mis:
-							update_prev_locus = SS_RUN_MIS();
-							break;
-					}
+				switch (emit) {
+					case EmitKind::Hom:
+						update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						break;
+					case EmitKind::Amb:
+						update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						break;
+					case EmitKind::Mis:
+						update_prev_locus = SS_RUN_MIS();
+						break;
 				}
 			} else if (is_sibling) {
 				// Sibling within window (backward): apply transition only
@@ -1064,21 +1026,16 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			}
 		} else {
 			if (is_anchor) {
-				if (M.ss_anchor_split_emissions) {
-					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/false, init_match_mask);
-					COLLAPSE_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-				} else {
-					switch (emit) {
-						case EmitKind::Hom:
-							SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
-							break;
-						case EmitKind::Amb:
-							SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
-							break;
-						case EmitKind::Mis:
-							SS_COLLAPSE_MIS();
-							break;
-					}
+				switch (emit) {
+					case EmitKind::Hom:
+						SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						break;
+					case EmitKind::Amb:
+						SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						break;
+					case EmitKind::Mis:
+						SS_COLLAPSE_MIS();
+						break;
 				}
 				pending_collapse = false;
 			} else if (is_sibling) {
@@ -1520,7 +1477,7 @@ void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_pr
 	SiteView sv{};
 	bool has_supersite = false;
 	if (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx) {
-		SupersiteEmissionAdapter sup_adapt(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
+		SupersiteEmissionAdapter sup_adapt(G, super_sites, locus_to_super_idx, super_site_var_index);
 		has_supersite = sup_adapt.build_view(locus_first, ambiguous_first, sv);
 	}
 	if (!has_supersite) {

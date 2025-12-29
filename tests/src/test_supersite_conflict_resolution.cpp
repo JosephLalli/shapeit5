@@ -57,10 +57,8 @@ int main() {
 	std::vector<uint8_t> packed_codes;
 	std::vector<int> locus_to_super_idx;
 	std::vector<int> super_site_var_index;
-	std::vector<uint8_t> sample_codes_unused;
-
 	buildSuperSites(V, H, super_sites, is_super_site, packed_codes,
-	                locus_to_super_idx, super_site_var_index, sample_codes_unused);
+	                locus_to_super_idx, super_site_var_index);
 
 	assert(super_sites.size() == 1);
 	const SuperSite& ss = super_sites[0];
@@ -126,8 +124,7 @@ int main() {
 		std::vector<uint8_t> packed3;
 		std::vector<int> locus_to_ss3;
 		std::vector<int> ss3_var_index;
-		std::vector<uint8_t> sample_unused3;
-		buildSuperSites(V3, H3, ss3, is_ss3, packed3, locus_to_ss3, ss3_var_index, sample_unused3);
+		buildSuperSites(V3, H3, ss3, is_ss3, packed3, locus_to_ss3, ss3_var_index);
 		assert(ss3.size() == 1);
 		assert(ss3[0].var_count == 3);
 

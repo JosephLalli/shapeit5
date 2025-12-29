@@ -81,10 +81,8 @@ int main() {
     std::vector<bool> is_super_site;
     std::vector<int> super_site_var_index;
     std::vector<uint8_t> packed_allele_codes;
-    std::vector<uint8_t> sample_codes_unused;
-    
     buildSuperSites(V, H, super_sites, is_super_site, packed_allele_codes,
-                    locus_to_super_idx, super_site_var_index, sample_codes_unused);
+                    locus_to_super_idx, super_site_var_index);
     
     std::cout << "  Verifying results..." << std::endl;
     

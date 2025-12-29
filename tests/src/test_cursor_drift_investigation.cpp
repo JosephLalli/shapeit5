@@ -54,7 +54,6 @@ struct SuperSiteContext {
     std::vector<uint8_t> packed_codes;
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
-    std::vector<uint8_t> sample_codes_unused;
 };
 
 struct CursorTraceEntry {
@@ -192,7 +191,7 @@ static void set_phase(genotype& G, int locus, PhaseCode code) {
 static SuperSiteContext build_supersites(variant_map& V, conditioning_set& H) {
     SuperSiteContext ctx;
     buildSuperSites(V, H, ctx.super_sites, ctx.is_super_site, ctx.packed_codes,
-                    ctx.locus_to_super_idx, ctx.super_site_var_index, ctx.sample_codes_unused);
+                    ctx.locus_to_super_idx, ctx.super_site_var_index);
     return ctx;
 }
 
@@ -431,7 +430,6 @@ int main() {
     hmm_parameters M;
     M.ed = 0.01;
     M.ee = 1.0;
-    M.ss_anchor_split_emissions = true;
     M.cm = std::vector<float>(V.size(), 0.0f);
     for (size_t i = 0; i < V.size(); ++i) {
         M.cm[i] = 0.001f * static_cast<float>(i + 1); // Small incremental distances

@@ -85,7 +85,6 @@ struct SuperSiteContext {
     std::vector<uint8_t> packed_codes;
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
-    std::vector<uint8_t> sample_codes_unused;
 };
 
 struct FBResult {
@@ -295,7 +294,6 @@ static hmm_parameters make_hmm_params(size_t n_variants, unsigned int Nhap) {
     M.ed = 0.01;
     M.ee = 1.0;
     // Use standard supersite emissions for debugging donor codes
-    M.ss_anchor_split_emissions = false;
     M.cm = std::vector<float>(n_variants, 0.001f);
     // simple increasing map with supersite splits sharing the same position
     if (n_variants >= 5) {
@@ -315,7 +313,7 @@ static hmm_parameters make_hmm_params(size_t n_variants, unsigned int Nhap) {
 static SuperSiteContext build_supersites(variant_map& V, conditioning_set& H) {
     SuperSiteContext ctx;
     buildSuperSites(V, H, ctx.super_sites, ctx.is_super_site, ctx.packed_codes,
-                    ctx.locus_to_super_idx, ctx.super_site_var_index, ctx.sample_codes_unused);
+                    ctx.locus_to_super_idx, ctx.super_site_var_index);
     return ctx;
 }
 

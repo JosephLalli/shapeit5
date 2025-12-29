@@ -528,16 +528,13 @@ void phaser::rebuildSupersiteMetadata(const std::string& context, const std::vec
 	packed_allele_codes.clear();
 	locus_to_super_idx.clear();
 	super_site_var_index.clear();
-	sample_supersite_genotypes.clear();
 
 	buildSuperSites(V, H,
 	                super_sites,
 	                is_super_site,
 	                packed_allele_codes,
 	                locus_to_super_idx,
-	                super_site_var_index,
-	                sample_supersite_genotypes,
-	                supersite_mac_threshold);
+	                super_site_var_index);
 	M.markSuperSiteSiblings(super_sites, locus_to_super_idx);
 
 	supersite_build_last_context = context;

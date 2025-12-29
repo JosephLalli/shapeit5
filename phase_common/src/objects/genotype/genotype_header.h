@@ -64,35 +64,6 @@ struct SuperSite;
 #define VAR_SET_HAP1(e,v)	((v)|=(8<<((e)<<2)))
 #define VAR_CLR_HAP1(e,v)	((e)?((v)&=127):((v)&=247))
 
-// Macro to check if a variant is a supersite member
-// Returns supersite index if variant is part of a supersite, -1 otherwise
-// Usage: int ss_idx = VAR_GET_SS_IDX(locus_to_super_idx, vabs);
-#define VAR_GET_SS_IDX(locus_to_super_idx, vabs) \
-    ((locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1)
-
-// Macro to check if a variant is a supersite member (boolean result)
-// Usage: if (VAR_IS_SUPERSITE(locus_to_super_idx, vabs)) { ... }
-#define VAR_IS_SUPERSITE(locus_to_super_idx, vabs) \
-    ((locus_to_super_idx) && ((*locus_to_super_idx)[vabs] >= 0))
-
-// Macro to check if a variant is a supersite anchor (not a sibling split)
-// Returns true if variant is the anchor position where HMM DP runs
-// Usage: if (VAR_IS_SS_ANCHOR(super_sites, locus_to_super_idx, vabs)) { ... }
-#define VAR_IS_SS_ANCHOR(super_sites, locus_to_super_idx, vabs) \
-    ((super_sites) && (locus_to_super_idx) && \
-     ((*locus_to_super_idx)[vabs] >= 0) && \
-     ((int)(vabs) == (int)(*super_sites)[(*locus_to_super_idx)[vabs]].global_site_id))
-
-// Macros for genotype::build() to handle supersite anchors vs siblings
-// Supersite-related macros (now unused - kept for reference/documentation)
-// Refactored build() now uses inline var_len pattern instead of these macros
-
-#define MASK_INIT	0xFFFFFFFFFFFFFFFFUL
-#define MASK_SCAF	0x00AA00AA00AA00AAUL
-#define MASK_UNF0	0x55AA55AA55AA55AAUL
-#define MASK_UNF1	0x3333CCCC3333CCCCUL
-#define MASK_UNF2	0x0F0F0F0FF0F0F0F0UL
-
 // Supersite flag bits stored per anchor (genotype::supersite_flags entries)
 enum SupersiteFlagBits : uint8_t {
 	SS_FLAG_HET      = 1u << 0,

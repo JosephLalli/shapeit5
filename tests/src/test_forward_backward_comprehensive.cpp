@@ -257,10 +257,8 @@ void test_one_multiallelic() {
     std::vector<uint8_t> packed_codes;
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
-    std::vector<uint8_t> unused_sample_codes;
-    
     std::cout << "Building supersites..." << std::endl;
-    buildSuperSites(V, H, super_sites, is_super_site, packed_codes, locus_to_super_idx, super_site_var_index, unused_sample_codes);
+    buildSuperSites(V, H, super_sites, is_super_site, packed_codes, locus_to_super_idx, super_site_var_index);
     
     std::cout << "  Created " << super_sites.size() << " supersite(s)" << std::endl;
     assert(super_sites.size() == 1);
@@ -512,10 +510,8 @@ void test_missing_multiallelic() {
     std::vector<uint8_t> packed_codes;
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
-    std::vector<uint8_t> unused_sample_codes;
-    
     std::cout << "Building supersites..." << std::endl;
-    buildSuperSites(V, H, super_sites, is_super_site, packed_codes, locus_to_super_idx, super_site_var_index, unused_sample_codes);
+    buildSuperSites(V, H, super_sites, is_super_site, packed_codes, locus_to_super_idx, super_site_var_index);
     
     std::cout << "  Created " << super_sites.size() << " supersite(s)" << std::endl;
     std::cout << "  Allele codes in panel: REF, ALT1, ALT2, REF" << std::endl;

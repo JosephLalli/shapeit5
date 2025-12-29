@@ -2,7 +2,6 @@
 
 #include <cstdint>
 
-#include <utils/otools.h> // aligned_vector32
 #include <models/super_site_accessor.h> // SuperSite
 
 enum class SiteKind : uint8_t {
@@ -24,28 +23,10 @@ struct SiteView {
     const SuperSite* supersite{nullptr};
     EmitKind emit_kind{EmitKind::Hom};
     uint8_t lane_class[HAP_NUMBER] = {0};
-    uint8_t anchor_class{0}; // Meaningful for supersite anchors (ALT code 0..15)
     // Immutable supersite classes for emissions (c0/c1). These are not the sampled h0/h1.
     uint8_t sample_class0{0};
     uint8_t sample_class1{0};
     // New: biallelic ambiguous orientation bits for this site (Ambiguous mask)
     // Used to unify supersite anchor emissions with biallelic split semantics
     uint8_t amb_mask{0};
-};
-
-struct MatchMask {
-    static constexpr uint8_t kMatch = 0xFFu;
-    static constexpr uint8_t kMismatch = 0x00u;
-
-    aligned_vector32<uint8_t> by_donor_lane;
-    bool any_match_lane[HAP_NUMBER] = {false};
-
-    MatchMask() = default;
-    explicit MatchMask(std::size_t total_entries)
-        : by_donor_lane(total_entries, 0) {}
-
-    void resize(std::size_t total_entries) {
-        by_donor_lane.assign(total_entries, kMismatch);
-        std::fill(std::begin(any_match_lane), std::end(any_match_lane), false);
-    }
 };

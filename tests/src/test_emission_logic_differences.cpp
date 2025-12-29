@@ -4,15 +4,12 @@
  * Investigates how supersite emission logic differs from biallelic emission
  * and whether this causes more donors to match (leading to K inflation).
  *
- * Key Hypothesis: The supersite anchor split semantics in match mask building
- * creates different matching patterns compared to biallelic logic, potentially
- * causing more donors to be considered as "matches", inflating K.
+ * Key Hypothesis: Supersite match mask building differs from biallelic logic,
+ * potentially causing more donors to be considered as "matches", inflating K.
  *
  * Analysis:
- * - Biallelic: Direct bit comparison (donor_alt == expected_bit)  
- * - Supersite: Two-step anchor class mapping then split semantics
- *   - use_split=true uses anchor_class + amb_mask logic
- *   - use_split=false falls back to lane_class (similar to biallelic)
+ * - Biallelic: Direct bit comparison (donor_alt == expected_bit)
+ * - Supersite: Per-lane class comparison derived from supersite emissions
  ******************************************************************************/
 
 #include <algorithm>
@@ -57,7 +54,6 @@ struct SuperSiteContext {
     std::vector<uint8_t> packed_codes;
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
-    std::vector<uint8_t> sample_codes_unused;
 };
 
 struct EmissionComparison {
@@ -65,12 +61,10 @@ struct EmissionComparison {
     int n_donors;
     int biallelic_matches;
     int supersite_matches;
-    int supersite_split_matches;
     double match_ratio;
     bool significant_difference;
     std::vector<uint8_t> biallelic_mask;
     std::vector<uint8_t> supersite_mask;
-    std::vector<uint8_t> supersite_split_mask;
 };
 
 struct EmissionAnalysis {
@@ -99,12 +93,9 @@ struct EmissionAnalysis {
             if (comp.significant_difference) {
                 loci_with_differences++;
                 
-                if (comp.supersite_matches > comp.biallelic_matches ||
-                    comp.supersite_split_matches > comp.biallelic_matches) {
+                const int inflation = comp.supersite_matches - comp.biallelic_matches;
+                if (inflation > 0) {
                     loci_with_inflation++;
-                    
-                    int inflation = std::max(comp.supersite_matches - comp.biallelic_matches,
-                                           comp.supersite_split_matches - comp.biallelic_matches);
                     max_absolute_inflation = std::max(max_absolute_inflation, inflation);
                 }
             }
@@ -146,7 +137,6 @@ struct EmissionAnalysis {
             std::cout << "  Donors: " << comp.n_donors << std::endl;
             std::cout << "  Biallelic matches: " << comp.biallelic_matches << std::endl;
             std::cout << "  Supersite matches: " << comp.supersite_matches << std::endl;
-            std::cout << "  Supersite split matches: " << comp.supersite_split_matches << std::endl;
             std::cout << "  Match ratio: " << std::fixed << std::setprecision(3) << comp.match_ratio << std::endl;
         }
     }
@@ -188,7 +178,7 @@ static void set_phase(genotype& G, int locus, PhaseCode code) {
 static SuperSiteContext build_supersites(variant_map& V, conditioning_set& H) {
     SuperSiteContext ctx;
     buildSuperSites(V, H, ctx.super_sites, ctx.is_super_site, ctx.packed_codes,
-                    ctx.locus_to_super_idx, ctx.super_site_var_index, ctx.sample_codes_unused);
+                    ctx.locus_to_super_idx, ctx.super_site_var_index);
     return ctx;
 }
 
@@ -204,7 +194,6 @@ static EmissionComparison compare_emission_logic(
     comp.n_donors = static_cast<int>(idxH.size());
     comp.biallelic_matches = 0;
     comp.supersite_matches = 0; 
-    comp.supersite_split_matches = 0;
     comp.match_ratio = 1.0;
     comp.significant_difference = false;
     
@@ -225,16 +214,13 @@ static EmissionComparison compare_emission_logic(
     
     // Build supersite emission view and mask (standard mode)
     SupersiteEmissionAdapter ss_adapter(&G_ss, &ctx_ss.super_sites, &ctx_ss.locus_to_super_idx,
-                                       &ctx_ss.super_site_var_index,
-                                       ctx_ss.packed_codes.empty() ? nullptr : ctx_ss.packed_codes.data(),
-                                       &idxH, ctx_ss.packed_codes.size());
+                                       &ctx_ss.super_site_var_index);
     
     SiteView ss_view;
     MatchMask ss_mask;
     bool has_supersite = ss_adapter.build_view(locus, 0, ss_view);
     
     if (has_supersite) {
-        // Standard supersite matching (use_anchor_split_semantics = false)
         ss_adapter.build_match_mask(ss_view, static_cast<unsigned int>(idxH.size()), false, ss_mask);
         
         for (size_t i = 0; i < ss_mask.by_donor_lane.size(); ++i) {
@@ -243,31 +229,18 @@ static EmissionComparison compare_emission_logic(
             }
         }
         comp.supersite_mask.assign(ss_mask.by_donor_lane.begin(), ss_mask.by_donor_lane.end());
-        
-        // Split semantics supersite matching (use_anchor_split_semantics = true)
-        MatchMask ss_split_mask;
-        ss_adapter.build_match_mask(ss_view, static_cast<unsigned int>(idxH.size()), true, ss_split_mask);
-        
-        for (size_t i = 0; i < ss_split_mask.by_donor_lane.size(); ++i) {
-            if (ss_split_mask.by_donor_lane[i] == MatchMask::kMatch) {
-                comp.supersite_split_matches++;
-            }
-        }
-        comp.supersite_split_mask.assign(ss_split_mask.by_donor_lane.begin(), ss_split_mask.by_donor_lane.end());
-        
+
         // Calculate match ratio and detect significant differences
         comp.match_ratio = (comp.biallelic_matches > 0) 
-                          ? static_cast<double>(std::max(comp.supersite_matches, comp.supersite_split_matches)) / comp.biallelic_matches
+                          ? static_cast<double>(comp.supersite_matches) / comp.biallelic_matches
                           : 1.0;
         
-        comp.significant_difference = (std::abs(comp.supersite_matches - comp.biallelic_matches) > 0) ||
-                                     (std::abs(comp.supersite_split_matches - comp.biallelic_matches) > 0);
+        comp.significant_difference = (std::abs(comp.supersite_matches - comp.biallelic_matches) > 0);
         
         if (env_true("SHAPEIT5_TEST_TRACE") && comp.significant_difference) {
             std::cout << "EMISSION_DIFF: locus=" << locus 
                       << " bial=" << comp.biallelic_matches
-                      << " ss=" << comp.supersite_matches 
-                      << " ss_split=" << comp.supersite_split_matches
+                      << " ss=" << comp.supersite_matches
                       << " ratio=" << std::fixed << std::setprecision(3) << comp.match_ratio << std::endl;
         }
     }

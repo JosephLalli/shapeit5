@@ -24,11 +24,6 @@ public:
 
     void build_view(int abs_locus, int curr_abs_ambiguous, SiteView& view) const;
 
-    void build_match_mask(const SiteView& view,
-                          unsigned int n_cond_haps,
-                          int matrix_row,
-                          MatchMask& mask) const;
-
 private:
     const genotype* G_{nullptr};
     bitmatrix* Hvar_{nullptr};
@@ -39,35 +34,21 @@ public:
     SupersiteEmissionAdapter(const genotype* G,
                               const std::vector<SuperSite>* super_sites,
                               const std::vector<int>* locus_to_super_idx,
-                              const std::vector<int>* super_site_var_index,
-                              const uint8_t* panel_codes,
-                                                            const std::vector<unsigned int>* cond_idx,
-                                                            size_t panel_codes_size = 0)
+                              const std::vector<int>* super_site_var_index)
         : G_(G),
           super_sites_(super_sites),
           locus_to_super_idx_(locus_to_super_idx),
-          super_site_var_index_(super_site_var_index),
-                    panel_codes_(panel_codes),
-                    cond_idx_(cond_idx),
-                    panel_codes_size_(panel_codes_size) {}
+          super_site_var_index_(super_site_var_index) {}
 
     bool build_view(int abs_locus,
                     int curr_abs_ambiguous,
                     SiteView& view) const;
-
-    void build_match_mask(const SiteView& view,
-                          unsigned int n_cond_haps,
-                          bool use_anchor_split_semantics,
-                          MatchMask& mask) const;
 
 private:
     const genotype* G_{nullptr};
     const std::vector<SuperSite>* super_sites_{nullptr};
     const std::vector<int>* locus_to_super_idx_{nullptr};
     const std::vector<int>* super_site_var_index_{nullptr};
-    const uint8_t* panel_codes_{nullptr};
-    const std::vector<unsigned int>* cond_idx_{nullptr};
-    size_t panel_codes_size_{0};
 };
 
 // =============================
@@ -81,7 +62,6 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
     view.supersite = nullptr;
     view.supersite_index = -1;
     view.locus = abs_locus;
-    view.anchor_class = 0;
     view.sample_class0 = 0;
     view.sample_class1 = 0;
 
@@ -143,44 +123,10 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
     }
 }
 
-inline void BiallelicEmissionAdapter::build_match_mask(const SiteView& view,
-                                                       unsigned int n_cond_haps,
-                                                       int matrix_row,
-                                                       MatchMask& mask) const {
-    const std::size_t total_entries = static_cast<std::size_t>(n_cond_haps) * HAP_NUMBER;
-    mask.resize(total_entries);
-
-    if (view.emit_kind == EmitKind::Mis) {
-        std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMatch);
-        std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), true);
-        return;
-    }
-
-    if (!Hvar_) {
-        std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), static_cast<uint8_t>(0));
-        return;
-    }
-
-    std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMismatch);
-    std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), false);
-
-    for (unsigned int k = 0; k < n_cond_haps; ++k) {
-        const bool donor_alt = Hvar_->get(matrix_row, k);
-        const uint8_t donor_code = donor_alt ? 1u : 0u;
-        const std::size_t base = static_cast<std::size_t>(k) * HAP_NUMBER;
-        for (int h = 0; h < HAP_NUMBER; ++h) {
-            const bool match = (donor_code == view.lane_class[h]);
-            mask.by_donor_lane[base + h] = match ? MatchMask::kMatch : MatchMask::kMismatch;
-            mask.any_match_lane[h] = mask.any_match_lane[h] || match;
-        }
-    }
-}
-
 inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
                                                  int curr_abs_ambiguous,
                                                  SiteView& view) const {
     view.locus = abs_locus;
-    view.anchor_class = 0;
     view.supersite_index = -1;
     std::fill(std::begin(view.lane_class), std::end(view.lane_class), 0);
     view.sample_class0 = 0u;
@@ -277,22 +223,11 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
         std::fill(std::begin(view.lane_class), std::end(view.lane_class), c0);
     }
 
-    // Record anchor ALT class (1..n_alts) for downstream split semantics
-    if (super_site_var_index_) {
-        for (uint16_t ai = 0; ai < ss.var_count; ++ai) {
-            const int member_idx = (*super_site_var_index_)[ss.var_start + ai];
-            if (member_idx == abs_locus) {
-                view.anchor_class = static_cast<uint8_t>(ai + 1);
-                break;
-            }
-        }
-    }
     if (supersite_trace_enabled()) {
-        supersite_trace_log("[SupersiteEmit] build_view(super) locus=%d ss_idx=%d emit=%d anchor_class=%u c0=%u c1=%u\n",
+        supersite_trace_log("[SupersiteEmit] build_view(super) locus=%d ss_idx=%d emit=%d c0=%u c1=%u\n",
                             abs_locus,
                             ss_idx,
                             static_cast<int>(view.emit_kind),
-                            static_cast<unsigned>(view.anchor_class),
                             static_cast<unsigned>(view.sample_class0),
                             static_cast<unsigned>(view.sample_class1));
         supersite_trace_log("  lane_class:");
@@ -302,72 +237,4 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
         supersite_trace_log("\n");
     }
     return true;
-}
-
-inline void SupersiteEmissionAdapter::build_match_mask(const SiteView& view,
-                                                        unsigned int n_cond_haps,
-                                                        bool /*use_anchor_split_semantics*/,
-                                                        MatchMask& mask) const {
-    const std::size_t total_entries = static_cast<std::size_t>(n_cond_haps) * HAP_NUMBER;
-    mask.resize(total_entries);
-
-    if (view.emit_kind == EmitKind::Mis || !view.supersite) {
-        std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMatch);
-        std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), true);
-        return;
-    }
-
-    if (!panel_codes_ || !cond_idx_) {
-        std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMismatch);
-        std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), false);
-        return;
-    }
-
-    const SuperSite& ss = *view.supersite;
-    if (!supersite_debug::validate_panel_span(ss, panel_codes_size_, view.supersite_index, "SupersiteEmissionAdapter::build_match_mask")) {
-        std::abort();
-    }
-    std::fill(mask.by_donor_lane.begin(), mask.by_donor_lane.end(), MatchMask::kMismatch);
-    std::fill(std::begin(mask.any_match_lane), std::end(mask.any_match_lane), false);
-
-    // Optional trace
-    const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
-    if (tr && tr[0] != '\0' && tr[0] != '0') {
-        std::fprintf(stdout,
-                     "build_match_mask locus=%d ss_idx=%d use_split=%d anchor_class=%u emit=%d amb_mask=%u n_cond_haps=%u\n",
-                     view.locus, view.supersite_index, 0, (unsigned)view.anchor_class,
-                     (int)view.emit_kind, (unsigned)view.amb_mask, n_cond_haps);
-    }
-
-    for (unsigned int k = 0; k < n_cond_haps; ++k) {
-        const unsigned int hap_idx = (*cond_idx_)[k];
-        if (!supersite_debug::validate_panel_byte(ss, hap_idx, view.supersite_index, "SupersiteEmissionAdapter::build_match_mask")) {
-            std::abort();
-        }
-        const uint8_t donor_code = unpackSuperSiteCode(panel_codes_, ss.panel_offset, hap_idx);
-        const std::size_t base = static_cast<std::size_t>(k) * HAP_NUMBER;
-        if (tr && tr[0] != '\0' && tr[0] != '0') {
-            std::fprintf(stdout, "  donor k=%u hap_idx=%u code=%u\n", k, hap_idx, (unsigned)donor_code);
-        }
-
-        // Always use strict class-equality at anchors: donor_code vs lane_class[h]
-        // This encodes both the supersite class semantics and the implied
-        // biallelic anchor signal via (lane_class[h] == anchor_class).
-        for (int h = 0; h < HAP_NUMBER; ++h) {
-            const bool match = (donor_code == view.lane_class[h]);
-            mask.by_donor_lane[base + h] = match ? MatchMask::kMatch : MatchMask::kMismatch;
-            mask.any_match_lane[h] = mask.any_match_lane[h] || match;
-        }
-    }
-    if (supersite_trace_enabled()) {
-        supersite_trace_log("[SupersiteEmit] build_match_mask locus=%d use_split=%d n_cond=%u\n",
-                            view.locus,
-                            0,
-                            n_cond_haps);
-        supersite_trace_log("  any_match_lane:");
-        for (int h = 0; h < HAP_NUMBER; ++h) {
-            supersite_trace_log(" %d:%d", h, mask.any_match_lane[h] ? 1 : 0);
-        }
-        supersite_trace_log("\n");
-    }
 }

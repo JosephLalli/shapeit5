@@ -50,7 +50,6 @@ struct SuperSiteContext {
     std::vector<uint8_t> packed_codes;
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
-    std::vector<uint8_t> sample_codes_unused;
 };
 
 static variant* make_var(std::string chr, int bp, std::string id,
@@ -61,7 +60,7 @@ static variant* make_var(std::string chr, int bp, std::string id,
 static SuperSiteContext build_supersites(variant_map& V, conditioning_set& H) {
     SuperSiteContext ctx;
     buildSuperSites(V, H, ctx.super_sites, ctx.is_super_site, ctx.packed_codes,
-                    ctx.locus_to_super_idx, ctx.super_site_var_index, ctx.sample_codes_unused);
+                    ctx.locus_to_super_idx, ctx.super_site_var_index);
     return ctx;
 }
 

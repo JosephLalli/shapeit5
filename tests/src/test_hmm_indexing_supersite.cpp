@@ -152,10 +152,8 @@ void test_locus_segment_alignment() {
     vector<uint8_t> packed_codes;
     vector<int> locus_to_super_idx;
     vector<int> super_site_var_index;
-    vector<uint8_t> sample_codes;
-    
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes, 
-                    locus_to_super_idx, super_site_var_index, sample_codes);
+                    locus_to_super_idx, super_site_var_index);
     
     // Setup window
     window W;
@@ -183,7 +181,6 @@ void test_locus_segment_alignment() {
     for (int i = 0; i < n_variants; ++i) {
         M.cm[i] = V.vec_pos[i]->cm;
     }
-    M.ss_anchor_split_emissions = false;
     
     bitmatrix Hvar;
     Hvar.allocate(n_variants, n_haps);
@@ -250,10 +247,8 @@ void test_alpha_arrays() {
     vector<uint8_t> packed_codes;
     vector<int> locus_to_super_idx;
     vector<int> super_site_var_index;
-    vector<uint8_t> sample_codes;
-    
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes, 
-                    locus_to_super_idx, super_site_var_index, sample_codes);
+                    locus_to_super_idx, super_site_var_index);
     
     window W;
     W.start_segment = 0;
@@ -279,7 +274,6 @@ void test_alpha_arrays() {
     for (int i = 0; i < n_variants; ++i) {
         M.cm[i] = V.vec_pos[i]->cm;
     }
-    M.ss_anchor_split_emissions = false;
     
     bitmatrix Hvar;
     Hvar.allocate(n_variants, n_haps);
@@ -371,10 +365,8 @@ void test_cursor_progression() {
     vector<uint8_t> packed_codes;
     vector<int> locus_to_super_idx;
     vector<int> super_site_var_index;
-    vector<uint8_t> sample_codes;
-    
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes, 
-                    locus_to_super_idx, super_site_var_index, sample_codes);
+                    locus_to_super_idx, super_site_var_index);
     
     window W;
     W.start_segment = 0;
@@ -400,7 +392,6 @@ void test_cursor_progression() {
     for (int i = 0; i < n_variants; ++i) {
         M.cm[i] = V.vec_pos[i]->cm;
     }
-    M.ss_anchor_split_emissions = false;
     
     bitmatrix Hvar;
     Hvar.allocate(n_variants, n_haps);

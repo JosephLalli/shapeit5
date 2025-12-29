@@ -149,10 +149,8 @@ bool test_simple_supersite_boundary() {
         H.H_opt_var.set(v, 3, 1);  // hap 3 carries ALT at variant v  
         H.H_opt_hap.set(3, v, 1);  // hap 3 carries ALT at variant v
     }
-    
-    vector<uint8_t> unused_sample_codes;
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes, 
-                    locus_to_super_idx, super_site_var_index, unused_sample_codes);
+                    locus_to_super_idx, super_site_var_index);
     
     cout << "  Built " << super_sites.size() << " supersites" << endl;
     test_assert(super_sites.size() == 1, "Expected 1 supersite");
@@ -275,10 +273,8 @@ bool test_large_supersite_spanning() {
         H.H_opt_var.set(v, 3, 1);  // hap 3 carries ALT at variant v  
         H.H_opt_hap.set(3, v, 1);  // hap 3 carries ALT at variant v
     }
-    
-    vector<uint8_t> unused_sample_codes;
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes, 
-                    locus_to_super_idx, super_site_var_index, unused_sample_codes);
+                    locus_to_super_idx, super_site_var_index);
     
     cout << "  Built " << super_sites.size() << " supersites" << endl;
     test_assert(super_sites.size() == 1, "Expected 1 large supersite");
@@ -392,10 +388,8 @@ bool test_multiple_supersites_with_boundaries() {
         H.H_opt_var.set(v, 3, 1);  // hap 3 carries ALT at variant v  
         H.H_opt_hap.set(3, v, 1);  // hap 3 carries ALT at variant v
     }
-    
-    vector<uint8_t> unused_sample_codes;
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes, 
-                    locus_to_super_idx, super_site_var_index, unused_sample_codes);
+                    locus_to_super_idx, super_site_var_index);
     
     cout << "  Built " << super_sites.size() << " supersites" << endl;
     test_assert(super_sites.size() == 2, "Expected 2 supersites");

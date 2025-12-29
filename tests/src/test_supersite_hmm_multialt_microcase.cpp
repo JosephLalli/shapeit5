@@ -251,7 +251,7 @@ static void copy_genotype_into_set(const genotype& src, genotype_set& GS) {
 // Build supersite structures
 static void build_supersites(TestContext& ctx) {
     buildSuperSites(ctx.V, ctx.H, ctx.super_sites, ctx.is_super_site, ctx.packed_codes,
-                    ctx.locus_to_super_idx, ctx.super_site_var_index, std::vector<uint8_t>());
+                    ctx.locus_to_super_idx, ctx.super_site_var_index);
 
     if (!ctx.super_sites.empty()) {
         ctx.H.applySupersiteAnchorMask(ctx.super_sites, ctx.super_site_var_index);
@@ -276,7 +276,6 @@ static hmm_parameters make_hmm_params(const variant_map& V, unsigned int Nhap) {
     hmm_parameters M;
     M.ed = 0.01;  // Small error rate: mismatch emission = 0.01
     M.ee = 1.0;   // Match emission = 1.0
-    M.ss_anchor_split_emissions = false;  // Use anchor-level emissions
 
     M.cm = std::vector<float>(V.size(), 0.0f);
     for (size_t i = 0; i < V.size(); ++i) {

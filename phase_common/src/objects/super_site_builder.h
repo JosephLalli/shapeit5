@@ -45,9 +45,7 @@ void buildSuperSites(
     std::vector<bool>& is_super_site_out,
     std::vector<uint8_t>& packed_allele_codes_out,
     std::vector<int>& locus_to_super_idx_out,
-    std::vector<int>& super_site_var_index_out,
-    std::vector<uint8_t>& sample_supersite_genotypes_out,
-    int mac_threshold = 0);
+    std::vector<int>& super_site_var_index_out);
 
 // Build a lookup table mapping each locus to its supersite anchor (or -1 if none).
 std::vector<int> buildSupersiteAnchorMap(const std::vector<SuperSite>& super_sites,

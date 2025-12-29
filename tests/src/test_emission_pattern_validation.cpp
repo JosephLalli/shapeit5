@@ -2,7 +2,7 @@
  * Emission Pattern Validation Test
  * 
  * Compares emission match masks between biallelic and supersite modes to identify
- * inconsistencies in anchor split semantics that may cause K inflation.
+ * inconsistencies in emission semantics that may cause K inflation.
  *
  * Focus: Validate that SupersiteEmissionAdapter produces consistent emission 
  * patterns with BiallelicEmissionAdapter for equivalent genotype configurations.
@@ -205,51 +205,31 @@ static void simulate_biallelic_emission(const MockConditioningData& cond,
     }
 }
 
-// Simulate supersite emission logic (simplified anchor split semantics)
+// Simulate supersite emission logic (simplified class comparisons)
 static void simulate_supersite_emission(const MockConditioningData& cond,
-                                       uint8_t anchor_class, bool use_anchor_split,
                                        uint8_t sample_h0_class, uint8_t sample_h1_class,
                                        uint32_t amb_mask,
                                        EmissionComparison& result) {
-    result.supersite_matches.resize(cond.n_donors * HAP_NUMBER);
+    result.supersite_matches.assign(cond.n_donors * HAP_NUMBER, false);
     std::fill(result.supersite_any_match.begin(), result.supersite_any_match.end(), false);
-    
+
     for (size_t k = 0; k < cond.n_donors; k++) {
-        const uint8_t donor_code = cond.donor_states[k] ? anchor_class : 0u;
+        const uint8_t donor_code = cond.donor_states[k] ? 1u : 0u;
         const size_t base = k * HAP_NUMBER;
-        
-        if (use_anchor_split) {
-            // Anchor split semantics: compare against anchor_class
-            const uint8_t donor_alt_flag = (donor_code == anchor_class) ? 1u : 0u;
-            
-            for (int h = 0; h < HAP_NUMBER; h++) {
-                uint8_t expected_flag;
-                if (h == 0) {
-                    expected_flag = (sample_h0_class == anchor_class) ? 1u : 0u;
-                } else {
-                    // For ambiguous sites, use amb_mask; otherwise use h1 class
-                    if (amb_mask != 0) {
-                        expected_flag = ((amb_mask >> h) & 1U) ? 1u : 0u;
-                    } else {
-                        expected_flag = (sample_h1_class == anchor_class) ? 1u : 0u;
-                    }
-                }
-                
-                bool match = (donor_alt_flag == expected_flag);
-                result.supersite_matches[base + h] = match;
-                result.supersite_any_match[h] = result.supersite_any_match[h] || match;
-            }
-        } else {
-            // Standard supersite emission: direct class comparison
-            bool h0_match = (donor_code == sample_h0_class);
-            bool h1_match = (donor_code == sample_h1_class);
-            
-            result.supersite_matches[base + 0] = h0_match;
-            result.supersite_matches[base + 1] = h1_match;
-            
-            result.supersite_any_match[0] = result.supersite_any_match[0] || h0_match;
-            result.supersite_any_match[1] = result.supersite_any_match[1] || h1_match;
+
+        // HAP_NUMBER = 2 assumption: h0, h1
+        bool h0_match = (donor_code == sample_h0_class);
+        uint8_t expected_h1 = sample_h1_class;
+        if (amb_mask != 0) {
+            expected_h1 = ((amb_mask >> 1) & 1U) ? sample_h1_class : sample_h0_class;
         }
+        bool h1_match = (donor_code == expected_h1);
+
+        result.supersite_matches[base + 0] = h0_match;
+        result.supersite_matches[base + 1] = h1_match;
+
+        result.supersite_any_match[0] = result.supersite_any_match[0] || h0_match;
+        result.supersite_any_match[1] = result.supersite_any_match[1] || h1_match;
     }
 }
 
@@ -281,7 +261,7 @@ int main() {
     {
         EmissionComparison comp(1, "HOM_REF");
         simulate_biallelic_emission(cond, 0, 0, comp);
-        simulate_supersite_emission(cond, 1, false, 0, 0, 0, comp);
+        simulate_supersite_emission(cond, 0, 0, 0, comp);
         validator.add_comparison(comp);
     }
     
@@ -289,7 +269,7 @@ int main() {
     {
         EmissionComparison comp(2, "HOM_ALT");
         simulate_biallelic_emission(cond, 1, 1, comp);
-        simulate_supersite_emission(cond, 1, false, 1, 1, 0, comp);
+        simulate_supersite_emission(cond, 1, 1, 0, comp);
         validator.add_comparison(comp);
     }
     
@@ -297,31 +277,23 @@ int main() {
     {
         EmissionComparison comp(3, "HET_standard");
         simulate_biallelic_emission(cond, 0, 1, comp);
-        simulate_supersite_emission(cond, 1, false, 0, 1, 0, comp);
+        simulate_supersite_emission(cond, 0, 1, 0, comp);
         validator.add_comparison(comp);
     }
     
-    // Test Case 4: Heterozygous with anchor split semantics (problematic case)
+    // Test Case 4: Ambiguous site (amb_mask=0b10)
     {
-        EmissionComparison comp(4, "HET_anchor_split");
+        EmissionComparison comp(4, "AMB_masked");
         simulate_biallelic_emission(cond, 0, 1, comp);
-        simulate_supersite_emission(cond, 1, true, 0, 1, 0, comp);  // use_anchor_split=true
+        simulate_supersite_emission(cond, 0, 1, 0b10, comp);
         validator.add_comparison(comp);
     }
     
-    // Test Case 5: Ambiguous site with anchor split
+    // Test Case 5: Missing data comparison
     {
-        EmissionComparison comp(5, "AMB_anchor_split");
-        simulate_biallelic_emission(cond, 0, 1, comp);
-        simulate_supersite_emission(cond, 1, true, 0, 1, 0b10, comp);  // amb_mask=0b10
-        validator.add_comparison(comp);
-    }
-    
-    // Test Case 6: Missing data comparison
-    {
-        EmissionComparison comp(6, "MISSING");
+        EmissionComparison comp(5, "MISSING");
         simulate_biallelic_emission(cond, 2, 2, comp);  // Assume 2 = missing
-        simulate_supersite_emission(cond, 1, false, 2, 2, 0, comp);
+        simulate_supersite_emission(cond, 2, 2, 0, comp);
         validator.add_comparison(comp);
     }
     
@@ -331,14 +303,13 @@ int main() {
     
     std::printf("\n=== Investigation Summary ===\n");
     std::printf("This test validates emission match mask consistency between biallelic and supersite modes.\n");
-    std::printf("Key findings help identify if anchor split semantics cause K inflation through:\n");
+    std::printf("Key findings help identify if emission mismatches could cause K inflation through:\n");
     std::printf("  - Inconsistent donor matching patterns\n");
     std::printf("  - Different any_match_lane calculations\n");
-    std::printf("  - Anchor class vs direct class comparison mismatches\n");
     
     std::printf("\nNext steps based on results:\n");
     std::printf("  - If patterns identical: K inflation source is elsewhere\n");
-    std::printf("  - If patterns differ: Focus on anchor split emission logic\n");
+    std::printf("  - If patterns differ: Focus on emission logic differences\n");
     std::printf("  - Target emission adapter fixes for consistency\n");
     
     std::printf("\n=== Test completed ===\n");

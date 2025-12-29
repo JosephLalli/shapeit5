@@ -55,7 +55,6 @@ struct SuperSiteContext {
     std::vector<uint8_t> packed_codes;
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
-    std::vector<uint8_t> sample_codes_unused;
 };
 
 struct FBResult {
@@ -231,7 +230,6 @@ static hmm_parameters make_hmm_params_5var(size_t n_variants, unsigned int Nhap)
     M.ed = 0.01;
     M.ee = 1.0;
     // Present biallelic semantics at anchors while retaining strict class storage
-    M.ss_anchor_split_emissions = true;
     M.cm = std::vector<float>(n_variants, 0.0f);
     // 5-variant map matching 10-variant anchor positions
     if (n_variants >= 5) {
@@ -253,7 +251,6 @@ static hmm_parameters make_hmm_params_10var(size_t n_variants, unsigned int Nhap
     M.ed = 0.01;
     M.ee = 1.0;
     // Present biallelic semantics at anchors while retaining strict class storage
-    M.ss_anchor_split_emissions = true;
     M.cm = std::vector<float>(n_variants, 0.0f);
     // 10-variant map: pairs at identical positions (anchor/dummy share cm)
     if (n_variants >= 10) {
@@ -278,7 +275,7 @@ static hmm_parameters make_hmm_params_10var(size_t n_variants, unsigned int Nhap
 static SuperSiteContext build_supersites(variant_map& V, conditioning_set& H) {
     SuperSiteContext ctx;
     buildSuperSites(V, H, ctx.super_sites, ctx.is_super_site, ctx.packed_codes,
-                    ctx.locus_to_super_idx, ctx.super_site_var_index, ctx.sample_codes_unused);
+                    ctx.locus_to_super_idx, ctx.super_site_var_index);
     return ctx;
 }
 
@@ -736,9 +733,7 @@ int main() {
             SupersiteEmissionAdapter ss10(&G10,
                                           &ctx10.super_sites,
                                           &ctx10.locus_to_super_idx,
-                                          &ctx10.super_site_var_index,
-                                          ctx10.packed_codes.empty() ? nullptr : ctx10.packed_codes.data(),
-                                          &idxH);
+                                          &ctx10.super_site_var_index);
             SiteView v5{};
             SiteView v10{};
             bial5.build_view(locus5, amb_idx5, v5);
@@ -752,99 +747,20 @@ int main() {
             for (int h = 0; h < HAP_NUMBER; ++h) std::cout << " " << (int)v5.lane_class[h];
             std::cout << "\n";
             if (has_ss && v10.supersite) {
-                int anchor_class = (int)v10.anchor_class;
                 int emit_kind10 = (int)v10.emit_kind;
                 std::cout << "    SS emit_kind=" << emit_kind10 << "\n";
-                std::cout << "    SS anchor_class=" << anchor_class << " lane exp_is_anchor (0/1):";
-                for (int h = 0; h < HAP_NUMBER; ++h) {
-                    int exp_is_alt = (v10.lane_class[h] == v10.anchor_class) ? 1 : 0;
-                    std::cout << " " << exp_is_alt;
-                }
+                std::cout << "    SS lane_class:";
+                for (int h = 0; h < HAP_NUMBER; ++h) std::cout << " " << (int)v10.lane_class[h];
                 std::cout << "\n";
-                // Also print raw Ambiguous mask bits the HMM uses under split-semantics
+                std::cout << "    SS sample_class0=" << (int)v10.sample_class0
+                          << " sample_class1=" << (int)v10.sample_class1 << "\n";
+                // Also print raw Ambiguous mask bits used by the HMM
                 unsigned char amb10 = (amb_idx10 >= 0 && amb_idx10 < (int)G10.Ambiguous.size()) ? G10.Ambiguous[amb_idx10] : 0u;
                 std::cout << "    SS amb_mask bits:";
                 for (int h = 0; h < HAP_NUMBER; ++h) {
                     std::cout << " " << (((amb10 >> h) & 1U) ? 1 : 0);
                 }
                 std::cout << "\n";
-                // Print HOM expected flag used under split semantics
-                int hom_expected = (v10.sample_class0 == v10.anchor_class) ? 1 : 0;
-                std::cout << "    SS hom_expected (split semantics) = " << hom_expected << " (sample_class0="
-                          << (int)v10.sample_class0 << ")\n";
-                std::cout << "    Donor flags (bial ALT at 5-var vs SS anchor-ALT at 10-var):\n      k  bialALT  ssALT\n";
-                for (unsigned int k = 0; k < H5.n_hap; ++k) {
-                    unsigned int gh = idxH[k];
-                    int bial_alt = H5.H_opt_var.get(locus5, gh) ? 1 : 0;
-                    int ss_alt = 0;
-                    if (!ctx10.packed_codes.empty()) {
-                        uint8_t dcode = unpackSuperSiteCode(ctx10.packed_codes.data(), v10.supersite->panel_offset, gh);
-                        ss_alt = (dcode == v10.anchor_class) ? 1 : 0;
-                    }
-                    std::cout << "      " << k << "      " << bial_alt << "       " << ss_alt << "\n";
-                }
-
-                // Build and compare match masks (per donor × lane) between 5-var and 10-var
-                MatchMask m5, m10;
-                bial5.build_match_mask(v5, H5.n_hap, locus5, m5);
-                ss10.build_match_mask(v10, H10.n_hap, /*use_anchor_split_semantics*/false, m10);
-                bool masks_equal = (m5.by_donor_lane.size() == m10.by_donor_lane.size());
-                if (masks_equal) {
-                    for (size_t i = 0; i < m5.by_donor_lane.size(); ++i) {
-                        if (m5.by_donor_lane[i] != m10.by_donor_lane[i]) { masks_equal = false; break; }
-                    }
-                }
-                std::cout << "    Mask parity: " << (masks_equal ? "OK" : "MISMATCH") << "\n";
-                if (!masks_equal) {
-                    std::cout << "    First 8 donor×lane entries (5-var vs 10-var):\n      idx  m5  m10\n";
-                    for (size_t i = 0; i < std::min<size_t>(16, m5.by_donor_lane.size()); ++i) {
-                        std::cout << "      " << i << "   "
-                                  << (int)m5.by_donor_lane[i] << "   "
-                                  << (int)m10.by_donor_lane[i] << "\n";
-                    }
-                }
-
-                // Verbose-only strict checks at anchors
-                if (env_true("SHAPEIT5_TEST_VERBOSE")) {
-                    // Ambiguous index parity
-                    assert(amb_idx5 == amb_idx10 && "Ambiguous index must match at anchor");
-                    // Donor bial ALT vs SS anchor ALT parity
-                    for (unsigned int k = 0; k < H5.n_hap; ++k) {
-                        unsigned int gh = idxH[k];
-                        int bial_alt = H5.H_opt_var.get(locus5, gh) ? 1 : 0;
-                        int ss_alt = 0;
-                        if (!ctx10.packed_codes.empty()) {
-                            uint8_t dcode = unpackSuperSiteCode(ctx10.packed_codes.data(), v10.supersite->panel_offset, gh);
-                            ss_alt = (dcode == v10.anchor_class) ? 1 : 0;
-                        }
-                        assert(bial_alt == ss_alt && "Donor ALT parity (bial vs SS anchor ALT) must hold");
-                    }
-                    // Full mask parity
-                    assert(masks_equal && "Donor×lane mask parity must hold at anchor");
-                }
-
-                // For donor 0, print per-lane mask flags and corresponding alpha values (anchor-only windows)
-                std::cout << "    Donor 0 per-lane: flag5 flag10  alpha5 alpha10\n";
-                size_t base = 0;
-                for (int h = 0; h < HAP_NUMBER; ++h) {
-                    uint8_t f5 = m5.by_donor_lane[base + h];
-                    uint8_t f10 = m10.by_donor_lane[base + h];
-                    double a5 = (base + h) < fa5.prob.size() ? fa5.prob[base + h] : NAN;
-                    double a10 = (base + h) < fa10.prob.size() ? fa10.prob[base + h] : NAN;
-                    std::cout << "      lane " << h << "    " << (int)f5 << "     " << (int)f10
-                              << "   " << a5 << "  " << a10 << "\n";
-                }
-                // Also print donor×lane mask grid for first few donors to visualize lane ordering
-                unsigned int donors_to_show = std::min<unsigned int>(H5.n_hap, 4);
-                std::cout << "    Donor×lane mask grid (showing first " << donors_to_show << ")\n";
-                for (unsigned int k = 0; k < donors_to_show; ++k) {
-                    size_t b = static_cast<size_t>(k) * HAP_NUMBER;
-                    std::cout << "      donor " << k << ":";
-                    for (int h = 0; h < HAP_NUMBER; ++h) std::cout << " " << (int)m5.by_donor_lane[b + h];
-                    std::cout << "    |    ";
-                    for (int h = 0; h < HAP_NUMBER; ++h) std::cout << " " << (int)m10.by_donor_lane[b + h];
-                    std::cout << "\n";
-                }
             } else {
                 std::cout << "    [WARN] Supersite view not available at locus10=" << locus10 << "\n";
             }

@@ -59,12 +59,10 @@ public:
 	std::vector<SuperSite> super_sites;
 	std::vector<bool> is_super_site; // legacy flag; superseded by locus_to_super_idx
 	std::vector<uint8_t> packed_allele_codes;
-		std::vector<uint8_t> sample_supersite_genotypes;
 		// Super-site indexing
 		std::vector<int> locus_to_super_idx;       // locus -> super-site index or -1
 		std::vector<int> super_site_var_index;     // flattened member variant indices
 		std::vector<int> supersite_anchor_redirect; // locus -> anchor locus or -1
-		int supersite_mac_threshold;
 		size_t supersite_build_counter;
 		std::string supersite_build_last_context;
 

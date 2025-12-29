@@ -219,7 +219,6 @@ bool test_single_multiallelic_per_segment() {
     for (int i = 0; i < n_variants; ++i) {
         M.cm[i] = V.vec_pos[i]->cm;
     }
-    M.ss_anchor_split_emissions = false;
     
     // Create conditioning panel (bitmatrix)
     bitmatrix H;
@@ -500,7 +499,6 @@ bool test_segment_transition_multiallelic() {
     for (int i = 0; i < n_variants; ++i) {
         M.cm[i] = V.vec_pos[i]->cm;
     }
-    M.ss_anchor_split_emissions = false;
     
     bitmatrix H;
     H.allocate(n_variants, n_cond_haps);

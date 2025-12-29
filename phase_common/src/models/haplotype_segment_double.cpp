@@ -220,7 +220,6 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
 		AlphaMissing = vector < aligned_vector32 < double > > (n_missing, aligned_vector32 < double > (HAP_NUMBER * n_cond_haps, 0.0));
 		AlphaSumMissing = vector < aligned_vector32 < double > > (n_missing, aligned_vector32 < double > (HAP_NUMBER, 0.0));
 	}
-	init_match_mask.resize(static_cast<std::size_t>(n_cond_haps) * HAP_NUMBER);
 	//Cache efficient data transfer for conditioning haplotypes
 	curr_rel_locus_offset = Hhap.subset(H, idxH, locus_first, locus_last);
 	Hvar.allocateFast(Hhap.n_cols, Hhap.n_rows);
@@ -299,7 +298,7 @@ void haplotype_segment_double::forward() {
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
-	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
+	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index);
 
     const char* tr_d = std::getenv("SHAPEIT5_TEST_TRACE");
     if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
@@ -367,42 +366,22 @@ void haplotype_segment_double::forward() {
 
             if (curr_rel_locus == 0) {
                 if (is_anchor) {
-                    if (M.ss_anchor_split_emissions) {
-                        const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
-                        if (tr && tr[0] != '\0' && tr[0] != '0') {
-                            std::fprintf(stdout, "forward: INIT via mask at anchor locus=%d (double)\n", curr_abs_locus);
-                        }
-                        supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-                        INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-                    } else {
 					switch (emit) {
 						case EmitKind::Hom: SS_INIT_HOM(); break;
 						case EmitKind::Amb: SS_INIT_AMB(); break;
 						case EmitKind::Mis: SS_INIT_MIS(); break;
 					}
-				}
 			} else if (is_sibling) {
 				// Sibling at window start: initialize neutrally but do not advance prev_abs_locus
 				INIT_MIS();
 				update_prev_locus = false;
 			} else {
-				if (hmm_mis) {
-					INIT_MIS();
-				} else {
-					bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
-					INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-				}
+				if (hmm_hom) INIT_HOM();
+				else if (hmm_amb) INIT_AMB();
+				else INIT_MIS();
 			}
             } else if (curr_segment_locus != 0) {
                 if (is_anchor) {
-                    if (M.ss_anchor_split_emissions) {
-                        const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
-                        if (tr && tr[0] != '\0' && tr[0] != '0') {
-                            std::fprintf(stdout, "forward: RUN via mask at anchor locus=%d (double)\n", curr_abs_locus);
-                        }
-                        supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-                        RUN_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-                    } else {
 					switch (emit) {
 						case EmitKind::Hom:
 							update_prev_locus = SS_RUN_HOM();
@@ -414,7 +393,6 @@ void haplotype_segment_double::forward() {
 							SS_RUN_MIS();
 							break;
 					}
-				}
 			} else if (is_sibling) {
 				// Sibling within window: no-op propagation (avoid renormalization)
 				update_prev_locus = false;
@@ -425,20 +403,11 @@ void haplotype_segment_double::forward() {
 			}
             } else {
                 if (is_anchor) {
-                    if (M.ss_anchor_split_emissions) {
-                        const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
-                        if (tr && tr[0] != '\0' && tr[0] != '0') {
-                            std::fprintf(stdout, "forward: COLLAPSE via mask at anchor locus=%d (double)\n", curr_abs_locus);
-                        }
-                        supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-                        COLLAPSE_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-                    } else {
 					switch (emit) {
 						case EmitKind::Hom: SS_COLLAPSE_HOM(); break;
 						case EmitKind::Amb: SS_COLLAPSE_AMB(); break;
 						case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
 					}
-				}
 			} else if (is_sibling) {
 				// Sibling at segment boundary: no-op and do not advance prev_abs_locus
 				update_prev_locus = false;
@@ -636,7 +605,7 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
-	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index, panel_codes, cond_idx, panel_codes_size);
+	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index);
 
 	// Flag: backward pass always starts with initialization; if locus_last is a sibling, defer until first non-sibling
 	bool need_init = true;
@@ -733,43 +702,30 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		if (need_init && is_anchor) {
 			need_init = false;
 			pending_collapse = false;
-			if (M.ss_anchor_split_emissions) {
-				supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-				INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-			} else {
-				switch (emit) {
-					case EmitKind::Hom: SS_INIT_HOM(); break;
-					case EmitKind::Amb: SS_INIT_AMB(); break;
-					case EmitKind::Mis: SS_INIT_MIS(); break;
-				}
+			switch (emit) {
+				case EmitKind::Hom: SS_INIT_HOM(); break;
+				case EmitKind::Amb: SS_INIT_AMB(); break;
+				case EmitKind::Mis: SS_INIT_MIS(); break;
 			}
 		} else if (need_init && !is_sibling) {
 			// Deferred initialization: first biallelic after starting on a sibling - use INIT
 			need_init = false;
 			pending_collapse = false;
-			if (hmm_mis) {
-				INIT_MIS();
-			} else {
-				bial_adapter.build_match_mask(site_view, n_cond_haps, curr_rel_locus + curr_rel_locus_offset, init_match_mask);
-				INIT_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-			}
+			if (hmm_hom) INIT_HOM();
+			else if (hmm_amb) INIT_AMB();
+			else INIT_MIS();
 		} else if (!pending_collapse) {
 			if (is_anchor) {
-				if (M.ss_anchor_split_emissions) {
-					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-					RUN_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-				} else {
-					switch (emit) {
-						case EmitKind::Hom:
-							update_prev_locus = SS_RUN_HOM();
-							break;
-						case EmitKind::Amb:
-							SS_RUN_AMB();
-							break;
-						case EmitKind::Mis:
-							SS_RUN_MIS();
-							break;
-					}
+				switch (emit) {
+					case EmitKind::Hom:
+						update_prev_locus = SS_RUN_HOM();
+						break;
+					case EmitKind::Amb:
+						SS_RUN_AMB();
+						break;
+					case EmitKind::Mis:
+						SS_RUN_MIS();
+						break;
 				}
 			} else if (is_sibling) {
 				// Sibling within window (backward): no-op propagation
@@ -782,15 +738,10 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			}
 		} else {
 			if (is_anchor) {
-				if (M.ss_anchor_split_emissions) {
-					supersite_adapter.build_match_mask(site_view, n_cond_haps, /*use_anchor_split_semantics*/true, init_match_mask);
-					COLLAPSE_FROM_MASK(init_match_mask, M.error_ratio[curr_abs_locus]);
-				} else {
-					switch (emit) {
-						case EmitKind::Hom: SS_COLLAPSE_HOM(); break;
-						case EmitKind::Amb: SS_COLLAPSE_AMB(); break;
-						case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
-					}
+				switch (emit) {
+					case EmitKind::Hom: SS_COLLAPSE_HOM(); break;
+					case EmitKind::Amb: SS_COLLAPSE_AMB(); break;
+					case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
 				}
 				pending_collapse = false;
 			} else if (is_sibling) {

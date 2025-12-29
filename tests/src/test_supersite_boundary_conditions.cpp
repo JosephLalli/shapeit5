@@ -67,9 +67,8 @@ int main() {
     std::vector<uint8_t> packed_codes;
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
-    std::vector<uint8_t> unused_sample_codes;
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes,
-                    locus_to_super_idx, super_site_var_index, unused_sample_codes);
+                    locus_to_super_idx, super_site_var_index);
     assert(super_sites.size() == 1);
 
     // HMM params and sibling marking

@@ -104,7 +104,6 @@ void phaser::read_files_and_initialise() {
 	}
 
 	const int pbwt_mac = options["pbwt-mac"].as < int > ();
-	supersite_mac_threshold = 0;
 
 	H.initialize(V,	pbwt_modulo,
 					options["pbwt-window"].as < double > (),

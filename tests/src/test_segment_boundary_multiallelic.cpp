@@ -174,9 +174,8 @@ bool test_single_multiallelic_per_segment() {
     vector<uint8_t> packed_codes;
     vector<int> locus_to_super_idx;
     vector<int> super_site_var_index;
-    vector<uint8_t> unused_sample_codes;
     conditioning_set H_cond; // Declare conditioning_set object
-    buildSuperSites(V, H_cond, super_sites, is_super_site, packed_codes, locus_to_super_idx, super_site_var_index, unused_sample_codes);
+    buildSuperSites(V, H_cond, super_sites, is_super_site, packed_codes, locus_to_super_idx, super_site_var_index);
     // Mark siblings per production
     hmm_parameters dummyM;
     dummyM.markSuperSiteSiblings(super_sites, locus_to_super_idx);
@@ -231,7 +230,6 @@ bool test_single_multiallelic_per_segment() {
         M.t[i] = tval;
         M.nt[i] = 1.0f - tval;
     }
-    M.ss_anchor_split_emissions = false;
 
     // Create conditioning panel (bitmatrix)
     bitmatrix H;
@@ -514,7 +512,6 @@ bool test_segment_transition_multiallelic() {
     for (int i = 0; i < n_variants; ++i) {
         M.cm[i] = V.vec_pos[i]->cm;
     }
-    M.ss_anchor_split_emissions = false;
     
     bitmatrix H;
     H.allocate(n_variants, n_cond_haps);

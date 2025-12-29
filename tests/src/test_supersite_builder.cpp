@@ -51,10 +51,8 @@ int main() {
     std::vector<uint8_t> packed_codes;
     std::vector<int> locus_to_super_idx;
     std::vector<int> super_site_var_index;
-    std::vector<uint8_t> unused_sample_codes;
-    
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes,
-                    locus_to_super_idx, super_site_var_index, unused_sample_codes);
+                    locus_to_super_idx, super_site_var_index);
 
     bool test1_pass = (super_sites.size() == 1 &&
                        super_sites[0].var_count == 2 &&
@@ -110,10 +108,8 @@ int main() {
     std::vector<uint8_t> packed_codes2;
     std::vector<int> locus_to_super_idx2;
     std::vector<int> super_site_var_index2;
-    std::vector<uint8_t> unused_sample_codes2;
-
     buildSuperSites(V2, H2, super_sites2, is_super_site2, packed_codes2,
-                    locus_to_super_idx2, super_site_var_index2, unused_sample_codes2);
+                    locus_to_super_idx2, super_site_var_index2);
 
     bool test5_pass = (super_sites2.size() == 2 &&
                        super_sites2[0].var_count == 2 &&
@@ -138,10 +134,8 @@ int main() {
     std::vector<uint8_t> packed_codes3;
     std::vector<int> locus_to_super_idx3;
     std::vector<int> super_site_var_index3;
-    std::vector<uint8_t> unused_sample_codes3;
-
     buildSuperSites(V3, H3, super_sites3, is_super_site3, packed_codes3,
-                    locus_to_super_idx3, super_site_var_index3, unused_sample_codes3);
+                    locus_to_super_idx3, super_site_var_index3);
 
     bool test6_pass = (super_sites3.empty() &&
                        locus_to_super_idx3[0] == -1 &&
