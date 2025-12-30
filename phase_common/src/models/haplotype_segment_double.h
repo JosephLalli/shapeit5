@@ -258,8 +258,6 @@ void haplotype_segment_double::ss_load_cond_codes(const SuperSite& ss, int ss_id
 // Note: pack_expected_codes_pd() helper removed - was causing half-lane split antipattern
 // Now using proper per-lane emission logic throughout SS_*_AMB() functions
 
-#if 0
-
 /*******************************************************************************/
 /*****************			HOMOZYGOUS GENOTYPE			************************/
 /*******************************************************************************/
