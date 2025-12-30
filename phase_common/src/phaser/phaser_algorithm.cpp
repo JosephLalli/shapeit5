@@ -287,7 +287,8 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 				enable_supersites ? &locus_to_super_idx : nullptr,
 				enable_supersites ? packed_allele_codes.data() : nullptr,
 				enable_supersites ? packed_allele_codes.size() : 0,
-				enable_supersites ? &super_site_var_index : nullptr);
+				enable_supersites ? &super_site_var_index : nullptr,
+				nullptr);
 			HS.forward();
 			outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M,
 			                      enable_supersites ? &threadData[id_worker].SC : nullptr,
@@ -307,6 +308,7 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 			                      enable_supersites ? &threadData[id_worker].SC : nullptr,
 			                      enable_supersites ? &threadData[id_worker].anchor_has_missing : nullptr,
 			                      enable_supersites ? &threadData[id_worker].supersite_sc_offset : nullptr);
+			const auto* shared_ss_panel_matrix = enable_supersites ? HS.get_ss_panel_matrix() : nullptr;
 
 			//Underflow happening with single precision, rerun using double precision
 			if (outcome != 0) {
@@ -316,7 +318,8 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 					enable_supersites ? &locus_to_super_idx : nullptr,
 					enable_supersites ? packed_allele_codes.data() : nullptr,
 					enable_supersites ? packed_allele_codes.size() : 0,
-					enable_supersites ? &super_site_var_index : nullptr);
+					enable_supersites ? &super_site_var_index : nullptr,
+					shared_ss_panel_matrix);
 				HS.forward();
 				outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M,
 				                      enable_supersites ? &threadData[id_worker].SC : nullptr,

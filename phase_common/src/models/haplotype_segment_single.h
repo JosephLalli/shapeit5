@@ -268,6 +268,9 @@ public:
         size_t _panel_codes_size = 0,
         const std::vector<int>* _super_site_var_index = nullptr);
     ~haplotype_segment_single();
+    const std::vector<aligned_vector32<uint8_t>>* get_ss_panel_matrix() const {
+        return ss_panel_matrix.empty() ? nullptr : &ss_panel_matrix;
+    }
 
     //void fetch();
     void forward();
@@ -1094,21 +1097,6 @@ void haplotype_segment_single::INIT_AMB() {
     // Biallelic path
     unsigned char amb_code = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
                              ? G->Ambiguous[curr_abs_ambiguous] : 0u;
-
-        // Prepare g0, g1 emissions for tracing
-        float g0_trace[HAP_NUMBER], g1_trace[HAP_NUMBER];
-        for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-            g0_trace[h] = HAP_GET(amb_code,h)?M.error_ratio[curr_abs_locus]:1.0f;
-            g1_trace[h] = HAP_GET(amb_code,h)?1.0f:M.error_ratio[curr_abs_locus];
-        }
-        std::fprintf(stdout, "[BIAL_INIT_AMB] locus=%d BIALLELIC PATH amb_code=0x%02x\n", curr_abs_locus, (unsigned)amb_code);
-        std::fprintf(stdout, "  Biallelic emission g0: %f %f %f %f %f %f %f %f\n",
-                     g0_trace[0], g0_trace[1], g0_trace[2], g0_trace[3],
-                     g0_trace[4], g0_trace[5], g0_trace[6], g0_trace[7]);
-        std::fprintf(stdout, "  Biallelic emission g1: %f %f %f %f %f %f %f %f\n",
-                     g1_trace[0], g1_trace[1], g1_trace[2], g1_trace[3],
-                     g1_trace[4], g1_trace[5], g1_trace[6], g1_trace[7]);
-    }
 
     // Biallelic INIT_AMB: simple AVX2 loop (original algorithm)
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {

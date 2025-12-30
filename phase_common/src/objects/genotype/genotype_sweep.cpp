@@ -146,30 +146,6 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 			seg_start = seg_stop;
 		}
 
-		// Targeted debug for dipcode divergence (burn3, repeat_factor=8, segment 3)
-		if (trace_sample && n_segments > 1 && s == 3) {
-			std::fprintf(stderr, "[SAMPLE_DEBUG_DIP] sample=%s dir=forward seg=%u dipcount=%u toffset=%u dip_mask=0x%016llx\n",
-			             name.c_str(), s, curr_dipcount, toffset, static_cast<unsigned long long>(Diplotypes[s]));
-			double cumulative = 0.0;
-			for (unsigned int i = 0; i < curr_dipcount; ++i) {
-				cumulative += currProbs[i];
-				std::fprintf(stderr, "  dip[%u] code=%u prob=%.15f norm=%.15f cum=%.15f\n",
-				             i, static_cast<unsigned>(curr_dipcodes[i]), currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
-			}
-			unsigned char hap0 = (selected_dipcode >> 3);
-			unsigned char hap1 = (selected_dipcode & 7);
-			std::fprintf(stderr, "  selected_idx=%u dipcode=%u hap0=%u hap1=%u\n",
-			             prev_sampled, (unsigned)selected_dipcode, (unsigned)hap0, (unsigned)hap1);
-		}
-
-		// SAMPLE TRACE: Log selected index after drawing (all segments when tracing)
-		if (trace_sample) {
-			unsigned char hap0 = (selected_dipcode >> 3);
-			unsigned char hap1 = (selected_dipcode & 7);
-			std::fprintf(stderr, "[SAMPLE_FWD_PICK] sample=%s seg=%u selected_idx=%u dipcode=%u hap0=%u hap1=%u\n",
-			             name.c_str(), s, prev_sampled, static_cast<unsigned>(selected_dipcode),
-			             static_cast<unsigned>(hap0), static_cast<unsigned>(hap1));
-		}
 
 		DipSampled[s] = selected_dipcode;
 		if (!DIP_GET(Diplotypes[s], selected_dipcode)) {
@@ -182,13 +158,6 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 		}
 		toffset += prev_dipcount * curr_dipcount;
 		prev_dipcount = curr_dipcount;
-	}
-	if (trace_sample) {
-		std::fprintf(stderr, "[SAMPLE_DEBUG] sample=%s direction=forward n_segments=%u dip_mask=0x%016llx DipSampled0=%u\n",
-		             name.c_str(),
-		             n_segments,
-		             static_cast<unsigned long long>(n_segments ? Diplotypes[0] : 0),
-		             n_segments ? static_cast<unsigned>(DipSampled[0]) : 0);
 	}
 	make(DipSampled, CurrentMissingProbabilities);
 

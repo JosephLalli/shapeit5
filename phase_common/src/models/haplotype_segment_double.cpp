@@ -72,11 +72,13 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
     const std::vector<int>* _locus_to_super_idx,
 	const uint8_t* _panel_codes,
 	size_t _panel_codes_size,
-	const std::vector<int>* _super_site_var_index) :
+	const std::vector<int>* _super_site_var_index,
+	const std::vector<aligned_vector32<uint8_t>>* _shared_ss_panel_matrix) :
 	G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site),
 	locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), panel_codes_size(_panel_codes_size), super_site_var_index(_super_site_var_index), cond_idx(&idxH),
     supersite_sc_offset(nullptr),
-    supersites_enabled_flag(_super_sites && _locus_to_super_idx && _super_site_var_index && _panel_codes) {
+    ss_panel_matrix_ptr(_shared_ss_panel_matrix),
+    supersites_enabled_flag(_super_sites && _locus_to_super_idx && _super_site_var_index && (_panel_codes || _shared_ss_panel_matrix)) {
 	// Tests may skip explicit supersite setup; attach context and snapshot immutable
 	// supersite observed genotypes here to keep emissions well-defined.
 	if (G && supersites_enabled_flag) {
@@ -119,19 +121,26 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
 	Hhap.transpose(Hvar);
 
 	// allocate scratch for supersites if enabled
-	if (super_sites && locus_to_super_idx && panel_codes && super_site_var_index) {
+	if (supersites_enabled_flag) {
 		ss_cond_codes = aligned_vector32<uint8_t>(n_cond_haps, 0);
 		ss_emissions = aligned_vector32<double>(n_cond_haps, 1.0);
 		ss_emissions_h1 = aligned_vector32<double>(n_cond_haps, 1.0);
-		ss_cached.resize(super_sites->size(), false);  // Phase 3: initialize cache flags
-	}
 
-	trace_forward_pre_cursor = 0;
-	trace_forward_pre_locus = -1;
-	trace_forward_pre_valid = false;
-	trace_backward_pre_cursor = 0;
-	trace_backward_pre_locus = -1;
-	trace_backward_pre_valid = false;
+		if (!ss_panel_matrix_ptr || ss_panel_matrix_ptr->empty()) {
+			if (panel_codes) {
+				ss_panel_matrix.resize(super_sites->size());
+				for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
+					const SuperSite& ss = (*super_sites)[ss_idx];
+					ss_panel_matrix[ss_idx].resize(n_cond_haps);
+					for (unsigned int k = 0; k < n_cond_haps; ++k) {
+						unsigned int gh = (*cond_idx)[k];
+						ss_panel_matrix[ss_idx][k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+					}
+				}
+				ss_panel_matrix_ptr = &ss_panel_matrix;
+			}
+		}
+	}
 
 }
 

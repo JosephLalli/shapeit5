@@ -120,10 +120,11 @@ private:
 	const std::vector<int>* super_site_var_index;
 	const std::vector<unsigned int>* cond_idx;
 	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets (set during backward)
+	const std::vector<aligned_vector32<uint8_t>>* ss_panel_matrix_ptr;
+	std::vector<aligned_vector32<uint8_t>> ss_panel_matrix;
 	aligned_vector32<uint8_t> ss_cond_codes;
 	aligned_vector32<double> ss_emissions;
 	aligned_vector32<double> ss_emissions_h1;
-	std::vector<bool> ss_cached;  // Phase 3: cache flags per supersite
 	const bool supersites_enabled_flag;
 
 	// Anchor MIS mapping: record rel-missing index per locus in window
@@ -184,7 +185,8 @@ public:
 		const std::vector<int>* _locus_to_super_idx = nullptr,
         const uint8_t* _panel_codes = nullptr,
         size_t _panel_codes_size = 0,
-        const std::vector<int>* _super_site_var_index = nullptr);
+        const std::vector<int>* _super_site_var_index = nullptr,
+		const std::vector<aligned_vector32<uint8_t>>* _shared_ss_panel_matrix = nullptr);
 	~haplotype_segment_double();
 
 	//void fetch();
@@ -239,7 +241,12 @@ public:
 // Phase 3: Caching helper to load conditioning haplotype codes once per supersite
 inline
 void haplotype_segment_double::ss_load_cond_codes(const SuperSite& ss, int ss_idx) {
-    if (ss_idx >= 0 && ss_idx < (int)ss_cached.size() && ss_cached[ss_idx]) {
+    if (ss_panel_matrix_ptr && ss_idx >= 0 && ss_idx < (int)ss_panel_matrix_ptr->size()) {
+        const auto& row = (*ss_panel_matrix_ptr)[ss_idx];
+        ss_cond_codes.resize(n_cond_haps);
+        for (unsigned int k = 0; k < n_cond_haps; ++k) {
+            ss_cond_codes[k] = row[k];
+        }
         return;
     }
 
@@ -256,10 +263,6 @@ void haplotype_segment_double::ss_load_cond_codes(const SuperSite& ss, int ss_id
             std::abort();
         }
         ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-    }
-
-    if (ss_idx >= 0 && ss_idx < (int)ss_cached.size()) {
-        ss_cached[ss_idx] = true;
     }
 }
 
