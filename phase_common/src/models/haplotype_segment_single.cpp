@@ -108,7 +108,6 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	Alpha = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f));
 	AlphaLocus = vector < int > (segment_last - segment_first + 1, 0);
 	AlphaSum = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER, 0.0f));
-	AlphaLaneSum = vector<LaneMarginal>(segment_last - segment_first + 1, LaneMarginal{});
 	AlphaSumSum = aligned_vector32 < float > (segment_last - segment_first + 1, 0.0);
 	if (n_missing > 0) {
 		AlphaMissing = vector < aligned_vector32 < float > > (n_missing, aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f));
@@ -177,7 +176,6 @@ haplotype_segment_single::~haplotype_segment_single() {
 	probSumH.clear();
 	Alpha.clear();
 	AlphaSum.clear();
-	AlphaLaneSum.clear();
 	AlphaSumSum.clear();
 	AlphaMissing.clear();
 	AlphaSumMissing.clear();
@@ -297,8 +295,6 @@ void haplotype_segment_single::forward() {
 			assert(rel_seg >= 0 && rel_seg < static_cast<int>(Alpha.size()) && "rel_seg out of range when writing Alpha");
 			Alpha[rel_seg] = prob;
 			AlphaSum[rel_seg] = probSumH;
-			__m256 lane_vec = _mm256_load_ps(&probSumH[0]);
-			_mm256_store_ps(AlphaLaneSum[rel_seg].lane, lane_vec);
 			AlphaSumSum[rel_seg] = probSumT;
 			AlphaLocus[rel_seg] = prev_abs_locus;
 		}
@@ -584,7 +580,7 @@ haplotype_segment_single::LaneWeights haplotype_segment_single::compute_lane_mat
 	return lw;
 }
 
-void haplotype_segment_single::build_lane_priors_first(const SiteView& site_view, double lane_probs[HAP_NUMBER], bool use_outer_prod) const {
+void haplotype_segment_single::build_lane_priors_first(const SiteView& site_view, double lane_probs[HAP_NUMBER]) const {
 	LaneWeights lw = compute_lane_match_weights(site_view);
 
 	double total = 0.0;
@@ -600,20 +596,6 @@ void haplotype_segment_single::build_lane_priors_first(const SiteView& site_view
 		const double inv = 1.0 / total;
 		for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] *= inv;
 	}
-
-	if (use_outer_prod && supersites_enabled_flag && !AlphaSum.empty()) {
-		const int rel_seg = 0;
-		double lane_total = 0.0;
-		for (int h = 0; h < HAP_NUMBER; ++h) {
-			double w = lane_probs[h] * static_cast<double>(AlphaSum[rel_seg][h]);
-			lane_probs[h] = w;
-			lane_total += w;
-		}
-		if (lane_total > std::numeric_limits<double>::min()) {
-			const double inv = 1.0 / lane_total;
-			for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] *= inv;
-		}
-	}
 }
 
 void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_probabilities) {
@@ -625,10 +607,6 @@ void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_pr
 	assert(transition_probabilities.size() >= n_transitions);
 
 	double lane_probs[HAP_NUMBER];
-	const bool allow_outer = []() {
-		const char* env = std::getenv("SHAPEIT5_SS_USE_OUTER");
-		return env && env[0] != '\0' && env[0] != '0';
-	}();
 
 	// Build SiteView for the first locus to derive lane_class
 	SiteView sv{};
@@ -641,7 +619,7 @@ void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_pr
 		BiallelicEmissionAdapter bial_adapt(G, &Hvar);
 		bial_adapt.build_view(locus_first, ambiguous_first, sv);
 	}
-	build_lane_priors_first(sv, lane_probs, allow_outer);
+	build_lane_priors_first(sv, lane_probs);
 
 	double scaleDip = 0.0;
 	for (unsigned int d = 0, t = 0; d < 64; ++d) {

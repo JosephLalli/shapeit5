@@ -72,7 +72,6 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
 	Alpha = vector < aligned_vector32 < double > > (segment_last - segment_first + 1, aligned_vector32 < double > (HAP_NUMBER * n_cond_haps, 0.0));
 	AlphaLocus = vector < int > (segment_last - segment_first + 1, 0);
 	AlphaSum = vector < aligned_vector32 < double > > (segment_last - segment_first + 1, aligned_vector32 < double > (HAP_NUMBER, 0.0));
-    AlphaLaneSum = vector<LaneMarginal>(segment_last - segment_first + 1, LaneMarginal{});
 	AlphaSumSum = aligned_vector32 < double > (segment_last - segment_first + 1, 0.0);
 	if (n_missing > 0) {
 		AlphaMissing = vector < aligned_vector32 < double > > (n_missing, aligned_vector32 < double > (HAP_NUMBER * n_cond_haps, 0.0));
@@ -130,7 +129,6 @@ haplotype_segment_double::~haplotype_segment_double() {
 	probSumH.clear();
 	Alpha.clear();
 	AlphaSum.clear();
-	AlphaLaneSum.clear();
 	AlphaSumSum.clear();
 	AlphaMissing.clear();
 	AlphaSumMissing.clear();
@@ -244,10 +242,6 @@ void haplotype_segment_double::forward() {
 			const int rel_seg = curr_segment_index - segment_first;
 			Alpha[rel_seg] = prob;
 			AlphaSum[rel_seg] = probSumH;
-			__m256d lane_lo = _mm256_load_pd(&probSumH[0]);
-			__m256d lane_hi = _mm256_load_pd(&probSumH[4]);
-			_mm256_store_pd(&AlphaLaneSum[rel_seg].lane[0], lane_lo);
-			_mm256_store_pd(&AlphaLaneSum[rel_seg].lane[4], lane_hi);
 			AlphaSumSum[rel_seg] = probSumT;
 			AlphaLocus[rel_seg] = prev_abs_locus;
 	}
@@ -469,30 +463,9 @@ void haplotype_segment_double::SET_FIRST_TRANS(vector < double > & transition_pr
 	assert(transition_probabilities.size() >= n_transitions);
 
 	double lane_probs[HAP_NUMBER];
-	bool use_outer = supersites_enabled_flag && !AlphaSum.empty();
-
-	if (use_outer) {
-		const int rel_seg = 0;
-		const double* alpha_lane = AlphaSum[rel_seg].data();
-		double lane_total = 0.0;
-		for (int h = 0; h < HAP_NUMBER; ++h) {
-			double weight = alpha_lane[h] * probSumH[h];
-			lane_probs[h] = weight;
-			lane_total += weight;
-		}
-		if (lane_total <= std::numeric_limits<double>::min()) {
-			use_outer = false;
-		} else {
-			const double inv_total = 1.0 / lane_total;
-			for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] *= inv_total;
-		}
-	}
-
-	if (!use_outer) {
-		const double lane_total = probSumT;
-		const double inv_total = (lane_total > std::numeric_limits<double>::min()) ? (1.0 / lane_total) : 0.0;
-		for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] = probSumH[h] * inv_total;
-	}
+	const double lane_total = probSumT;
+	const double inv_total = (lane_total > std::numeric_limits<double>::min()) ? (1.0 / lane_total) : 0.0;
+	for (int h = 0; h < HAP_NUMBER; ++h) lane_probs[h] = probSumH[h] * inv_total;
 
 	double scaleDip = 0.0;
 	for (unsigned int d = 0, t = 0; d < 64; ++d) {
