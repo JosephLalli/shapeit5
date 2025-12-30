@@ -131,25 +131,9 @@ private:
 
 	// EMISSION HELPERS
 	bool prepare_outer_product_mix(int rel_prev_segment, __m256d& col_mix_lo, __m256d& col_mix_hi, double& row_stay, double& row_switch, bool allow_outer = true);
-    void trace_ambiguous_cursor(const char* stage, int locus, bool is_sibling, int expected_delta) const;
-    mutable int trace_forward_pre_cursor;
-    mutable int trace_forward_pre_locus;
-    mutable bool trace_forward_pre_valid;
-    mutable int trace_backward_pre_cursor;
-    mutable int trace_backward_pre_locus;
-    mutable bool trace_backward_pre_valid;
-    mutable bool trace_forward_active;
-    mutable bool trace_backward_active;
-
-	inline bool debugTraceEnabled() const {
-		const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
-		return tr && tr[0] != '\0' && tr[0] != '0';
-	}
 	inline void debugCheckProbBounds(unsigned int idx, const char* label) {
+		(void)label;
 		if (idx + HAP_NUMBER > prob.size()) {
-			if (debugTraceEnabled()) {
-				std::fprintf(stdout, "[DEBUG][double] %s OOB idx=%u prob_size=%zu\n", label, idx, prob.size());
-			}
 			assert(false && "prob index out of bounds");
 		}
 	}
@@ -1332,7 +1316,7 @@ void haplotype_segment_double::INIT_MIS() {
 
 inline
 void haplotype_segment_double::handle_sibling_bookkeeping(const SiteView& site_view) {
-	trace_ambiguous_cursor("sib", curr_abs_locus, true, 0);
+	(void)site_view;
 }
 
 inline

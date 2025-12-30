@@ -55,33 +55,11 @@ int bitmatrix::subset(bitmatrix & BM, vector < unsigned int > rows, unsigned int
     bytes = (unsigned char*)calloc(n_bytes, sizeof(unsigned char));
     unsigned long offset_addr = 0;
     
-    const char* tr_d = std::getenv("SHAPEIT5_TEST_TRACE");
-    if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
-        std::fprintf(stdout, "D.bitmatrix::subset: this(dest) n_rows=%lu, n_cols=%lu, n_bytes=%lu, bytes=%p\n",
-                     this->n_rows, this->n_cols, this->n_bytes, (void*)this->bytes);
-        std::fprintf(stdout, "D.bitmatrix::subset: BM(src) n_rows=%lu, n_cols=%lu, n_bytes=%lu, bytes=%p\n",
-                     BM.n_rows, BM.n_cols, BM.n_bytes, (void*)BM.bytes);
-        std::fprintf(stdout, "D.bitmatrix::subset: col_from=%u, col_to=%u, n_bytes_per_row_bm=%lu\n",
-                     col_from, col_to, n_bytes_per_row_bm);
-    }
-
     for (int r = 0 ; r < rows.size() ; r ++) {
         unsigned long src_row_idx = rows[r];
         unsigned long src_offset = src_row_idx * (BM.n_cols/8) + col_from/8;
         unsigned long dest_offset = offset_addr;
 
-        if (tr_d && tr_d[0] != '\0' && tr_d[0] != '0') {
-            std::fprintf(stdout, "D.bitmatrix::subset: row=%d, src_row_idx=%lu, src_offset=%lu, dest_offset=%lu, n_bytes_per_row_bm=%lu\n",
-                         r, src_row_idx, src_offset, dest_offset, n_bytes_per_row_bm);
-            if (src_offset + n_bytes_per_row_bm > BM.n_bytes) {
-                std::fprintf(stderr, "!!! D.bitmatrix::subset: SOURCE OOB: src_offset=%lu, n_bytes_per_row_bm=%lu, BM.n_bytes=%lu !!!\n",
-                             src_offset, n_bytes_per_row_bm, BM.n_bytes);
-            }
-            if (dest_offset + n_bytes_per_row_bm > this->n_bytes) {
-                std::fprintf(stderr, "!!! D.bitmatrix::subset: DEST OOB: dest_offset=%lu, n_bytes_per_row_bm=%lu, this->n_bytes=%lu !!!\n",
-                             dest_offset, n_bytes_per_row_bm, this->n_bytes);
-            }
-        }
         memcpy(&bytes[offset_addr], &BM.bytes[src_offset], n_bytes_per_row_bm);
         offset_addr += n_bytes_per_row_bm;
     }

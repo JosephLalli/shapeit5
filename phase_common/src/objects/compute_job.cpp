@@ -21,7 +21,6 @@
  ******************************************************************************/
 
 #include <objects/compute_job.h>
-#include <models/supersite_trace_utils.h>
 
 #include <cmath>
 #include <cstdio>
@@ -155,14 +154,6 @@ void compute_job::make(unsigned int ind, double min_window_size) {
 			unsigned char v = G.vecG[ind]->Variants[DIV2(v_idx)];
 			anchor_has_missing[ss_idx] = VAR_GET_MIS(MOD2(v_idx), v);
 		}
-		if (supersite_trace_enabled()) {
-			size_t flagged = std::count(anchor_has_missing.begin(), anchor_has_missing.end(), true);
-			supersite_trace_log("[SupersiteSC] sample=%s anchors_missing=%zu/%zu\n",
-			                    G.vecG[ind]->name.c_str(),
-			                    flagged,
-			                    anchor_has_missing.size());
-		}
-		
 		// Allocate SC: compute total size and set thread-local offsets for each supersite
 		uint32_t total_size = 0;
 		for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
@@ -186,27 +177,9 @@ void compute_job::make(unsigned int ind, double min_window_size) {
 			for (size_t ss_idx = 0; ss_idx < supersite_sc_offset.size(); ++ss_idx) {
 				if (anchor_has_missing[ss_idx]) supersite_sc_offset[ss_idx] += 1;
 			}
-			if (supersite_trace_enabled()) {
-				supersite_trace_log("[SupersiteSC] sample=%s allocated=%zu floats\n",
-				                    G.vecG[ind]->name.c_str(),
-				                    SC.size());
-				for (size_t ss_idx = 0, reported = 0; ss_idx < supersite_sc_offset.size() && reported < 4; ++ss_idx) {
-					if (anchor_has_missing[ss_idx]) {
-						supersite_trace_log("  offset ss_idx=%zu -> %u (classes=%u)\n",
-						                    ss_idx,
-						                    supersite_sc_offset[ss_idx],
-						                    static_cast<unsigned>((*super_sites)[ss_idx].n_classes));
-						++reported;
-					}
-				}
-			}
 		} else {
 			SC.clear();
 			sc_guard_active = false;
-			if (supersite_trace_enabled()) {
-				supersite_trace_log("[SupersiteSC] sample=%s no missing supersite anchors (SC cleared)\n",
-				                    G.vecG[ind]->name.c_str());
-			}
 		}
 	} else {
 		SC.clear();

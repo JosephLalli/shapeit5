@@ -21,7 +21,6 @@
  ******************************************************************************/
 
 #include <objects/genotype/genotype_header.h>
-#include <models/supersite_trace_utils.h>
 #include <models/super_site_accessor.h>
 #include <objects/super_site_builder.h>
 #include <objects/supersite_debug.h>
@@ -368,20 +367,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					uint8_t h0 = sample_supersite_class(hap0);
 					uint8_t h1 = sample_supersite_class(hap1);
 
-					if (supersite_trace_enabled()) {
-						std::fprintf(stderr, "[MAKE_SS_SAMPLE] locus=%u ss_idx=%d h0=%u h1=%u\n",
-						             vabs, ss_idx,
-						             static_cast<unsigned>(h0),
-						             static_cast<unsigned>(h1));
-						// Dump SC for this anchor
-						std::fprintf(stderr, "  SC_probs: h0=[");
-						for (int c = 0; c < C; ++c)
-							std::fprintf(stderr, " %.6f", (*SC)[offset + hap0 * C + c]);
-						std::fprintf(stderr, "] h1=[");
-						for (int c = 0; c < C; ++c)
-							std::fprintf(stderr, " %.6f", (*SC)[offset + hap1 * C + c]);
-						std::fprintf(stderr, "]\n");
-					}
 
 					// Optional SUPERDEBUG hook: retain existing behaviour but with new h0/h1
 					if (!debug::SUPERDEBUG_SAMPLENAME.empty() &&
@@ -406,16 +391,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						          << " sampled_h1=" << static_cast<int>(h1) << std::endl;
 					}
 
-					if (supersite_trace_enabled()) {
-						supersite_trace_log("[SupersiteSample] sample=%s ss_idx=%d anchor=%u C=%d h0=%u h1=%u offset=%u\n",
-						                    this->name.c_str(),
-						                    ss_idx,
-						                    ss.global_site_id,
-						                    C,
-						                    static_cast<unsigned>(h0),
-						                    static_cast<unsigned>(h1),
-						                    offset);
-					}
+					
 					
                     // Project to splits from sampled h0/h1: class 0=REF, 1..n_alts=ALT1..ALTn
 					// Iterate over all member variants and set based on sampled class
@@ -442,14 +418,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                             VAR_CLR_HAP1(MOD2(split_vabs), split_byte);
                         }
                     }
-					if (supersite_trace_enabled()) {
-						supersite_trace_log("[SupersiteSample] projection sample=%s ss_idx=%d alt_count_h0=%d alt_count_h1=%d\n",
-						                    this->name.c_str(),
-						                    ss_idx,
-						                    alt_count_h0,
-						                    alt_count_h1);
-					}
-
                     // HYPOTHESIS 3 DEBUGGING
                     if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
                         debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo3: After projection in missing");
@@ -480,14 +448,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                     
                     // Persist the sampled classes for this epoch as the current h0/h1 pair
                     setSupersitePhasedGt(ss_idx, h0, h1);
-					if (supersite_trace_enabled()) {
-						supersite_trace_log("[SupersiteSampleChoice] sample=%s ss_idx=%d locus=%u h0=%u h1=%u\n",
-						                    this->name.c_str(),
-						                    ss_idx,
-						                    ss.global_site_id,
-						                    (unsigned)h0,
-						                    (unsigned)h1);
-					}
 
 					// Do not attempt range skip: supersite members are not guaranteed contiguous
 					// Count a single missing event for the supersite and proceed; siblings are skipped below
@@ -501,10 +461,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						if ((*super_site_var_index)[ss.var_start + ai] == vabs) { is_member = true; break; }
 					}
 					if (is_member && (int)vabs != (int)ss.global_site_id) {
-						if (supersite_trace_enabled()) {
-							supersite_trace_log("[SupersiteSample] skip sibling sample=%s ss_idx=%d locus=%u\n",
-							                    this->name.c_str(), ss_idx, vabs);
-						}
 						continue;
 					}
 				}
@@ -531,13 +487,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					float p1 = CurrentMissingProbabilities[m*HAP_NUMBER+hap1];
 					(r1<=p1)?VAR_SET_HAP1(MOD2(vabs),Variants[DIV2(vabs)]):VAR_CLR_HAP1(MOD2(vabs),Variants[DIV2(vabs)]);
 
-					if (supersite_trace_enabled()) {
-						std::fprintf(stderr, "[MAKE_BIAL_SAMPLE] locus=%u m=%u r0=%.15f p0=%.15f r1=%.15f p1=%.15f\n",
-						             vabs, m, r0, p0, r1, p1);
-						// Also log the sampled lanes to compare against supersite path
-						std::fprintf(stderr, "  [BIAL_SAMPLE_LANES] m=%u hap0_lane=%u hap1_lane=%u p0=%.6f p1=%.6f\n",
-						             m, hap0, hap1, p0, p1);
-					}
 				}
 				m++;
 			}
@@ -590,22 +539,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 							std::cout << " h" << h << "=" << (int)lc;
 						}
 						std::cout << std::endl;
-					}
-
-					// TRACE: Log amb_code interpretation for burn3 debugging
-					if (supersite_trace_enabled() && vabs == ss.global_site_id && ss.global_site_id == 0) {
-						bool hap0_bit = HAP_GET(amb_code, hap0);
-						bool hap1_bit = HAP_GET(amb_code, hap1);
-						std::fprintf(stderr, "[MAKE_SS_AMB] sample=%s locus=%u ss_idx=%d\n",
-						             name.c_str(), vabs, ss_idx_amb);
-						std::fprintf(stderr, "  sampled_lanes: hap0=%u hap1=%u\n",
-						             (unsigned)hap0, (unsigned)hap1);
-						std::fprintf(stderr, "  amb_code=0x%02x hap0_bit=%u hap1_bit=%u\n",
-						             (unsigned)amb_code, (unsigned)hap0_bit, (unsigned)hap1_bit);
-						std::fprintf(stderr, "  allele_classes: c0=%u c1=%u\n",
-						             (unsigned)current_c0, (unsigned)current_c1);
-						std::fprintf(stderr, "  result: h0=%u h1=%u\n",
-						             (unsigned)h0, (unsigned)h1);
 					}
 
                         // HYPOTHESIS 2 DEBUGGING
@@ -683,21 +616,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					std::cout << "[SUPERDEBUG] BIAL: sampled_h0=" << static_cast<int>(lane_h0)
 					          << " sampled_h1=" << static_cast<int>(lane_h1) << std::endl;
 				}
-				// TRACE: Log biallelic ambiguous interpretation for burn3 debugging
-				if (supersite_trace_enabled() && vabs == 0) {
-					unsigned char amb_code = Ambiguous[a];
-					bool hap0_bit = HAP_GET(amb_code, hap0);
-					bool hap1_bit = HAP_GET(amb_code, hap1);
-					std::fprintf(stderr, "[MAKE_BIAL_AMB] sample=%s locus=%u\n",
-					             name.c_str(), vabs);
-					std::fprintf(stderr, "  sampled_lanes: hap0=%u hap1=%u\n",
-					             (unsigned)hap0, (unsigned)hap1);
-					std::fprintf(stderr, "  amb_code=0x%02x hap0_bit=%u hap1_bit=%u\n",
-					             (unsigned)amb_code, (unsigned)hap0_bit, (unsigned)hap1_bit);
-					std::fprintf(stderr, "  result: HAP0=%u HAP1=%u\n",
-					             (unsigned)hap0_bit, (unsigned)hap1_bit);
-				}
-
 				bool hap0_bit = HAP_GET(Ambiguous[a], hap0);
 				bool hap1_bit = HAP_GET(Ambiguous[a], hap1);
 				hap0_bit ? VAR_SET_HAP0(MOD2(vabs), Variants[DIV2(vabs)]) : VAR_CLR_HAP0(MOD2(vabs), Variants[DIV2(vabs)]);
@@ -796,15 +714,6 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 				m++;
 			}
 			bool is_amb = VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)]);
-
-			// DIAGNOSTIC: Check if siblings are marked as AMB
-			if (supersite_trace_enabled() && s < 3) {
-				int ss_idx = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
-				bool is_ss_anchor = (ss_idx >= 0 && vabs == (*super_sites)[ss_idx].global_site_id);
-				bool is_sibling = (ss_idx >= 0 && vabs != (*super_sites)[ss_idx].global_site_id);
-				std::fprintf(stderr, "[MAKE_AMB_CHECK] sample=%s seg=%u vrel=%u vabs=%u is_amb=%d is_ss_anchor=%d is_sibling=%d a=%u\n",
-				             name.c_str(), s, vrel, vabs, (int)is_amb, (int)is_ss_anchor, (int)is_sibling, a);
-			}
 
 			if (is_amb) {
 				const bool is_superdebug_target =
@@ -952,7 +861,6 @@ void genotype::projectSupersites() {
 			continue;
 		}
 
-		const bool trace_enabled = supersite_trace_enabled();
 		const bool is_superdebug_target =
 			(!debug::SUPERDEBUG_SAMPLENAME.empty() &&
 			 this->name == debug::SUPERDEBUG_SAMPLENAME &&
@@ -968,14 +876,6 @@ void genotype::projectSupersites() {
         uint8_t h1 = SUPERSITE_CODE_MISSING;
         getSupersitePhasedGt(static_cast<int>(ss_idx), h0, h1);
 
-        if (trace_enabled) {
-            supersite_trace_log("[SupersiteProject] sample=%s ss_idx=%zu locus=%u h0=%u h1=%u\n",
-                                name.c_str(),
-                                ss_idx,
-                                static_cast<unsigned>(ss.global_site_id),
-                                static_cast<unsigned>(h0),
-                                static_cast<unsigned>(h1));
-        }
         if (is_superdebug_target) {
             std::cout << "[SUPERDEBUG] Sample=" << name
                       << " Pos=" << ss.global_site_id

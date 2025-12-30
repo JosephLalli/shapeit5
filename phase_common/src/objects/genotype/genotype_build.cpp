@@ -66,20 +66,12 @@ void genotype::build() {
 				if (!VAR_GET_MIS(MOD2(v_idx), v_code)) {
 					all_missing = false;
 				}
-				if (std::getenv("SHAPEIT5_TEST_TRACE")) {
-					std::fprintf(stderr, "[build] ss_idx=%zu offset=%u v_idx=%d byte=0x%02x is_het=%d\n",
-					            ss_idx, offset, v_idx, v_code, (int)is_het);
-				}
 			}
 			uint8_t flags = 0u;
 			if (any_het) flags |= SS_FLAG_HET;
 			if (any_sca) flags |= SS_FLAG_SCA;
 			if (all_missing) flags |= SS_FLAG_ALL_MIS;
 			supersite_flags[ss_idx] = flags;
-			if (std::getenv("SHAPEIT5_TEST_TRACE")) {
-				std::fprintf(stderr, "[build] ss_idx=%zu any_het=%d flags=0x%02x\n",
-				            ss_idx, (int)any_het, flags);
-			}
 		}
 	} else {
 		supersite_flags.clear();

@@ -21,7 +21,6 @@
  ******************************************************************************/
 
 #include <containers/window_set.h>
-#include <models/supersite_trace_utils.h>
 
 using namespace std;
 
@@ -214,7 +213,7 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size, ran
 		// A segment's transitions correspond to the boundary (prev_segment -> segment), with segment 0 using a dummy prev count of 1.
 		W[w].start_transition = tra_idx[W[w].start_segment];
 		W[w].stop_transition = tra_idx[W[w].stop_segment] + tra_siz[W[w].stop_segment] - 1;
-		if (supersite_trace_enabled() || std::getenv("SHAPEIT5_DEBUG_TRANS_PARITY")) {
+		if (std::getenv("SHAPEIT5_DEBUG_TRANS_PARITY")) {
 			// Compute expected transitions within this window to sanity-check bounds.
 			// The backward pass skips the first segment's boundary for windows starting at segment > 0
 			// (SET_OTHER_TRANS requires curr_segment_index > segment_first).
@@ -251,34 +250,6 @@ int window_set::build (variant_map & V, genotype * g, float min_window_size, ran
 					W[w].start_transition, W[w].stop_transition,
 					(W[w].stop_transition - W[w].start_transition + 1),
 					expected_trans);
-			}
-		}
-		if (supersite_trace_enabled()) {
-			genotype::SuperSiteContext ctx = g->getSuperSiteContext(W[w].start_locus);
-			if (ctx.is_member && !ctx.is_anchor) {
-				supersite_trace_log("[SupersiteWindow] WARNING window %u starts on sibling locus=%u ss_idx=%d\n",
-				                    w,
-				                    W[w].start_locus,
-				                    ctx.ss_idx);
-			}
-			if (w < 3) {
-				supersite_trace_log("[WindowAmbRange] w=%u seg=[%u,%u] locus=[%u,%u] amb_range=[%d,%d] mis_range=[%d,%d]\n",
-				                    w,
-				                    W[w].start_segment,
-				                    W[w].stop_segment,
-				                    W[w].start_locus,
-				                    W[w].stop_locus,
-				                    W[w].start_ambiguous,
-				                    W[w].stop_ambiguous,
-				                    W[w].start_missing,
-				                    W[w].stop_missing);
-				for (unsigned int locus = W[w].start_locus; locus <= W[w].stop_locus; ++locus) {
-					supersite_trace_log("  [WindowAmbLocus] w=%u locus=%u is_amb=%d is_mis=%d\n",
-					                    w,
-					                    locus,
-					                    (int)is_locus_ambiguous(locus),
-					                    (int)is_locus_missing(locus));
-				}
 			}
 		}
 	}

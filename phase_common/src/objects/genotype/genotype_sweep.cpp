@@ -22,21 +22,12 @@
 
 #include <objects/genotype/genotype_header.h>
 #include <models/super_site_accessor.h>
-#include <models/supersite_trace_utils.h>
 #include <cstdlib>
 
 using namespace std;
 
 void genotype::sample(vector < double > & CurrentTransProbabilities, vector < float > & CurrentMissingProbabilities) {
 	const bool use_forward = (sample_rng.getDouble() < 0.5f);
-	const bool trace_sample = []() {
-		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
-		return env && env[0] != '\0' && env[0] != '0';
-	}();
-	if (trace_sample) {
-		std::fprintf(stderr, "[SAMPLE_PATH] sample=%s direction=%s n_segments=%u\n",
-		             name.c_str(), use_forward ? "forward" : "backward", n_segments);
-	}
 	if (use_forward) sampleForward(CurrentTransProbabilities, CurrentMissingProbabilities);
 	else sampleBackward(CurrentTransProbabilities, CurrentMissingProbabilities);
 }
@@ -69,10 +60,6 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 	vector < double > currProbs;
 	currProbs.reserve(64);
 	vector < unsigned char > DipSampled = vector < unsigned char >(n_segments, 0);
-	const bool trace_sample = []() {
-		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
-		return env && env[0] != '\0' && env[0] != '0';
-	}();
 	const bool superdebug_sample_trace = []() {
 		const char* env = std::getenv("SHAPEIT5_SUPERDEBUG_PANEL");
 		return env && env[0] != '\0' && env[0] != '0';
@@ -96,36 +83,7 @@ void genotype::sampleForward(vector < double > & CurrentTransProbabilities, vect
 			sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
 		}
 
-		// SAMPLE TRACE: Log sampling details before drawing
-		if (supersite_trace_enabled() && s == 0) {
-			std::fprintf(stderr, "[SAMPLE_FWD] sample=%s segment=%u sumProbs=%.15f\n",
-			             name.c_str(), s, sumProbs);
-			double cumulative = 0.0;
-			for (unsigned int i = 0; i < curr_dipcount; i++) {
-				cumulative += currProbs[i];
-				std::fprintf(stderr, "  dip[%u] prob=%.15f norm=%.15f cum=%.15f\n",
-				             i, currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
-			}
-		}
-		// Targeted transition dump for segment 3 divergence
-		if (trace_sample && n_segments > 1 && s == 3) {
-			std::array<unsigned char, 64> prev_codes{};
-			if (s >= 1) {
-				unsigned int idx = 0;
-				for (unsigned int d = 0; d < 64; ++d) {
-					if (DIP_GET(Diplotypes[s-1], d)) prev_codes[idx++] = static_cast<unsigned char>(d);
-				}
-			}
-			unsigned char prev_dipcode = (s>=1 && prev_sampled < prev_dipcount) ? prev_codes[prev_sampled] : 0;
-			std::fprintf(stderr, "[SAMPLE_DEBUG_TRANS] sample=%s dir=forward seg=%u prev_seg_code=%u prev_sampled=%u prev_dipcount=%u toffset=%u dip_mask=0x%016llx\n",
-			             name.c_str(), s, (unsigned)prev_dipcode, prev_sampled, prev_dipcount, toffset,
-			             static_cast<unsigned long long>(Diplotypes[s]));
-			for (unsigned int i = 0; i < curr_dipcount; ++i) {
-				unsigned int tabs = toffset + prev_sampled * curr_dipcount + i;
-				std::fprintf(stderr, "  trans[%u] code=%u prob=%.15f\n",
-				             tabs, static_cast<unsigned>(curr_dipcodes[i]), CurrentTransProbabilities[tabs]);
-			}
-		}
+		// Draw with explicit RNG tracing to avoid consuming extra variates
 
 		// Draw with explicit RNG tracing to avoid consuming extra variates
 		double u = sample_rng.getDouble() * sumProbs;
@@ -306,15 +264,6 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 	vector < unsigned char > DipSampled = vector < unsigned char >(n_segments, 0);
 	const size_t trans_buf_size = CurrentTransProbabilities.size();
 
-	const bool trace_sample = []() {
-		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
-        return env && env[0] != '\0' && env[0] != '0';
-	}();
-	if (trace_sample) {
-		std::fprintf(stdout, "[SAMPLE_BWD_ENTRY] sample=%s n_segments=%u\n", name.c_str(), n_segments);
-		std::fflush(stdout);
-	}
-
 	if (n_segments == 1) {
 		// Single-segment genotypes skip the backward loop entirely. Sample directly
 		// from the first transition block so make() receives a valid dipcode instead
@@ -341,13 +290,6 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 		}
 		makeDiplotypes(Diplotypes[0]);
 		DipSampled[0] = curr_dipcodes[next_sampled];
-		if (trace_sample) {
-			std::fprintf(stderr, "[SAMPLE_DEBUG] sample=%s direction=backward-single n_segments=%u dip_mask=0x%016llx DipSampled0=%u\n",
-			             name.c_str(),
-			             n_segments,
-			             static_cast<unsigned long long>(n_segments ? Diplotypes[0] : 0),
-			             n_segments ? static_cast<unsigned>(DipSampled[0]) : 0);
-		}
 		make(DipSampled, CurrentMissingProbabilities);
 		return;
 	}
@@ -379,29 +321,8 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 				std::abort();
 			}
 
-			// SAMPLE TRACE: Log sampling details before drawing
-			if (supersite_trace_enabled() && s == 0) {
-				std::fprintf(stderr, "[SAMPLE_BWD_A] sample=%s segment=%d sumProbs=%.15f\n",
-				             name.c_str(), s, sumProbs);
-				double cumulative = 0.0;
-				for (unsigned int i = 0; i < curr_dipcount; i++) {
-					cumulative += currProbs[i];
-					std::fprintf(stderr, "  dip[%u] prob=%.15f norm=%.15f cum=%.15f\n",
-					             i, currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
-				}
-			}
-
 			makeDiplotypes(Diplotypes[s]);
 			unsigned char selected_dipcode = curr_dipcodes[next_sampled];
-
-			// SAMPLE TRACE: Log selected index after drawing (all segments when tracing)
-			if (trace_sample) {
-				unsigned char hap0 = (selected_dipcode >> 3);
-				unsigned char hap1 = (selected_dipcode & 7);
-				std::fprintf(stderr, "[SAMPLE_BWD_PICK] sample=%s seg=%d selected_idx=%d dipcode=%u hap0=%u hap1=%u\n",
-				             name.c_str(), s, next_sampled, static_cast<unsigned>(selected_dipcode),
-				             static_cast<unsigned>(hap0), static_cast<unsigned>(hap1));
-			}
 
 			DipSampled[s] = selected_dipcode;
 		} else {
@@ -418,32 +339,13 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 				sumProbs += (currProbs[trel] = CurrentTransProbabilities[tabs]);
 			}
 
-			// SAMPLE TRACE: Log sampling details before drawing (initial backward step)
-			if (supersite_trace_enabled()) {
-				std::fprintf(stderr, "[SAMPLE_BWD_INIT] sample=%s segment=%d sumProbs=%.15f\n",
-				             name.c_str(), s, sumProbs);
-				double cumulative = 0.0;
-				unsigned int n_probs = (n_transitions - toffset);
-				for (unsigned int i = 0; i < n_probs && i < 64; i++) {
-					cumulative += currProbs[i];
-					std::fprintf(stderr, "  joint[%u] prob=%.15f norm=%.15f cum=%.15f\n",
-					             i, currProbs[i], currProbs[i]/sumProbs, cumulative/sumProbs);
-				}
-			}
-
-				next_sampled = sample_rng.sample(currProbs, sumProbs);
+			next_sampled = sample_rng.sample(currProbs, sumProbs);
 			if (next_sampled >= static_cast<int>(n_joint)) {
 				std::fprintf(stderr,
 				             "[SAMPLE_IDX_OOB][sampleBackward-init] sample=%s segment=%d sampled_idx=%d n_joint=%u curr_dipcount=%u next_dipcount=%u toffset=%d trans_buf_size=%zu\n",
 				             name.c_str(), s, next_sampled, n_joint, curr_dipcount, next_dipcount, toffset, trans_buf_size);
 				std::fflush(stderr);
 				std::abort();
-			}
-
-			// SAMPLE TRACE: Log selected index after drawing
-			if (supersite_trace_enabled()) {
-				std::fprintf(stderr, "  selected_joint_idx=%d -> seg[%d]_idx=%d seg[%d]_idx=%d\n",
-				             next_sampled, s+1, next_sampled % next_dipcount, s, next_sampled / next_dipcount);
 			}
 
 			makeDiplotypes(Diplotypes[s+1]);
@@ -468,13 +370,6 @@ void genotype::sampleBackward(vector < double > & CurrentTransProbabilities, vec
 			}
 		}
 		next_dipcount = curr_dipcount;
-	}
-	if (trace_sample) {
-		std::fprintf(stderr, "[SAMPLE_DEBUG] sample=%s direction=backward n_segments=%u dip_mask=0x%016llx DipSampled0=%u\n",
-		             name.c_str(),
-		             n_segments,
-		             static_cast<unsigned long long>(n_segments ? Diplotypes[0] : 0),
-		             n_segments ? static_cast<unsigned>(DipSampled[0]) : 0);
 	}
 	make(DipSampled, CurrentMissingProbabilities);
 

@@ -219,17 +219,6 @@ void buildSuperSites(
         }
     }
 
-    // Diagnostics: summarize build when tracing is enabled
-    const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
-    if (tr && tr[0] != '\0' && tr[0] != '0') {
-        std::fprintf(stdout, "buildSuperSites: n_sites=%zu n_hap=%lu n_supersites=%zu packed_bytes=%zu\n",
-                     (size_t)V.size(), H.n_hap, super_sites_out.size(), packed_allele_codes_out.size());
-        for (size_t i = 0; i < super_sites_out.size(); ++i) {
-            const SuperSite& s = super_sites_out[i];
-            std::fprintf(stdout, "  ss[%zu]: anchor=%u var_count=%u panel_off=%u span_bytes=%u\n",
-                         i, s.global_site_id, (unsigned)s.var_count, (unsigned)s.panel_offset, (unsigned)s.panel_span_bytes);
-        }
-    }
 }
 
 // Update anchor variant encoding to reflect supersite genotype status

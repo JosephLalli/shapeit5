@@ -21,37 +21,12 @@
  ******************************************************************************/
 
 #include <containers/conditioning_set/conditioning_set_header.h>
-#include <models/supersite_trace_utils.h>
 #include <models/super_site_accessor.h>
 #include <algorithm>
 
 using namespace std;
 
 namespace {
-
-void trace_pbwt_neighbours(const conditioning_set& H) {
-	if (!supersite_trace_enabled()) return;
-    const int max_sites = std::min<int>(5, static_cast<int>(H.n_site));
-	unsigned long addr_offset = H.sites_pbwt_ngroups * H.n_ind * 2UL;
-	for (int l = 0, reported = 0; l < H.n_site && reported < max_sites; ++l) {
-		if (!H.sites_pbwt_selection[l]) continue;
-		const int grouping = H.sites_pbwt_grouping[l];
-		supersite_trace_log("[PBWTTrace] locus=%d grouping=%d depth=%d\n", l, grouping, H.depth);
-            for (int s = 0; s < std::min<int>(3, H.depth); ++s) {
-			unsigned long base = static_cast<unsigned long>(s) * addr_offset + static_cast<unsigned long>(grouping);
-			supersite_trace_log("  depth=%d", s);
-            for (int sample_hap = 0; sample_hap < std::min<int>(4, static_cast<int>(H.n_ind * 2)); ++sample_hap) {
-				unsigned long idx = base + static_cast<unsigned long>(sample_hap) * H.sites_pbwt_ngroups;
-				if (idx >= H.indexes_pbwt_neighbour.size()) break;
-				int donor = H.indexes_pbwt_neighbour[idx];
-				supersite_trace_log(" h%d:%d", sample_hap, donor);
-			}
-			supersite_trace_log("\n");
-		}
-		++reported;
-	}
-	supersite_trace_log("[PBWTTrace] Kbanned groups=%zu\n", H.Kbanned.IBD2.size());
-}
 
 inline bool pbwt_stats_enabled() {
 	static const bool enabled = []() {
@@ -358,5 +333,4 @@ void conditioning_set::select() {
 	}
 
 	vrb.bullet("PBWT selection (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
-	trace_pbwt_neighbours(*this);
 }

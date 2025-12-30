@@ -81,7 +81,6 @@ public:
 };
 
 void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass, vector < bool > & flagMerges) {
-	static const bool trace = (std::getenv("SHAPEIT5_TEST_TRACE") != nullptr);
 	vector < TransStatistics > vecTransStatistics = vector < TransStatistics > (n_segments - 1);
 	vector < Transition > vecTransitions = vector < Transition > (4096);
 
@@ -150,14 +149,6 @@ void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass
 		                                  static_cast<unsigned int>(Lengths[s]);
 		const bool segment_length_ok = (segment_length_raw < std::numeric_limits< unsigned short >::max());
 		const bool overflow_suspect = (Lengths_bio[s-1] > Lengths[s-1]) || (Lengths_bio[s] > Lengths[s]);
-		if (!segment_length_ok || overflow_suspect) {
-			if (trace) {
-				std::fprintf(stderr,
-				             "[MAP_MERGE_SKIP] %s seg=%d len=%u len_bio_left=%u len_bio_right=%u reason=%s\n",
-				             name.c_str(), s, segment_length_raw, Lengths_bio[s-1], Lengths_bio[s],
-				             overflow_suspect ? "overflow_suspect" : "len_guard");
-			}
-		}
 		if (segment_length_ok && !overflow_suspect) {
 			unsigned int n_ambiguous_merged = 0;
 			for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++)
@@ -215,18 +206,8 @@ void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass
 					//}
 					if (n_haps == HAP_NUMBER && cumSumProbs > thresholdProbMass) {
 						vecTransStatistics[s-1].merged = true;
-						if (trace) {
-							std::fprintf(stderr, "[MAP_MERGE_DEBUG] %s seg=%d n_haps=%d cumSumProbs=%.6f thresholdProbMass=%.6f t=%d/%d\n",
-										 name.c_str(), s, n_haps, cumSumProbs, thresholdProbMass, t, n_curr_transitions);
-						}
 					}
 					final_n_haps = n_haps;
-				}
-				if (final_n_haps != HAP_NUMBER && segment_length_ok && n_ambiguous_merged < MAX_AMB) {
-					if (trace) {
-						std::fprintf(stderr, "[MAP_MERGE_SKIP] %s seg=%d final_n_haps=%d (not 8), merged=%s\n",
-									 name.c_str(), s, final_n_haps, vecTransStatistics[s-1].merged ? "true" : "false");
-					}
 				}
 			}
 		}

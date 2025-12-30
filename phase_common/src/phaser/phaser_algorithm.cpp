@@ -32,15 +32,6 @@ using namespace std;
 
 namespace {
 
-bool supersite_metadata_trace_enabled() {
-	static int flag = -1;
-	if (flag < 0) {
-		const char* env = std::getenv("SHAPEIT5_TEST_TRACE");
-		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-	}
-	return flag == 1;
-}
-
 bool pbwt_stats_enabled() {
 	static const bool enabled = []() {
 		const char* env = std::getenv("SHAPEIT5_PBWT_STATS");
@@ -482,39 +473,6 @@ void phaser::logPackedCodeDiff(const std::string& context, const std::vector<uin
 	const size_t removed = (before.size() > after.size()) ? (before.size() - after.size()) : 0;
 	vrb.bullet("Supersite packed-code diff [" + context + "] changed=" + stb.str(changed, 0) +
 	           " added=" + stb.str(added, 0) + " removed=" + stb.str(removed, 0));
-	if (supersite_metadata_trace_enabled() && changed > 0) {
-		std::ostringstream oss;
-		oss << "  first-changed-bytes";
-		size_t reported = 0;
-		for (size_t i = 0; i < min_size && reported < 8; ++i) {
-			if (before[i] != after[i]) {
-				oss << " [" << i << ":" << static_cast<int>(before[i]) << "->" << static_cast<int>(after[i]) << "]";
-				++reported;
-			}
-		}
-		vrb.bullet(oss.str());
-	}
-}
-
-void phaser::traceSupersiteAnchors(const std::string& context, const std::vector<uint8_t>& codes_snapshot, size_t max_sites, size_t max_haps) const {
-	if (!enable_supersites || !supersite_metadata_trace_enabled()) return;
-	if (super_sites.empty() || codes_snapshot.empty()) return;
-	const size_t n_sites = std::min(max_sites, super_sites.size());
-	const size_t n_haps = std::min(max_haps, static_cast<size_t>(H.n_hap));
-	for (size_t ss_idx = 0; ss_idx < n_sites; ++ss_idx) {
-		const SuperSite& ss = super_sites[ss_idx];
-		std::ostringstream oss;
-		oss << "[SupersiteTrace] " << context << " ss_idx=" << ss_idx << " locus=" << ss.global_site_id;
-		for (size_t hap = 0; hap < n_haps; ++hap) {
-			uint8_t code = unpackSuperSiteCode(codes_snapshot.data(), ss.panel_offset, hap);
-			int panel_bit = -1;
-			if (ss.global_site_id < H.H_opt_var.n_rows && hap < H.H_opt_var.n_cols) {
-				panel_bit = H.H_opt_var.get(ss.global_site_id, hap);
-			}
-			oss << " h" << hap << "(code=" << static_cast<int>(code) << ",panel=" << panel_bit << ")";
-		}
-		vrb.bullet(oss.str());
-	}
 }
 
 void phaser::rebuildSupersiteMetadata(const std::string& context, const std::vector<uint8_t>* diff_against) {
@@ -546,8 +504,6 @@ void phaser::rebuildSupersiteMetadata(const std::string& context, const std::vec
 	if (diff_against) {
 		logPackedCodeDiff(context, *diff_against, packed_allele_codes);
 	}
-
-	traceSupersiteAnchors(context, packed_allele_codes);
 
 	applySupersiteAnchorGuards();
 	if (supersite_pbwt_enabled) {
