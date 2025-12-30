@@ -600,7 +600,7 @@ void haplotype_segment_single::forward() {
                         INIT_AMB();
                         break;
                     case EmitKind::Mis:
-                        SS_INIT_MIS();
+                        INIT_MIS();
                         break;
                 }
             } else if (is_sibling) {
@@ -622,7 +622,7 @@ void haplotype_segment_single::forward() {
                         RUN_AMB();
                         break;
                     case EmitKind::Mis:
-                        update_prev_locus = SS_RUN_MIS();
+                        RUN_MIS();
                         break;
                 }
 			} else if (is_sibling) {
@@ -644,7 +644,7 @@ void haplotype_segment_single::forward() {
                         COLLAPSE_AMB();
                         break;
                     case EmitKind::Mis:
-                        SS_COLLAPSE_MIS();
+                        COLLAPSE_MIS();
                         break;
                 }
 			} else if (is_sibling) {
@@ -992,7 +992,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 					INIT_AMB();
 					break;
 				case EmitKind::Mis:
-					SS_INIT_MIS();
+					INIT_MIS();
 					break;
 			}
 		} else if (need_init && !is_sibling) {
@@ -1012,7 +1012,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 						RUN_AMB();
 						break;
 					case EmitKind::Mis:
-						update_prev_locus = SS_RUN_MIS();
+						RUN_MIS();
 						break;
 				}
 			} else if (is_sibling) {
@@ -1034,7 +1034,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 						COLLAPSE_AMB();
 						break;
 					case EmitKind::Mis:
-						SS_COLLAPSE_MIS();
+						COLLAPSE_MIS();
 						break;
 				}
 				pending_collapse = false;

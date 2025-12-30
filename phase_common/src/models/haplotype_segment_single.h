@@ -518,6 +518,8 @@ void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint
 }
 #endif
 
+// Dead code: SS_INIT_MIS kept for easy reversion; no longer referenced.
+#if 0
 inline
 void haplotype_segment_single::SS_INIT_MIS() {
     // Missing data: uniform probabilities
@@ -525,6 +527,7 @@ void haplotype_segment_single::SS_INIT_MIS() {
     fill(probSumH.begin(), probSumH.end(), 1.0f/HAP_NUMBER);
     probSumT = 1.0f;
 }
+#endif
 
 // Dead code: SS_RUN_HOM kept for easy reversion; no longer referenced.
 #if 0
@@ -747,6 +750,8 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
 }
 #endif
 
+// Dead code: SS_RUN_MIS kept for easy reversion; no longer referenced.
+#if 0
 inline
 bool haplotype_segment_single::SS_RUN_MIS() {
     // Missing data: only apply transitions, no emissions
@@ -766,6 +771,7 @@ bool haplotype_segment_single::SS_RUN_MIS() {
     probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
     return true;
 }
+#endif
 
 // Dead code: SS_COLLAPSE_HOM kept for easy reversion; no longer referenced.
 #if 0
@@ -940,6 +946,8 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
 }
 #endif
 
+// Dead code: SS_COLLAPSE_MIS kept for easy reversion; no longer referenced.
+#if 0
 inline
 void haplotype_segment_single::SS_COLLAPSE_MIS() {
     // Missing data: only apply transitions, no emissions
@@ -967,6 +975,7 @@ void haplotype_segment_single::SS_COLLAPSE_MIS() {
     probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 
 }
+#endif
 
 /*******************************************************************************/
 /*****************            HOMOZYGOUS GENOTYPE            ************************/
