@@ -64,11 +64,6 @@
 
 namespace {
 
-static inline bool env_true(const char* name) {
-    const char* v = std::getenv(name);
-    return v && v[0] != '\0' && v[0] != '0';
-}
-
 struct SuperSiteContext {
     std::vector<SuperSite> super_sites;
     std::vector<bool> is_super_site;
@@ -219,40 +214,17 @@ static std::vector<unsigned int> extract_donors_for_haplotype(
 
     if (locus >= static_cast<int>(H.sites_pbwt_selection.size()) ||
         !H.sites_pbwt_selection[locus]) {
-        if (env_true("SHAPEIT5_TEST_TRACE")) {
-            std::cerr << "[extract_donors] locus=" << locus << " not selected for PBWT" << std::endl;
-        }
         return donors;
     }
 
     unsigned long addr_offset = H.sites_pbwt_ngroups * H.n_ind * 2UL;
     unsigned long base_idx = H.sites_pbwt_grouping[locus] * 2UL * H.n_ind + target_hap;
 
-    if (env_true("SHAPEIT5_TEST_TRACE")) {
-        std::cerr << "[extract_donors] locus=" << locus << " target_hap=" << target_hap
-                  << " grouping=" << H.sites_pbwt_grouping[locus]
-                  << " ngroups=" << H.sites_pbwt_ngroups
-                  << " n_ind=" << H.n_ind
-                  << " depth=" << H.depth
-                  << " addr_offset=" << addr_offset
-                  << " base_idx=" << base_idx
-                  << " indexes_size=" << H.indexes_pbwt_neighbour.size() << std::endl;
-    }
-
     for (int d = 0; d < H.depth; ++d) {
         unsigned long neighbor_idx = d * addr_offset + base_idx;
         if (neighbor_idx < H.indexes_pbwt_neighbour.size()) {
             unsigned int donor_hap = H.indexes_pbwt_neighbour[neighbor_idx];
             donors.push_back(donor_hap);
-            if (env_true("SHAPEIT5_TEST_TRACE") && d < 3) {
-                std::cerr << "    d=" << d << " neighbor_idx=" << neighbor_idx
-                          << " donor_hap=" << donor_hap << std::endl;
-            }
-        } else {
-            if (env_true("SHAPEIT5_TEST_TRACE")) {
-                std::cerr << "    d=" << d << " neighbor_idx=" << neighbor_idx
-                          << " OUT OF BOUNDS (size=" << H.indexes_pbwt_neighbour.size() << ")" << std::endl;
-            }
         }
     }
 
@@ -271,31 +243,6 @@ static DonorBlockAnalysis analyze_donor_blocks(
 
     std::vector<unsigned int> donors = extract_donors_for_haplotype(H, anchor_locus, target_hap);
     analysis.total_donors = static_cast<int>(donors.size());
-
-    // Diagnostic #1: Show actual neighbor indices and their allele classes
-    if (env_true("SHAPEIT5_TEST_TRACE")) {
-        const char* class_name[] = {"REF", "ALT1", "ALT2", "ALT3"};
-        std::cerr << "\n[PBWT_NEIGHBORS] target_hap=" << target_hap
-                  << " target_class=" << class_name[target_class]
-                  << " anchor_locus=" << anchor_locus << std::endl;
-        std::cerr << "  Total neighbors: " << donors.size() << std::endl;
-        std::cerr << "  Neighbor details (hap_idx -> allele_class):" << std::endl;
-        for (size_t i = 0; i < donors.size(); ++i) {
-            unsigned int donor_hap = donors[i];
-            AlleleClass ac = get_donor_allele_class(H, donor_hap, anchor_locus);
-            std::cerr << "    [" << std::setw(2) << i << "] hap=" << std::setw(3) << donor_hap
-                      << " class=" << class_name[ac];
-            // Show which block this donor is from (blocks start at hap 12)
-            if (donor_hap >= 12) {
-                int block_idx = (donor_hap - 12) / 32;
-                const char* block_name[] = {"ALT1_block", "ALT2_block", "ALT3_block", "REF_block"};
-                if (block_idx < 4) {
-                    std::cerr << " (" << block_name[block_idx] << ")";
-                }
-            }
-            std::cerr << std::endl;
-        }
-    }
 
     for (unsigned int donor_hap : donors) {
         AlleleClass ac = get_donor_allele_class(H, donor_hap, anchor_locus);
@@ -541,48 +488,6 @@ int main() {
         V.vec_pos[locus]->cmis = 0;
     }
 
-    // Diagnostic #2: Verify reference panel structure at supersite
-    if (env_true("SHAPEIT5_TEST_TRACE")) {
-        std::cerr << "\n[REF_PANEL_VERIFICATION] Checking supersite structure" << std::endl;
-        std::cerr << "  Expected blocks (32 haps each):" << std::endl;
-        std::cerr << "    Block 0 (ALT1): haps 12-43" << std::endl;
-        std::cerr << "    Block 1 (ALT2): haps 44-75" << std::endl;
-        std::cerr << "    Block 2 (ALT3): haps 76-107" << std::endl;
-        std::cerr << "    Block 3 (REF):  haps 108-139" << std::endl;
-
-        for (int block = 0; block < n_blocks; block++) {
-            const char* expected_class[] = {"ALT1", "ALT2", "ALT3", "REF"};
-            int start_hap = ref_hap_start + (block * donors_per_block * 2);
-            int end_hap = start_hap + std::min(5, donors_per_block * 2); // Check first 5 haps
-
-            std::cerr << "\n  Block " << block << " (" << expected_class[block]
-                      << ", haps " << start_hap << "-" << (start_hap + donors_per_block * 2 - 1) << "):"
-                      << std::endl;
-
-            for (int h = start_hap; h < end_hap; h++) {
-                bool s0 = H.H_opt_hap.get(h, supersite_anchor + 0);
-                bool s1 = H.H_opt_hap.get(h, supersite_anchor + 1);
-                bool s2 = H.H_opt_hap.get(h, supersite_anchor + 2);
-
-                // Determine actual class
-                const char* actual_class = "REF";
-                if (s0) actual_class = "ALT1";
-                else if (s1) actual_class = "ALT2";
-                else if (s2) actual_class = "ALT3";
-
-                bool matches = (strcmp(actual_class, expected_class[block]) == 0);
-
-                std::cerr << "    hap " << std::setw(3) << h << ": "
-                          << "split0=" << s0 << " split1=" << s1 << " split2=" << s2
-                          << " → " << actual_class;
-                if (!matches) {
-                    std::cerr << " ✗ MISMATCH (expected " << expected_class[block] << ")";
-                }
-                std::cerr << std::endl;
-            }
-        }
-    }
-
     // Build supersites
     SuperSiteContext ctx = build_supersites(V, H);
     std::cout << "  Detected " << ctx.super_sites.size() << " supersites" << std::endl;
@@ -606,31 +511,12 @@ int main() {
             ctx.super_sites, ctx.super_site_var_index, V.size());
         H.setSupersiteAnchorRedirect(anchor_map);
 
-        if (env_true("SHAPEIT5_TEST_TRACE")) {
-            std::cout << "  Anchor redirect map:" << std::endl;
-            for (size_t i = 0; i < anchor_map.size(); ++i) {
-                if (anchor_map[i] != static_cast<int>(i)) {
-                    std::cout << "    locus " << i << " → " << anchor_map[i] << std::endl;
-                }
-            }
-        }
     }
 
     H.select();
 
     std::cout << "  PBWT depth: " << H.depth << std::endl;
     std::cout << "  PBWT sites selected: " << H.n_site << std::endl;
-
-    // Debug: Print which sites were selected
-    if (env_true("SHAPEIT5_TEST_TRACE")) {
-        std::cout << "  Sites selected for PBWT:" << std::endl;
-        for (size_t i = 0; i < H.sites_pbwt_selection.size(); ++i) {
-            if (H.sites_pbwt_selection[i]) {
-                std::cout << "    Locus " << i << ": " << V.vec_pos[i]->id
-                          << " (group=" << H.sites_pbwt_grouping[i] << ")" << std::endl;
-            }
-        }
-    }
 
     // Verify that supersite siblings were NOT selected for PBWT
     if (H.sites_pbwt_selection[supersite_anchor + 1] ||
@@ -656,13 +542,6 @@ int main() {
         bool has_alt1 = H.H_opt_hap.get(hap_idx, supersite_anchor + 0);
         bool has_alt2 = H.H_opt_hap.get(hap_idx, supersite_anchor + 1);
         bool has_alt3 = H.H_opt_hap.get(hap_idx, supersite_anchor + 2);
-
-        if (env_true("SHAPEIT5_TEST_TRACE")) {
-            std::cerr << "[get_test_hap_allele] hap=" << hap_idx
-                      << " split0=" << (int)has_alt1
-                      << " split1=" << (int)has_alt2
-                      << " split2=" << (int)has_alt3 << std::endl;
-        }
 
         if (has_alt1) return ALT1;
         if (has_alt2) return ALT2;

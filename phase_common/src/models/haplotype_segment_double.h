@@ -38,15 +38,6 @@
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
 
-inline bool trans_parity_trace_enabled_d() {
-	static int flag = -1;
-	if (flag < 0) {
-		const char* env = std::getenv("SHAPEIT5_DEBUG_TRANS_PARITY");
-		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-	}
-	return flag == 1;
-}
-
 class haplotype_segment_double {
 private:
 	//EXTERNAL DATA
@@ -132,13 +123,6 @@ private:
 
 	// EMISSION HELPERS
 	bool prepare_outer_product_mix(int rel_prev_segment, __m256d& col_mix_lo, __m256d& col_mix_hi, double& row_stay, double& row_switch, bool allow_outer = true);
-	inline void debugCheckProbBounds(unsigned int idx, const char* label) {
-		(void)label;
-		if (idx + HAP_NUMBER > prob.size()) {
-			assert(false && "prob index out of bounds");
-		}
-	}
-
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
 	void INIT_AMB();
@@ -241,16 +225,9 @@ void haplotype_segment_double::ss_load_cond_codes(const SuperSite& ss, int ss_id
 
     if (panel_codes == nullptr) return;
 
-    if (!supersite_debug::validate_panel_span(ss, panel_codes_size, ss_idx, "haplotype_segment_double::ss_load_cond_codes")) {
-        std::abort();
-    }
-
     ss_cond_codes.resize(n_cond_haps);
     for (int k = 0; k < (int)n_cond_haps; ++k) {
         unsigned int gh = (*cond_idx)[k];
-        if (!supersite_debug::validate_panel_byte(ss, gh, ss_idx, "haplotype_segment_double::ss_load_cond_codes")) {
-            std::abort();
-        }
         ss_cond_codes[k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
     }
 }
@@ -294,7 +271,6 @@ void haplotype_segment_double::INIT_HOM() {
                 __m256d _sum0 = _mm256_set1_pd(0.0);
                 __m256d _sum1 = _mm256_set1_pd(0.0);
                 for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    debugCheckProbBounds(i, "SS_INIT_HOM");
                     __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
                     __m256d _prob0 = _emit;
                     __m256d _prob1 = _emit;
@@ -375,7 +351,6 @@ bool haplotype_segment_double::RUN_HOM(char rare_allele) {
                 _tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
                 __m256d _nt = _mm256_set1_pd(nt / probSumT);
                 for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    debugCheckProbBounds(i, "SS_RUN_HOM");
                     __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
                     __m256d _prob0 = _mm256_load_pd(&prob[i]);
                     __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
@@ -469,7 +444,6 @@ void haplotype_segment_double::COLLAPSE_HOM() {
                 __m256d _tFreq1 = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(yt / n_cond_haps);
                 __m256d _nt = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(nt / probSumT);
                 for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    debugCheckProbBounds(i, "SS_COLLAPSE_HOM");
                     __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
                     __m256d _prob0;
                     __m256d _prob1;
@@ -588,7 +562,6 @@ void haplotype_segment_double::INIT_AMB() {
 
                 // Strict 4-bit class equality semantics
                 for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    debugCheckProbBounds(i, "SS_INIT_AMB");
                     alignas(32) double E8[HAP_NUMBER];
                     for (int h = 0; h < HAP_NUMBER; ++h) {
                         bool match = (expected_class[h] == ss_cond_codes[k]);
@@ -688,7 +661,6 @@ void haplotype_segment_double::RUN_AMB() {
 
                 // Strict 4-bit class equality semantics
                 for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    debugCheckProbBounds(i, "SS_RUN_AMB");
                     __m256d _prob0 = _mm256_load_pd(&prob[i]);
                     __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
                     _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
@@ -824,7 +796,6 @@ void haplotype_segment_double::COLLAPSE_AMB() {
                         _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
                         _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
                     }
-                    debugCheckProbBounds(i, "SS_COLLAPSE_AMB");
 
                     // Strict 4-bit class equality semantics
                     alignas(32) double E8[HAP_NUMBER];
@@ -961,7 +932,6 @@ void haplotype_segment_double::RUN_MIS() {
 	_tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
 	__m256d _nt = _mm256_set1_pd(nt / probSumT);
 	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-		debugCheckProbBounds(i, "SS_RUN_MIS");
 		__m256d _prob0 = _mm256_load_pd(&prob[i]);
 		__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
 		_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
@@ -988,7 +958,6 @@ void haplotype_segment_double::COLLAPSE_MIS() {
     __m256d _tFreq1 = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(yt / n_cond_haps);
     __m256d _nt = use_outer ? _mm256_set1_pd(0.0) : _mm256_set1_pd(nt / probSumT);
     for (int k = 0, i = 0; k != n_cond_haps; ++k, i += HAP_NUMBER) {
-        debugCheckProbBounds(i, "SS_COLLAPSE_MIS");
         __m256d _prob0;
         __m256d _prob1;
         if (use_outer) {
@@ -1092,11 +1061,6 @@ bool haplotype_segment_double::TRANS_DIP_MULT() {
 				}
 			}
 		}
-	}
-	if (trans_parity_trace_enabled_d()) {
-		std::fprintf(stderr, "[TRANS_DIP_MULT debug][double] seg=%d sumHProbs=%g scaling=%g pd_hits=%d nd_hits_first_pd=%d t_hits=%d sumDProbs=%g firstD=%g\n",
-		             curr_segment_index, sumHProbs, scaling, pd_hits, nd_hits, t_hits, sumDProbs, (t_hits>0?DProbs[0]:-1.0));
-		std::fflush(stderr);
 	}
 	return (std::isnan(sumDProbs) || std::isinf(sumDProbs) || sumDProbs < std::numeric_limits<double>::min());
 }
@@ -1257,42 +1221,7 @@ void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float
     }
     
     const size_t required = static_cast<size_t>(offset) + static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>(C);
-    const bool guard_sentinels_present = supersite_debug::guard_checks_enabled() &&
-                                         SC.size() >= 2 &&
-                                         std::isnan(SC.front()) &&
-                                         std::isnan(SC.back());
-    const bool guard_applicable = guard_sentinels_present && offset >= 1u;
-    if (guard_applicable) {
-        const size_t usable = SC.size() - 1;
-        if (required > usable) {
-            std::fprintf(stderr,
-                "[supersite-guard] IMPUTE_SUPERSITE_MULTIVARIATE (double): offset=%u C=%d size=%zu required=%zu sample=%s ss_idx=%d\n",
-                offset, C, SC.size(), required, G ? G->name.c_str() : "?", ss_idx);
-            assert(required <= usable);
-            return;
-        }
-        const size_t guard_hi = SC.size() - 1;
-        const float pre_guard = SC[offset - 1];
-        const float post_guard = SC[guard_hi];
-        if (!std::isnan(pre_guard) || !std::isnan(post_guard)) {
-            std::fprintf(stderr,
-                "[supersite-guard] Guard corrupt before write (double) offset=%u sample=%s ss_idx=%d pre=%g post=%g\n",
-                offset, G ? G->name.c_str() : "?", ss_idx, pre_guard, post_guard);
-            assert(std::isnan(pre_guard));
-            assert(std::isnan(post_guard));
-            return;
-        }
-    } else if (supersite_debug::guard_checks_enabled()) {
-        if (required > SC.size()) {
-            std::fprintf(stderr,
-                "[supersite-guard] IMPUTE_SUPERSITE_MULTIVARIATE (double, unguarded buffer): offset=%u C=%d size=%zu required=%zu sample=%s ss_idx=%d\n",
-                offset, C, SC.size(), required, G ? G->name.c_str() : "?", ss_idx);
-            assert(required <= SC.size());
-            return;
-        }
-    } else {
-        assert(required <= SC.size());
-    }
+    assert(required <= SC.size());
     
     // Compute 1 / AlphaSum for normalization
     __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[rel_missing_index][0]);
@@ -1360,24 +1289,6 @@ void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float
         }
     }
 
-    if (supersite_debug::guard_checks_enabled()) {
-        for (int h = 0; h < HAP_NUMBER; ++h) {
-            double sum_row = 0.0;
-            bool finite = true;
-            for (int c = 0; c < C; ++c) {
-                const double val = SC[offset + h * C + c];
-                sum_row += val;
-                if (!std::isfinite(val)) {
-                    finite = false;
-                }
-            }
-            if (!finite || std::fabs(sum_row - 1.0) > 1e-6) {
-                std::fprintf(stderr,
-                    "[supersite-guard] SC row anomaly (double) sample=%s ss_idx=%d hap=%d sum=%.12f finite=%d\n",
-                    G ? G->name.c_str() : "?", ss_idx, h, sum_row, finite ? 1 : 0);
-            }
-        }
-    }
 }
 
 #endif

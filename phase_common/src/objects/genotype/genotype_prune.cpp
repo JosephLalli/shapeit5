@@ -93,36 +93,6 @@ void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass
 	unsigned int toffset = prev_dipcount;
 	unsigned int n_curr_transitions = 0;
 	unsigned int aoffset = 0, voffset = 0;
-	std::vector<uint8_t> lenbio_traced(n_segments, 0);
-	const char* trace_lenbio = std::getenv("SHAPEIT5_TRACE_LENBIO");
-
-	auto trace_lenbio_segment = [&](int seg_idx, unsigned int seg_start, unsigned int seg_len, unsigned short len_bio) {
-		if (!trace_lenbio || trace_lenbio[0] == '\0' || trace_lenbio[0] == '0') return;
-		if (seg_idx < 0 || seg_idx >= n_segments) return;
-		if (lenbio_traced[seg_idx]) return;
-		if (len_bio != std::numeric_limits<unsigned short>::max() && len_bio <= seg_len) return;
-		unsigned int non_sib = 0, sib = 0, anchor = 0, bial = 0;
-		for (unsigned int vrel = 0; vrel < seg_len; ++vrel) {
-			unsigned int locus = seg_start + vrel;
-			SuperSiteContext ctx = getSuperSiteContext(locus);
-			if (ctx.is_member) {
-				if (ctx.is_anchor) {
-					anchor++;
-					non_sib++;
-				} else {
-					sib++;
-				}
-			} else {
-				bial++;
-				non_sib++;
-			}
-		}
-		const unsigned int seg_end = seg_len ? (seg_start + seg_len - 1) : seg_start;
-		std::fprintf(stderr,
-		             "[LENBIO_TRACE][prune] sample=%s seg=%d start_v=%u end_v=%u len=%u len_bio=%u non_sib=%u sib=%u anchor=%u bial=%u\n",
-		             name.c_str(), seg_idx, seg_start, seg_end, seg_len, len_bio, non_sib, sib, anchor, bial);
-		lenbio_traced[seg_idx] = 1;
-	};
 
 	for (int s = 1 ; s < n_segments ; s++) {
 		//Step1: update cursors (1)
@@ -160,20 +130,6 @@ void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass
 				for (int t = 0 ; t < n_curr_transitions ; t ++) {
 					vecTransitions[t].prob = currProbs[toffset + t];
 					vecTransitions[t].idx = t;
-				}
-
-				// LOG TRANSITION PROBABILITIES BEFORE SORT (Scenario 8, prune iterations only)
-				bool is_test_sample = (name.find("_sample") != std::string::npos);
-				static int prune_iter_count = 0;
-				if (is_test_sample && n_segments == 3 && s >= 1 && s <= 2) {
-					std::fprintf(stderr, "[TRANS_PROBS_PRESORT] sample=%s seg=%d n_trans=%d prune_count=%d\n",
-					             name.c_str(), s, n_curr_transitions, prune_iter_count);
-					int max_print = (n_curr_transitions < 20) ? n_curr_transitions : 20;
-					for (int t = 0; t < max_print; t++) {
-						std::fprintf(stderr, "  [%d] idx=%u prob=%.20g (hex:%a)\n",
-						             t, vecTransitions[t].idx, vecTransitions[t].prob, vecTransitions[t].prob);
-					}
-					if (s == 2) prune_iter_count++;
 				}
 
 				sort(vecTransitions.begin(), vecTransitions.begin() + n_curr_transitions);
@@ -222,32 +178,15 @@ void genotype::mapMerges(vector < double > & currProbs, double thresholdProbMass
 	//Step9: map acceptable merges
 	sort(vecTransStatistics.begin(), vecTransStatistics.end());
 	flagMerges = vector < bool > (n_segments+1, false);
-	bool enable_debug = (!debug::SUPERDEBUG_SAMPLENAME.empty() && name == debug::SUPERDEBUG_SAMPLENAME) ||
-						(name.find("_sample") != std::string::npos);
-	if (enable_debug) {
-		std::fprintf(stderr, "[MAP_ENTROPY_SORT] %s sorted by entropy (size=%zu):\n", name.c_str(), vecTransStatistics.size());
-		for (unsigned int s = 0; s < vecTransStatistics.size(); s++) {
-			std::fprintf(stderr, "  [%u] idx=%u entropy=%.10f merged=%d\n",
-						 s, vecTransStatistics[s].idx, (double)vecTransStatistics[s].entropy,
-						 vecTransStatistics[s].merged ? 1 : 0);
-			std::fflush(stderr);
-		}
-	}
 	for (unsigned int s = 0 ; s < vecTransStatistics.size() ; s ++) {
 		bool no_adjacent_merges = !flagMerges[vecTransStatistics[s].idx-1] && !flagMerges[vecTransStatistics[s].idx+1];
 		bool can_be_merged = vecTransStatistics[s].merged;
 		bool will_merge = no_adjacent_merges && can_be_merged;
 		flagMerges[vecTransStatistics[s].idx] = will_merge;
-		if (enable_debug) {
-			std::fprintf(stderr, "[MAP_FINAL] idx=%u no_adj=%d can_merge=%d will_merge=%d\n",
-						 vecTransStatistics[s].idx, no_adjacent_merges, can_be_merged, will_merge);
-		}
 	}
 }
 
 void genotype::performMerges(vector < double > & currProbs, vector < bool > & flagMerges) {
-	const bool superdebug = (!debug::SUPERDEBUG_SAMPLENAME.empty() && name == debug::SUPERDEBUG_SAMPLENAME) ||
-							(name.find("_sample") != std::string::npos);
 	// NOTE: Mhaps lane remapping is intentionally free-form. Given a pair of
 	// segments s-1 and s, we build a merged hap basis by scanning the sorted
 	// transition list and assigning up to 8 distinct (prev_h, next_h) pairs
@@ -259,44 +198,6 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 	// data where those inputs *should* match, so that any observed divergence
 	// in lane assignments is interpreted as a supersite bug rather than a rule
 	// that Mhaps must enforce.
-	if (superdebug) {
-		std::cout << "[PRUNE_DEBUG] " << name << " enter performMerges n_segments=" << n_segments
-				  << " flagMerges.size=" << flagMerges.size()
-				  << " Ambiguous.size=" << Ambiguous.size()
-				  << " Lengths[0]=" << (Lengths.empty()?0:Lengths[0])
-				  << " Lengths_bio[0]=" << (Lengths_bio.empty()?0:Lengths_bio[0])
-				  << " flagM[0]=" << (flagMerges.empty()?0:flagMerges[0])
-				  << std::endl;
-	}
-	auto is_superdebug_locus = [&](unsigned int locus) -> bool {
-		return superdebug &&
-		       !debug::SUPERDEBUG_SAMPLENAME.empty() &&
-		       name == debug::SUPERDEBUG_SAMPLENAME &&
-		       static_cast<int>(locus) == debug::SUPERDEBUG_BP;
-	};
-
-	auto logAmbiguousSite = [&](const char* ctx, int seg_idx, unsigned int vabs, unsigned int vrel,
-								unsigned int arel, unsigned char amb_code, unsigned int l_bio_left,
-								unsigned int l_bio_right) {
-		if (!is_superdebug_locus(vabs)) return;
-		std::cout << "[PRUNE_DEBUG] " << name
-				  << " ctx=" << ctx
-				  << " seg=" << seg_idx
-				  << " vabs=" << vabs
-				  << " vrel=" << vrel
-				  << " arel=" << arel
-				  << " amb_code=0x" << std::hex << static_cast<int>(amb_code) << std::dec
-				  << " len_bio_left=" << l_bio_left
-				  << " len_bio_right=" << l_bio_right
-				  << std::endl;
-	};
-	auto logFlagVector = [&](const char* ctx, const std::vector<bool>& flags) {
-		if (!superdebug) return;
-		std::cout << "[PRUNE_DEBUG] " << name << " " << ctx << " flagMerges:";
-		for (bool f : flags) std::cout << (f ? "1" : "0");
-		std::cout << std::endl;
-	};
-
 	vector < Transition > vecTransitions = vector < Transition > (4096);
 
 	//Step0: initialize duplicates
@@ -319,36 +220,6 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 	unsigned int toffset = prev_dipcount;
 	unsigned int n_curr_transitions = 0;
 	unsigned int aoffset = 0, voffset = 0;
-	std::vector<uint8_t> lenbio_traced(n_segments, 0);
-	const char* trace_lenbio = std::getenv("SHAPEIT5_TRACE_LENBIO");
-
-	auto trace_lenbio_segment = [&](int seg_idx, unsigned int seg_start, unsigned int seg_len, unsigned short len_bio) {
-		if (!trace_lenbio || trace_lenbio[0] == '\0' || trace_lenbio[0] == '0') return;
-		if (seg_idx < 0 || seg_idx >= n_segments) return;
-		if (lenbio_traced[seg_idx]) return;
-		if (len_bio != std::numeric_limits<unsigned short>::max() && len_bio <= seg_len) return;
-		unsigned int non_sib = 0, sib = 0, anchor = 0, bial = 0;
-		for (unsigned int vrel = 0; vrel < seg_len; ++vrel) {
-			unsigned int locus = seg_start + vrel;
-			SuperSiteContext ctx = getSuperSiteContext(locus);
-			if (ctx.is_member) {
-				if (ctx.is_anchor) {
-					anchor++;
-					non_sib++;
-				} else {
-					sib++;
-				}
-			} else {
-				bial++;
-				non_sib++;
-			}
-		}
-		const unsigned int seg_end = seg_len ? (seg_start + seg_len - 1) : seg_start;
-		std::fprintf(stderr,
-		             "[LENBIO_TRACE][prune] sample=%s seg=%d start_v=%u end_v=%u len=%u len_bio=%u non_sib=%u sib=%u anchor=%u bial=%u\n",
-		             name.c_str(), seg_idx, seg_start, seg_end, seg_len, len_bio, non_sib, sib, anchor, bial);
-		lenbio_traced[seg_idx] = 1;
-	};
 
 	auto isAmbiguous = [&](unsigned int locus) -> bool {
 		bool is_amb = VAR_GET_AMB(MOD2(locus), Variants[DIV2(locus)]);
@@ -363,23 +234,14 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		return is_amb;
 	};
 
-	logFlagVector("pre-loop", flagMerges);
 	for (int s = 1 ; s < flagMerges.size() -1 ; s ++) {
-		trace_lenbio_segment(s - 1, voffset, Lengths[s - 1], Lengths_bio[s - 1]);
 		//Step1: update cursors (1)
 		curr_dipcount = countDiplotypes(Diplotypes[s]);
 		n_curr_transitions = prev_dipcount * curr_dipcount;
 		makeDiplotypes(Diplotypes[s]);
-		if (superdebug) {
-			std::fprintf(stderr, "[PRUNE_CTX] %s seg=%d len=%u len_bio=%u amb_idx=%u amb_code=0x%02x\n",
-			             name.c_str(), s, Lengths[s], Lengths_bio[s], aoffset,
-			             (aoffset < Ambiguous.size()) ? static_cast<int>(Ambiguous[aoffset]) : -1);
-		}
 
 		//case1: merge to be done
 		if (flagMerges[s]) {
-			trace_lenbio_segment(s, voffset + Lengths[s - 1], Lengths[s], Lengths_bio[s]);
-			logFlagVector("merge-at", flagMerges);
 
 			// CRITICAL: Pre-compute ambiguous anchor counts for correct segment membership.
 			// We need this because arel (ambiguous anchor index) advances at a different
@@ -389,14 +251,6 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 				if (isAmbiguous(voffset + vrel)) n_amb_first++;
 			for (unsigned int vrel = 0 ; vrel < Lengths[s] ; vrel ++)
 				if (isAmbiguous(voffset + Lengths[s-1] + vrel)) n_amb_second++;
-
-			if (superdebug) {
-				std::fprintf(stderr, "[PRUNE_MERGE] seg=%d Lengths[s-1]=%u Lengths[s]=%u "
-							 "Lengths_bio[s-1]=%u Lengths_bio[s]=%u "
-							 "n_amb_first=%u n_amb_second=%u\n",
-							 s, Lengths[s-1], Lengths[s], Lengths_bio[s-1], Lengths_bio[s],
-							 n_amb_first, n_amb_second);
-			}
 
 			// Guard against silent overflow when merging segments (Lengths_bio is uint16_t).
 			const unsigned int len_sum = static_cast<unsigned int>(Lengths[s-1]) +
@@ -418,12 +272,6 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 			Diplotypes2.push_back(0x0000000000000000UL);
 			for (int t = 0 ; t < n_curr_transitions ; t ++) { vecTransitions[t].prob = currProbs[toffset + t]; vecTransitions[t].idx = t; }
 			sort(vecTransitions.begin(), vecTransitions.begin() + n_curr_transitions);
-			if (superdebug) {
-				std::fprintf(stderr, "[PRUNE_DEBUG] %s seg=%d Top 10 Transitions:\n", name.c_str(), s);
-				for (int t = 0; t < 10 && t < n_curr_transitions; ++t) {
-					std::fprintf(stderr, "  t=%d prob=%.20g idx=%u\n", t, vecTransitions[t].prob, vecTransitions[t].idx);
-				}
-			}
 
 			int n_haps = 0;
 			int n_skipped = 0;
@@ -439,69 +287,39 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 				unsigned int merged_h1 = prev_h1 * HAP_NUMBER + next_h1;
 				bool new_h0 = (Mhaps[merged_h0] < 0);
 				bool new_h1 = ((Mhaps[merged_h1] < 0) && (merged_h0 != merged_h1));
-				if ((n_haps + new_h0 + new_h1) <= HAP_NUMBER) {
-					if (new_h0) {
-						Mhaps[merged_h0] = n_haps;
-						if (superdebug) {
-							std::fprintf(stderr,
-								"[PRUNE_TRACE] %s seg=%d t=%d prob=%.20g merged_h0=%u lane=%d prev_dip=%u next_dip=%u prev_h0=%u next_h0=%u\n",
-								name.c_str(), s, t, vecTransitions[t].prob, merged_h0, n_haps,
-								prev_dip, next_dip, prev_h0, next_h0);
-						}
-						// CRITICAL: Use vrel (all-variant index) to determine segment membership.
-						// vrel < Lengths[s-1] means we're in segment s-1, otherwise segment s.
-						// This works correctly for both biallelic and supersite because Lengths
-						// includes siblings, while arel only counts ambiguous anchors.
-						if (superdebug) {
-							std::fprintf(stderr, "[MERGE_AMB_H0] %s seg=%d merged_h0=%u->%d prev_h0=%u next_h0=%u Lengths[s-1]=%u Lengths[s]=%u\n",
-										 name.c_str(), s, merged_h0, n_haps, prev_h0, next_h0, Lengths[s-1], Lengths[s]);
-						}
-						for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++) {
-							if (isAmbiguous(voffset+vrel)) {
-								bool in_first_segment = (arel < n_amb_first);
-								unsigned int old_hap = in_first_segment ? prev_h0 : next_h0;
-								bool was_set = HAP_GET(Ambiguous[aoffset+arel], old_hap);
-								if (was_set) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h0]);
-								if (is_superdebug_locus(voffset + vrel)) {
-									std::fprintf(stderr,
-										"  [H0] vrel=%u arel=%u locus=%u in_first=%d merged_h=%u lane=%d prev_h0=%u next_h0=%u old_hap=%u was_set=%d new_val=%02x\n",
-										vrel, arel, voffset+vrel, in_first_segment,
-										merged_h0, Mhaps[merged_h0], prev_h0, next_h0,
-										old_hap, was_set, Ambiguous2[aoffset+arel]);
+					if ((n_haps + new_h0 + new_h1) <= HAP_NUMBER) {
+						if (new_h0) {
+							Mhaps[merged_h0] = n_haps;
+							// CRITICAL: Use vrel (all-variant index) to determine segment membership.
+							// vrel < Lengths[s-1] means we're in segment s-1, otherwise segment s.
+							// This works correctly for both biallelic and supersite because Lengths
+							// includes siblings, while arel only counts ambiguous anchors.
+							for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++) {
+								if (isAmbiguous(voffset+vrel)) {
+									bool in_first_segment = (arel < n_amb_first);
+									unsigned int old_hap = in_first_segment ? prev_h0 : next_h0;
+									bool was_set = HAP_GET(Ambiguous[aoffset+arel], old_hap);
+									if (was_set) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h0]);
+									arel ++;
 								}
-								arel ++;
 							}
+							n_haps ++;
 						}
-						n_haps ++;
-					}
-					if (new_h1) {
-						Mhaps[merged_h1] = n_haps;
-						if (superdebug) {
-							std::fprintf(stderr,
-								"[PRUNE_TRACE] %s seg=%d t=%d prob=%.20g merged_h1=%u lane=%d prev_dip=%u next_dip=%u prev_h1=%u next_h1=%u\n",
-								name.c_str(), s, t, vecTransitions[t].prob, merged_h1, n_haps,
-								prev_dip, next_dip, prev_h1, next_h1);
-						}
-						// CRITICAL: Use vrel (all-variant index) to determine segment membership.
-						// vrel < Lengths[s-1] means we're in segment s-1, otherwise segment s.
-						// This works correctly for both biallelic and supersite because Lengths
-						// includes siblings, while arel only counts ambiguous anchors.
-						for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++) {
-							if (isAmbiguous(voffset+vrel)) {
-								bool in_first_segment = (arel < n_amb_first);
-								unsigned int old_hap = in_first_segment ? prev_h1 : next_h1;
-								bool was_set = HAP_GET(Ambiguous[aoffset+arel], old_hap);
-								if (was_set) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h1]);
-								if (is_superdebug_locus(voffset + vrel)) {
-									std::fprintf(stderr,
-										"  [H1] vrel=%u arel=%u locus=%u in_first=%d merged_h=%u lane=%d prev_h1=%u next_h1=%u old_hap=%u was_set=%d new_val=%02x\n",
-										vrel, arel, voffset+vrel, in_first_segment,
-										merged_h1, Mhaps[merged_h1], prev_h1, next_h1,
-										old_hap, was_set, Ambiguous2[aoffset+arel]);
+						if (new_h1) {
+							Mhaps[merged_h1] = n_haps;
+							// CRITICAL: Use vrel (all-variant index) to determine segment membership.
+							// vrel < Lengths[s-1] means we're in segment s-1, otherwise segment s.
+							// This works correctly for both biallelic and supersite because Lengths
+							// includes siblings, while arel only counts ambiguous anchors.
+							for (unsigned int vrel = 0, arel = 0 ; vrel < (Lengths[s-1]+Lengths[s]) ; vrel ++) {
+								if (isAmbiguous(voffset+vrel)) {
+									bool in_first_segment = (arel < n_amb_first);
+									unsigned int old_hap = in_first_segment ? prev_h1 : next_h1;
+									bool was_set = HAP_GET(Ambiguous[aoffset+arel], old_hap);
+									if (was_set) HAP_SET(Ambiguous2[aoffset+arel], Mhaps[merged_h1]);
+									arel ++;
 								}
-								arel ++;
 							}
-						}
 						n_haps ++;
 					}
 					DIP_SET(Diplotypes2.back(), Mhaps[merged_h0] * HAP_NUMBER + Mhaps[merged_h1]);
@@ -527,8 +345,6 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 			for (unsigned int vrel = 0, arel = 0 ; vrel < Lengths[s-1] ; vrel ++) {
 				if (isAmbiguous(voffset + vrel)) {
 					Ambiguous2[aoffset+arel] = Ambiguous[aoffset+arel];
-					logAmbiguousSite("copy", s, voffset + vrel, vrel, arel,
-									 Ambiguous[aoffset+arel], Lengths_bio[s-1], 0);
 					arel ++;
 				}
 			}
@@ -545,12 +361,9 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		toffset += n_curr_transitions;
 	}
 	if (!flagMerges[flagMerges.size()-2]) {
-		trace_lenbio_segment(n_segments - 1, voffset, Lengths.back(), Lengths_bio.back());
 		for (unsigned int vrel = 0, arel = 0 ; vrel < Lengths.back() ; vrel ++) {
 			if (isAmbiguous(voffset + vrel)) {
 				Ambiguous2[aoffset+arel] = Ambiguous[aoffset+arel];
-				logAmbiguousSite("copy-last", n_segments-1, voffset + vrel, vrel, arel,
-								 Ambiguous[aoffset+arel], Lengths_bio.back(), 0);
 				arel ++;
 			}
 		}
@@ -558,15 +371,6 @@ void genotype::performMerges(vector < double > & currProbs, vector < bool > & fl
 		Lengths_bio2.push_back(Lengths_bio.back());
 		Diplotypes2.push_back(Diplotypes.back());
 	}
-	if (superdebug) {
-		std::cout << "[PRUNE_DEBUG] " << name
-				  << " exit performMerges n_segments=" << n_segments2
-				  << " Ambiguous.size=" << Ambiguous2.size()
-				  << " copied_amb=" << Ambiguous.size()
-				  << " Lengths_bio[0]=" << (Lengths_bio2.empty()?0:Lengths_bio2[0])
-				  << std::endl;
-	}
-
 	//free();
 	Ambiguous = Ambiguous2;
 	Diplotypes = Diplotypes2;

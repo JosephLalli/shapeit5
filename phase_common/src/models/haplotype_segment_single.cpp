@@ -24,49 +24,12 @@
 
 #include <models/haplotype_segment_single.h>
 #include <models/site_emission_adapter.h>
-#include <mutex>
 #include <cstdio>
 #include <string>
 #include <limits>
 #include <algorithm>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 using namespace std;
-
-// Debug underflow tracing (gated by SHAPEIT5_DEBUG_UNDERFLOW)
-namespace {
-static std::mutex g_underflow_log_mutex;
-static bool underflow_trace_enabled() {
-    static int flag = -1;
-    if (flag < 0) {
-        const char* env = std::getenv("SHAPEIT5_DEBUG_UNDERFLOW");
-        flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-    }
-    return flag == 1;
-}
-static void ensure_logs_dir() {
-    struct stat st{};
-    if (stat("logs", &st) != 0) {
-        mkdir("logs", 0777);
-    }
-}
-
-static bool trans_trace_enabled_s() {
-	static int flag = -1;
-	if (flag < 0) {
-		const char* env = std::getenv("SHAPEIT5_TRANS_TRACE");
-		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-	}
-	return flag == 1;
-}
-
-static const char* trans_trace_sample_s() {
-	static const char* sample = std::getenv("SHAPEIT5_TRANS_TRACE_SAMPLE");
-	return sample && sample[0] ? sample : nullptr;
-}
-
-} // namespace
 
 namespace {
 // Map lane -> desired class for supersites; for biallelic, lane_class is 0/1
@@ -175,22 +138,6 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
         if (super_sites && cond_idx) {
             ss_panel_matrix.resize(super_sites->size());
 
-            // MATRIX_POPULATE_TRACE: Log when and how matrix is populated
-            const char* matrix_trace = std::getenv("SHAPEIT5_MATRIX_POPULATE_TRACE");
-            if (matrix_trace && matrix_trace[0] != '\0' && matrix_trace[0] != '0') {
-                static int constructor_count = 0;
-                constructor_count++;
-                std::fprintf(stderr, "\n[MATRIX_POPULATE] ===== Constructor #%d called =====\n", constructor_count);
-                std::fprintf(stderr, "[MATRIX_POPULATE] Segment=[%d,%d] n_cond_haps=%u n_supersites=%zu\n",
-                             segment_first, segment_last, n_cond_haps, super_sites->size());
-                std::fprintf(stderr, "[MATRIX_POPULATE] cond_idx pointer=%p\n", (void*)cond_idx);
-                std::fprintf(stderr, "[MATRIX_POPULATE] cond_idx values (first 16): ");
-                for (unsigned int k = 0; k < std::min(16u, n_cond_haps); ++k) {
-                    std::fprintf(stderr, "%u ", (*cond_idx)[k]);
-                }
-                std::fprintf(stderr, "\n");
-            }
-
             for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
                 const SuperSite& ss = (*super_sites)[ss_idx];
                 ss_panel_matrix[ss_idx].resize(n_cond_haps);
@@ -201,35 +148,6 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
                     ss_panel_matrix[ss_idx][k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
                 }
 
-                // Log panel codes for ss_idx 3 (locus 6, the diverging one)
-                if (matrix_trace && matrix_trace[0] != '\0' && matrix_trace[0] != '0' &&
-                    (ss_idx == 1 || ss_idx == 6 || ss_idx == 3)) {
-                std::fprintf(stderr, "[MATRIX_POPULATE] ss_idx=%zu (anchor=%u) panel_codes first 16: ",
-                                 ss_idx, ss.global_site_id);
-                for (unsigned int k = 0; k < std::min(16u, n_cond_haps); ++k) {
-                    std::fprintf(stderr, "%u ", (unsigned)ss_panel_matrix[ss_idx][k]);
-                }
-                std::fprintf(stderr, "\n");
-
-                // Cross-check packed supersite codes against Hvar (biallelic view)
-                const bool anchor_in_window = (ss.global_site_id >= (unsigned)locus_first) &&
-                                              (ss.global_site_id <= (unsigned)locus_last);
-                const int rel_row = anchor_in_window
-                                      ? static_cast<int>(ss.global_site_id - locus_first + curr_rel_locus_offset)
-                                      : -1;
-                std::fprintf(stderr,
-                             "[MATRIX_POPULATE] anchor_in_window=%d rel_row=%d locus_first=%d locus_last=%d offset=%d\n",
-                             anchor_in_window ? 1 : 0, rel_row, locus_first, locus_last, curr_rel_locus_offset);
-                const unsigned int dump_limit = std::min(32u, n_cond_haps);
-                for (unsigned int k = 0; k < dump_limit; ++k) {
-                    const unsigned int gh = (*cond_idx)[k];
-                    const uint8_t packed_code = ss_panel_matrix[ss_idx][k];
-                    const int hvar = anchor_in_window ? static_cast<int>(Hvar.get(rel_row, k)) : -1;
-                    std::fprintf(stderr,
-                                 "[PACK_CHK] ss_idx=%zu anchor=%u k=%u cond_idx=%u packed=%u hvar=%d\n",
-                                 ss_idx, ss.global_site_id, k, gh, (unsigned)packed_code, hvar);
-                }
-            }
         }
     }
     }
@@ -448,31 +366,6 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 	} else {
 		assert(transition_probabilities.size() >= expected_transitions);
 	}
-	const bool trans_trace = trans_trace_enabled_s();
-	const char* trans_trace_sample = trans_trace_sample_s();
-	const int seg_count = segment_last - segment_first + 1;
-	std::vector<uint8_t> seg_has_anchor(seg_count, 0);
-	std::vector<uint8_t> seg_has_sibling(seg_count, 0);
-	std::vector<uint8_t> seg_wrote_transition(seg_count, 0);
-	std::vector<std::vector<int>> seg_anchor_ss(seg_count);
-	std::vector<std::vector<int>> seg_sibling_ss(seg_count);
-	std::vector<unsigned int> seg_non_sib_count(seg_count, 0);
-	std::vector<int> seg_first_non_sib_locus(seg_count, -1);
-	std::vector<int> seg_last_non_sib_locus(seg_count, -1);
-	bool wrote_first_transition = false;
-	// TEMP DEBUG (TRANS_MISMATCH_ERROR): one-off trace to capture skipped segment boundaries.
-	// Remove after confirming why transition counts diverge in supersite windows.
-	const bool trans_mismatch_trace = std::getenv("SHAPEIT5_TRACE_TRANS_MISMATCH");
-	static bool trans_mismatch_trace_dumped = false;
-	struct trans_mismatch_event {
-		int locus;
-		int seg_idx;
-		int seg_locus;
-		unsigned int n_trans;
-		const char* reason;
-	};
-	std::vector<trans_mismatch_event> trans_mismatch_events;
-	if (trans_mismatch_trace && !trans_mismatch_trace_dumped) trans_mismatch_events.reserve(16);
 
 	const bool supersites_enabled = (super_sites && locus_to_super_idx && super_site_var_index && panel_codes && cond_idx);
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
@@ -498,26 +391,6 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		}
 		const bool is_anchor = (site_view.kind == SiteKind::SuperAnchor);
 		const bool is_sibling = (site_view.kind == SiteKind::SuperSibling);
-		const int rel_seg = curr_segment_index - segment_first;
-		if (rel_seg >= 0 && rel_seg < seg_count) {
-			if (is_sibling) seg_has_sibling[rel_seg] = 1;
-			else seg_has_anchor[rel_seg] = 1;
-			if (!is_sibling) {
-				seg_non_sib_count[rel_seg] += 1u;
-				if (seg_first_non_sib_locus[rel_seg] < 0) seg_first_non_sib_locus[rel_seg] = curr_abs_locus;
-				seg_last_non_sib_locus[rel_seg] = curr_abs_locus;
-			}
-			const int ss_idx = site_view.supersite_index;
-			auto add_unique = [](std::vector<int>& vec, int val) {
-				if (val < 0) return;
-				for (int existing : vec) {
-					if (existing == val) return;
-				}
-				vec.push_back(val);
-			};
-			if (is_anchor) add_unique(seg_anchor_ss[rel_seg], ss_idx);
-			else if (is_sibling) add_unique(seg_sibling_ss[rel_seg], ss_idx);
-		}
 
 		// Deferred initialization: if we started on a sibling, keep doing INIT_MIS until we hit a non-sibling
 		if (need_init && is_sibling) {
@@ -622,41 +495,11 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 
 			// Only emit transition probabilities if caller provided storage
 			if (!transition_probabilities.empty()) {
-				const bool at_segment_boundary = (curr_segment_locus == 0 && curr_segment_index > segment_first);
-				if (at_segment_boundary && trans_mismatch_trace && !trans_mismatch_trace_dumped) {
-					const unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
-					const unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index - 1]);
-					const unsigned int n_trans = curr_dipcount * prev_dipcount;
-					const char* reason = nullptr;
-					if (curr_abs_locus == locus_first) reason = "window_start";
-					else if (is_sibling) reason = "sibling_boundary";
-					if (reason && trans_mismatch_events.size() < 16) {
-						trans_mismatch_events.push_back({curr_abs_locus, curr_segment_index, curr_segment_locus, n_trans, reason});
-					}
-				}
 				if (curr_abs_locus == 0) {
-					if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
-						unsigned int n_trans = G->countDiplotypes(G->Diplotypes[0]);
-						std::fprintf(stdout,
-						             "[TRANS_TRACE][single][first] sample=%s curr_abs_locus=%d seg_idx=%d n_trans=%u curr_abs_transition=%d buf_size=%zu\n",
-						             G->name.c_str(), curr_abs_locus, curr_segment_index, n_trans, curr_abs_transition, transition_probabilities.size());
-					std::fflush(stdout);
-				}
 					SET_FIRST_TRANS(transition_probabilities);
-					wrote_first_transition = true;
 				}
 				if (!is_sibling && curr_segment_locus == 0 && curr_abs_locus != locus_first && curr_segment_index > segment_first) {
-					if (trans_trace && (!trans_trace_sample || G->name == trans_trace_sample)) {
-						unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
-						unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
-						unsigned int n_trans = curr_dipcount * prev_dipcount;
-						std::fprintf(stdout,
-						             "[TRANS_TRACE][single][other] sample=%s curr_abs_locus=%d seg_idx=%d n_trans=%u curr_abs_transition=%d buf_size=%zu\n",
-						             G->name.c_str(), curr_abs_locus, curr_segment_index, n_trans, curr_abs_transition, transition_probabilities.size());
-						std::fflush(stdout);
-					}
 					int ret = SET_OTHER_TRANS(transition_probabilities);
-					if (rel_seg >= 0 && rel_seg < seg_count) seg_wrote_transition[rel_seg] = 1;
 					if (ret < 0) return ret;
 					else n_underflow_recovered += ret;
 				}
@@ -712,63 +555,6 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 		if (curr_segment_locus < 0 && curr_segment_index > 0) {
 			curr_segment_index--;
 			curr_segment_locus = G->Lengths_bio[curr_segment_index] - 1;
-		}
-	}
-	if (!transition_probabilities.empty()) {
-		bool error = false;
-		if (segment_first == 0 && locus_first == 0 && !wrote_first_transition) {
-			std::fprintf(stderr, "[TRANS_MISMATCH_ERROR] Sample=%s: Missing first-segment transition write in window\n",
-			             G->name.c_str());
-			error = true;
-		}
-		for (int s = segment_first; s <= segment_last; ++s) {
-			const int rel = s - segment_first;
-			if (rel < 0 || rel >= seg_count) continue;
-			if (!seg_sibling_ss[rel].empty()) {
-				for (int ss_idx : seg_sibling_ss[rel]) {
-					bool has_anchor = false;
-					for (int anchor_idx : seg_anchor_ss[rel]) {
-						if (anchor_idx == ss_idx) {
-							has_anchor = true;
-							break;
-						}
-					}
-					if (!has_anchor) {
-						std::fprintf(stderr,
-						             "[TRANS_MISMATCH_ERROR] Sample=%s: Segment %d has sibling ss_idx=%d without its anchor\n",
-						             G->name.c_str(), s, ss_idx);
-						error = true;
-					}
-				}
-			}
-		}
-		for (int s = segment_first + 1; s <= segment_last; ++s) {
-			const int rel = s - segment_first;
-			if (rel < 0 || rel >= seg_count) continue;
-			if (seg_has_anchor[rel] && !seg_wrote_transition[rel]) {
-				const unsigned int len_bio = (s >= 0 && s < (int)G->Lengths_bio.size()) ? G->Lengths_bio[s] : 0u;
-				std::fprintf(stderr,
-				             "[TRANS_MISMATCH_ERROR] Sample=%s: Missing transition write for segment %d in window (len_bio=%u non_sib=%u first_non_sib=%d last_non_sib=%d)\n",
-				             G->name.c_str(), s, len_bio, seg_non_sib_count[rel], seg_first_non_sib_locus[rel], seg_last_non_sib_locus[rel]);
-				error = true;
-			}
-		}
-		if (error) {
-			std::fprintf(stderr, "  segments=[%d,%d] locus_range=[%d,%d]\n",
-			             segment_first, segment_last, locus_first, locus_last);
-			std::fprintf(stderr, "  Whole-sample transitions=%u, buffer size=%zu\n",
-			             G->n_transitions, transition_probabilities.size());
-			// TEMP DEBUG (TRANS_MISMATCH_ERROR): dump the first few skipped boundaries once.
-			if (trans_mismatch_trace && !trans_mismatch_trace_dumped) {
-				std::fprintf(stderr, "[TRANS_MISMATCH_TRACE][single] sample=%s skipped_boundaries=%zu (max 16)\n",
-				             G->name.c_str(), trans_mismatch_events.size());
-				for (const auto& ev : trans_mismatch_events) {
-					std::fprintf(stderr,
-					             "  [TRANS_MISMATCH_TRACE][single] reason=%s locus=%d seg=%d seg_locus=%d n_trans=%u\n",
-					             ev.reason, ev.locus, ev.seg_idx, ev.seg_locus, ev.n_trans);
-				}
-				trans_mismatch_trace_dumped = true;
-			}
 		}
 	}
 		curr_segment_index = segment_first;
@@ -881,56 +667,7 @@ void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_pr
 int haplotype_segment_single::SET_OTHER_TRANS(vector < double > & transition_probabilities) {
     int underflow_recovered = 0;
     if (TRANS_HAP()) {
-        if (underflow_trace_enabled()) {
-            std::lock_guard<std::mutex> lk(g_underflow_log_mutex);
-            ensure_logs_dir();
-            FILE* f = std::fopen("logs/underflow.tsv", "a");
-            if (f) {
-                static bool header_written = false;
-                if (!header_written) {
-                    std::fprintf(f, "sample\tprecision\tstage\tcurr_abs_locus\tprev_abs_locus\tcm_curr\tcm_prev\tyt\tnt\tprobSumT\tsumHProbs\tAlphaSumSum_prev");
-                    for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(f, "\tAlphaSum_prev[%d]", h);
-                    std::fprintf(f, "\tis_anchor\tis_sibling\tamb\tmis\thom\tss_idx\tn_cond_haps\n");
-                    header_written = true;
-                }
-                int curr = curr_abs_locus;
-                int prev = prev_abs_locus;
-                double cm_curr = (curr >= 0 && curr < (int)M.cm.size()) ? M.cm[curr] : NAN;
-                double cm_prev = (prev >= 0 && prev < (int)M.cm.size()) ? M.cm[prev] : NAN;
-                bool amb = VAR_GET_AMB(MOD2(curr), G->Variants[DIV2(curr)]);
-                bool mis = VAR_GET_MIS(MOD2(curr), G->Variants[DIV2(curr)]);
-                bool hom = !(amb || mis);
-                genotype::SuperSiteContext log_ctx = G->getSuperSiteContext(curr);
-                int ss_idx = log_ctx.ss_idx;
-                bool is_anchor = log_ctx.is_anchor;
-                bool is_sibling = log_ctx.is_member && !log_ctx.is_anchor;
-                if (log_ctx.is_member) {
-                    amb = log_ctx.has_het || log_ctx.has_sca;
-                    mis = log_ctx.all_missing;
-                    hom = !(amb || mis);
-                }
-                unsigned int rel_prev_seg = (curr_segment_index - segment_first) - 1;
-                double alphaSumSum_prev = (rel_prev_seg < AlphaSumSum.size()) ? AlphaSumSum[rel_prev_seg] : NAN;
-                std::fprintf(f, "%s\tfloat\t%s\t%d\t%d\t%.8g\t%.8g\t%.8g\t%.8g\t%.8g\t%.8g\t%.8g",
-                             G->name.c_str(), "SET_OTHER_TRANS", curr, prev, cm_curr, cm_prev,
-                             (double)yt, (double)nt, (double)probSumT, (double)sumHProbs, alphaSumSum_prev);
-                if (rel_prev_seg < AlphaSum.size()) {
-                    for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(f, "\t%.8g", (double)AlphaSum[rel_prev_seg][h]);
-                } else {
-                    for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(f, "\tNA");
-                }
-                std::fprintf(f, "\t%d\t%d\t%d\t%d\t%d\t%d\t%u\n", (int)is_anchor, (int)is_sibling, (int)amb, (int)mis, (int)hom, ss_idx, n_cond_haps);
-                std::fclose(f);
-            }
-        }
         return -1;
-    }
-    // LOG HMM STATE - Check values before and after TRANS_DIP_MULT
-    bool is_test_sample = (G->name.find("_sample") != std::string::npos);
-    bool is_seg2 = (curr_segment_index == 2);
-    if (is_test_sample && is_seg2) {
-        std::fprintf(stderr, "[HMM_BEFORE_TRANS_DIP_MULT] sample=%s locus=%d seg=%d sumHProbs=%.20g (hex:%a)\n",
-                     G->name.c_str(), curr_abs_locus, curr_segment_index, (double)sumHProbs, (double)sumHProbs);
     }
 
     if (TRANS_DIP_MULT()) {
@@ -938,55 +675,10 @@ int haplotype_segment_single::SET_OTHER_TRANS(vector < double > & transition_pro
         else underflow_recovered = 1;
     }
 
-    // LOG DPROBS AFTER TRANS_DIP_MULT
-    if (is_test_sample && is_seg2) {
-        std::fprintf(stderr, "[HMM_AFTER_TRANS_DIP_MULT] sample=%s locus=%d seg=%d sumDProbs=%.20g (hex:%a)\n",
-                     G->name.c_str(), curr_abs_locus, curr_segment_index, sumDProbs, sumDProbs);
-    }
-
 	unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
 	unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
 	unsigned int n_transitions = curr_dipcount * prev_dipcount;
 	double scaleDip = 1.0 / sumDProbs;
-
-	if (trans_parity_trace_enabled_s()) {
-		std::fprintf(stderr, "[TRANS_DIP_ADD debug][single] locus=%d seg=%d curr_abs_transition=%d sumHProbs=%g sumDProbs=%g\n",
-		             curr_abs_locus, curr_segment_index, curr_abs_transition, sumHProbs, sumDProbs);
-		for (int h = 0; h < std::min(4, HAP_NUMBER); ++h) {
-			std::fprintf(stderr, "  HProbs[%d]:", h);
-			for (int hh = 0; hh < HAP_NUMBER; ++hh) std::fprintf(stderr, " %.6g", HProbs[h*HAP_NUMBER + hh]);
-			std::fprintf(stderr, "\n");
-		}
-		std::fflush(stderr);
-	}
-	bool enable_debug = (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME) ||
-						(G->name.find("_sample") != std::string::npos);
-	if (enable_debug) {
-		// Determine biological anchor index (for supersites, map to anchor; for biallelic, locus = anchor)
-		int bio_anchor_idx = curr_abs_locus;
-		bool is_supersite_anchor = false;
-		if (super_sites && locus_to_super_idx) {
-			int ss_idx = (*locus_to_super_idx)[curr_abs_locus];
-			if (ss_idx >= 0) {
-				const SuperSite& ss = (*super_sites)[ss_idx];
-				is_supersite_anchor = (curr_abs_locus == ss.global_site_id);
-				// Map to biological anchor index (count only anchors, not siblings)
-				bio_anchor_idx = 0;
-				for (int i = 0; i < curr_abs_locus; i++) {
-					int check_ss = (*locus_to_super_idx)[i];
-					if (check_ss < 0 || i == (*super_sites)[check_ss].global_site_id) {
-						bio_anchor_idx++;
-					}
-				}
-			}
-		}
-		std::fprintf(stderr, "[SET_OTHER_TRANS] sample=%s locus=%d bio_anchor=%d seg=%d is_ss_anchor=%d n_trans=%u sumHProbs=%.15f sumDProbs=%.15f\n",
-					 G->name.c_str(), curr_abs_locus, bio_anchor_idx, curr_segment_index, (int)is_supersite_anchor, n_transitions, sumHProbs, sumDProbs);
-		// Show first 8 transition probabilities
-		for (unsigned int t = 0; t < std::min(8u, n_transitions); t++) {
-			std::fprintf(stderr, "  trans[%u] DProb=%.15f final=%.15f\n", t, DProbs[t], DProbs[t] * scaleDip);
-		}
-	}
 	// Loudly enforce buffer sizing instead of silently skipping writes.
 	assert(n_transitions > 0);
 	const int start = curr_abs_transition - static_cast<int>(n_transitions - 1);

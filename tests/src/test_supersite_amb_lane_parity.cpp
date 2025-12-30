@@ -67,11 +67,6 @@
 
 namespace {
 
-static inline bool env_true(const char* name) {
-    const char* v = std::getenv(name);
-    return v && v[0] != '\0' && v[0] != '0';
-}
-
 struct SuperSiteContext {
     std::vector<SuperSite> super_sites;
     std::vector<bool> is_super_site;
@@ -501,26 +496,6 @@ int main() {
 
     std::cout << "  Biallelic locus: " << probs_bial.locus << std::endl;
     std::cout << "  Supersite locus: " << probs_ss.locus << std::endl;
-
-    // Detailed trace if requested
-    if (env_true("SHAPEIT5_TEST_TRACE")) {
-        std::cout << "\nDetailed lane probabilities (first 3 donors):" << std::endl;
-        const int donors_to_show = std::min(3, n_donors);
-
-        for (int k = 0; k < donors_to_show; ++k) {
-            std::cout << "  Donor " << k << ":" << std::endl;
-            std::cout << "    Biallelic lanes: ";
-            for (int h = 0; h < 8; ++h) {
-                std::cout << std::scientific << std::setprecision(4) << probs_bial.get(k, h) << " ";
-            }
-            std::cout << std::endl;
-            std::cout << "    Supersite lanes: ";
-            for (int h = 0; h < 8; ++h) {
-                std::cout << std::scientific << std::setprecision(4) << probs_ss.get(k, h) << " ";
-            }
-            std::cout << std::endl;
-        }
-    }
 
     // Compare lane-level probabilities
     std::cout << "\nComparing lane-level probabilities..." << std::endl;

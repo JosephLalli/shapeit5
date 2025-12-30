@@ -461,12 +461,6 @@ void transposeHaplotypes_H2V() {
 
 - **Debug builds**: `make -C phase_common debug` adds `-g` and reduces optimization for easier stepping; run `gdb` or `valgrind` on binaries/tests
 - **Logging**: Use `vrb.bullet()` and `vrb.title()` for structured console output. Inspect `Alpha`, `AlphaSum` (32‑byte aligned) in debugger for HMM state
-- **Test tracing**: `SHAPEIT5_TEST_TRACE=1` enables verbose, per‑locus console traces. Useful prints include:
-  - Supersite adapter: `[SupersiteEmit] build_view(super)` with anchor id, c0/c1, and lane_class per lane
-  - Emission masks: `build_match_mask locus=…` with donor raw codes and any_match_lane summary
-  - Bial AMB path: `BIAL_RUN_AMB: locus=…` with g0/g1 per‑lane emission vectors and per‑donor emits (first few donors)
-  - Supersite AMB path: `SS_RUN_AMB: locus=…` with expected classes per lane, donor codes, and strict class‑equality per‑donor emits
-  - Cursor diagnostics: `[ss-amb-cursor]` range/advances; sibling bookkeeping via `[SupersiteSibling]`
 - **Underflow diagnostics**: `SHAPEIT5_DEBUG_UNDERFLOW=1` appends forward/transition underflow events to `logs/underflow.tsv` with sample, locus, cm, yt/nt, probSumT, per‑lane probSumH, and prior‑segment Alpha summaries
 - **Targeted supersite debug**: set both `SHAPEIT5_SUPERDEBUG_SAMPLENAME=<sample>` and `SHAPEIT5_SUPERDEBUG_BP=<anchor_locus>` to print compact, focused snapshots around a specific anchor (per‑split hap bits before/after projection, sampled h0/h1, etc.)
 - **Packing trace**: `SHAPEIT5_TRACE_SUPERSITE_PACKING=1` prints panel packing access (unpack indices) for early calls to validate bounds and offsets
@@ -1157,7 +1151,6 @@ if (options.count("haploids")) {
   - **`true` (Parity Mode)**: This mode was created to solve a specific development problem: how to validate the new, complex supersite logic against the existing, trusted biallelic algorithm. It forces the HMM to use simplified "biallelic" semantics *inside* the HMM calculation. For a given supersite anchor, the logic is reduced to a binary question: "Does the donor haplotype carry this anchor's specific ALT allele, or not?" All other alternate alleles at that site are treated as if they were the reference allele. This allowed for direct, apples-to-apples comparisons during testing, but is less accurate and is now retained only for specific debugging or validation scenarios.
 
 **Environment Variables:**
-- `SHAPEIT5_TEST_TRACE=1`: Enable verbose per-locus forward/backward TSV traces to `tests/out/`.
 - `SHAPEIT5_DEBUG_UNDERFLOW=1`: Enable HMM underflow diagnostics to `logs/underflow.tsv`.
 
 **Key Implementation Files:**

@@ -23,45 +23,13 @@
 #ifndef _SUPER_SITE_ACCESSOR_H
 #define _SUPER_SITE_ACCESSOR_H
 
-#include <atomic>
 #include <cstdint>
 #include <cstdlib>
-#include <cstdio>
 #include <cinttypes>
 #include <vector>
 #include <boost/align/aligned_allocator.hpp>
 #include <utils/otools.h>
 #include <objects/genotype/genotype_header.h>
-
-namespace supersite_debug {
-inline bool packing_trace_enabled() {
-	static int flag = -1;
-	if (flag < 0) {
-		const char* env = std::getenv("SHAPEIT5_TRACE_SUPERSITE_PACKING");
-		flag = (env && env[0] != '\0' && env[0] != '0') ? 1 : 0;
-	}
-	return flag == 1;
-}
-
-inline uint64_t next_packing_trace_index() {
-	static std::atomic<uint64_t> counter{0};
-	return counter.fetch_add(1, std::memory_order_relaxed);
-}
-
-inline bool guard_checks_enabled() {
-	static int flag = -1;
-	if (flag < 0) {
-		const char* env = std::getenv("SHAPEIT5_SUPERSITE_GUARDS");
-		if (!env || env[0] == '\0') flag = 1;  // default: enabled
-		else flag = (env[0] == '0') ? 0 : 1;
-	}
-	return flag == 1;
-}
-
-inline void report_guard_violation(const char* scope, const char* message) {
-	std::fprintf(stderr, "[supersite-guard] %s: %s\n", scope, message);
-}
-} // namespace supersite_debug
 
 // ============================================================================
 // Constants
@@ -109,54 +77,6 @@ struct SuperSite {
 	uint16_t rare_code_mask;
 };
 
-namespace supersite_debug {
-inline bool validate_panel_span(const SuperSite& ss,
-								size_t buffer_size,
-								int ss_idx,
-								const char* scope) {
-	if (!guard_checks_enabled()) return true;
-	if (buffer_size == 0 || ss.panel_span_bytes == 0) return true;
-	const uint64_t start = static_cast<uint64_t>(ss.panel_offset);
-	const uint64_t span = static_cast<uint64_t>(ss.panel_span_bytes);
-	const uint64_t end = start + span;
-	if (end > buffer_size || end < start) {
-		char buf[256];
-		std::snprintf(buf, sizeof(buf),
-					  "ss_idx=%d offset=%u span=%u buffer=%zu",
-					  ss_idx,
-					  static_cast<unsigned>(ss.panel_offset),
-					  static_cast<unsigned>(ss.panel_span_bytes),
-					  buffer_size);
-		report_guard_violation(scope, buf);
-		return false;
-	}
-	return true;
-}
-
-inline bool validate_panel_byte(const SuperSite& ss,
-								unsigned int hap_idx,
-								int ss_idx,
-								const char* scope) {
-	if (!guard_checks_enabled()) return true;
-	if (ss.panel_span_bytes == 0) return true;
-	const uint64_t start = static_cast<uint64_t>(ss.panel_offset);
-	const uint64_t span_end = start + ss.panel_span_bytes;
-	const uint64_t byte_index = start + (hap_idx / 2);
-	if (byte_index >= span_end || byte_index < start) {
-		char buf[256];
-		std::snprintf(buf, sizeof(buf),
-					  "ss_idx=%d hap=%u byte=%" PRIu64 " span_end=%" PRIu64,
-					  ss_idx,
-					  hap_idx,
-					  byte_index,
-					  span_end);
-		report_guard_violation(scope, buf);
-		return false;
-	}
-	return true;
-}
-} // namespace supersite_debug
-
 // ============================================================================
 // Unpacking Functions (Scalar)
 // ============================================================================
@@ -175,16 +95,6 @@ inline uint8_t unpackSuperSiteCode(
 
 	// Byte index: 2 haplotypes per byte with 4-bit codes
 	uint32_t byte_idx = panel_offset + hap_idx / 2;
-	
-	// Debug logging for buffer access diagnostics (opt-in)
-	if (supersite_debug::packing_trace_enabled()) {
-		const uint64_t trace_id = supersite_debug::next_packing_trace_index();
-		if (trace_id < 20 || (trace_id % 1000000ULL) == 0ULL) {
-			std::fprintf(stderr,
-				"unpackSuperSiteCode #%" PRIu64 ": panel_offset=%u hap_idx=%u byte_idx=%u\n",
-				trace_id + 1, panel_offset, hap_idx, byte_idx);
-		}
-	}
 	
 	uint8_t byte_val = packed_buffer[byte_idx];
 

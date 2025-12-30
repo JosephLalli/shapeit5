@@ -43,11 +43,6 @@
 
 namespace {
 
-static inline bool env_true(const char* name) {
-    const char* v = std::getenv(name);
-    return v && v[0] != '\0' && v[0] != '0';
-}
-
 struct SuperSiteContext {
     std::vector<SuperSite> super_sites;
     std::vector<bool> is_super_site;
@@ -292,12 +287,6 @@ protected:
             investigation->backward_trace.push_back(entry);
         }
         
-        // Immediate violation reporting
-        if (entry.violation_type != "none" && env_true("SHAPEIT5_TEST_TRACE")) {
-            std::fprintf(stderr, "[CURSOR_VIOLATION] %s violation at locus=%d stage=%s cursor=%d->%d range=[%d,%d] is_sibling=%d\n",
-                        entry.violation_type.c_str(), entry.locus, stage.c_str(), 
-                        cursor_before, entry.cursor_after, entry.amb_range_start, entry.amb_range_end, is_sibling);
-        }
     }
 };
 
@@ -465,13 +454,6 @@ int main() {
     // Analyze results
     investigation.analyze_violations();
     investigation.print_summary();
-
-    // Export detailed trace for analysis
-    if (env_true("SHAPEIT5_TEST_TRACE")) {
-        std::string trace_file = "cursor_drift_trace.csv";
-        investigation.export_trace_csv(trace_file);
-        std::cout << "\nDetailed trace exported to: " << trace_file << std::endl;
-    }
 
     // Test results
     bool test_passed = (investigation.total_violations == 0);

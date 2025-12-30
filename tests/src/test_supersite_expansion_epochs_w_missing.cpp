@@ -50,11 +50,6 @@
 
 namespace {
 
-static inline bool env_true(const char* name) {
-    const char* v = std::getenv(name);
-    return v && v[0] != '\0' && v[0] != '0';
-}
-
 enum class StageType { Burn, Prune, Main };
 
 struct StageDef {
@@ -702,42 +697,6 @@ int main() {
 
             IterationResult res_bial = run_iteration(ctx_bial, stage, seed_base + iter);
             IterationResult res_sup = run_iteration(ctx_ss, stage, seed_base + iter);
-
-            // DIAGNOSTIC: Compare panel haplotypes (every iteration with trace)
-            if (std::getenv("SHAPEIT5_TEST_TRACE")) {
-                std::fprintf(stderr, "\n[PANEL_COMPARE] After %s: comparing panel haplotypes\n", stage.label.c_str());
-                std::fprintf(stderr, "[PANEL_COMPARE] Biallelic: n_hap=%d, Supersite: n_hap=%d\n",
-                             ctx_bial.H.n_hap, ctx_ss.H.n_hap);
-
-                // Compare panel haplotypes (skip first 2 haplotypes which are test samples)
-                int panel_start = 2;  // Test samples use haplotypes 0-1
-                int max_panel_to_check = std::min(10, (int)(ctx_bial.H.n_hap - panel_start));  // Check first 10 panel samples
-                int max_locus_to_check = std::min(10, (int)(repeat_factor * 5));  // Check first N anchors
-
-                bool panel_diverged = false;
-                for (int panel_idx = 0; panel_idx < max_panel_to_check; ++panel_idx) {
-                    int hap_idx = panel_start + panel_idx;
-                    for (int bio_anchor = 0; bio_anchor < max_locus_to_check; ++bio_anchor) {
-                        int bial_locus = bio_anchor;
-                        int ss_locus = bio_anchor * 2;  // Supersite anchors are at even loci
-
-                        bool bial_allele = ctx_bial.H.H_opt_hap.get(hap_idx, bial_locus);
-                        bool ss_allele = ctx_ss.H.H_opt_hap.get(hap_idx, ss_locus);
-
-                        if (bial_allele != ss_allele) {
-                            std::fprintf(stderr, "[PANEL_DIVERGE] panel_hap=%d bio_anchor=%d: bial=%d ss=%d\n",
-                                         hap_idx, bio_anchor, (int)bial_allele, (int)ss_allele);
-                            panel_diverged = true;
-                        }
-                    }
-                }
-
-                if (!panel_diverged) {
-                    std::fprintf(stderr, "[PANEL_COMPARE] Panel haplotypes IDENTICAL after prune1 ✓\n");
-                } else {
-                    std::fprintf(stderr, "[PANEL_COMPARE] Panel haplotypes DIVERGED after prune1 ❌\n");
-                }
-            }
 
             // Iteration-level haplotype tracing for divergence detection
             if (std::getenv("SHAPEIT5_DETAILED_ITERATION_TRACE")) {

@@ -39,11 +39,6 @@
 
 namespace {
 
-static inline bool env_true(const char* name) {
-    const char* v = std::getenv(name);
-    return v && v[0] != '\0' && v[0] != '0';
-}
-
 struct SuperSiteContext {
     std::vector<SuperSite> super_sites;
     std::vector<bool> is_super_site;
@@ -232,12 +227,6 @@ int main() {
             donors.insert(h);
         }
 
-        if (env_true("SHAPEIT5_TEST_TRACE")) {
-            std::cout << "\n[CLASS_PARITY] Supersite " << ss_idx
-                      << " anchor_locus=" << ss.global_site_id
-                      << " donors=" << donors.size() << std::endl;
-        }
-
         for (unsigned int hap : donors) {
             uint8_t code_bial = get_bial_class_code(H_bial, ss, ctx_ss.super_site_var_index, hap);
             uint8_t code_ss = unpackSuperSiteCode(
@@ -250,13 +239,6 @@ int main() {
 
             if (code_bial != code_ss) {
                 total_mismatches++;
-                if (env_true("SHAPEIT5_TEST_TRACE")) {
-                    std::cout << "[CLASS_MISMATCH] ss_idx=" << ss_idx
-                              << " anchor=" << ss.global_site_id
-                              << " hap=" << hap
-                              << " code_bial=" << static_cast<int>(code_bial)
-                              << " code_ss=" << static_cast<int>(code_ss) << std::endl;
-                }
             }
         }
     }

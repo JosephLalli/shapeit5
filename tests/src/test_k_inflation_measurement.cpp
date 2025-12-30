@@ -47,11 +47,6 @@
 
 namespace {
 
-static inline bool env_true(const char* name) {
-    const char* v = std::getenv(name);
-    return v && v[0] != '\0' && v[0] != '0';
-}
-
 struct SuperSiteContext {
     std::vector<SuperSite> super_sites;
     std::vector<bool> is_super_site;
@@ -240,9 +235,6 @@ protected:
         int current_k = static_cast<int>(idxH_ref.size());
         measurement->k_per_locus.push_back(current_k);
         
-        if (env_true("SHAPEIT5_TEST_TRACE")) {
-            std::fprintf(stdout, "K_MEASUREMENT: locus=%d k=%d\n", curr_abs_locus, current_k);
-        }
     }
 };
 
@@ -504,7 +496,6 @@ int main() {
         for (size_t w = 0; w < CJ_bial.Kstates.size(); ++w) {
             int ksize = static_cast<int>(CJ_bial.Kstates[w].size());
             report.biallelic.k_per_locus.push_back(ksize);
-            if (env_true("SHAPEIT5_TEST_TRACE")) std::cout << "    K[bial][w=" << w << "]=" << ksize << std::endl;
         }
 
         // Mimic panel update & transpose (no sampling in this test)
@@ -521,7 +512,6 @@ int main() {
         for (size_t w = 0; w < CJ_ss.Kstates.size(); ++w) {
             int ksize = static_cast<int>(CJ_ss.Kstates[w].size());
             report.supersite.k_per_locus.push_back(ksize);
-            if (env_true("SHAPEIT5_TEST_TRACE")) std::cout << "    K[ss][w=" << w << "]=" << ksize << std::endl;
         }
 
         H_ss.updateHaplotypes(GS_ss, false);
@@ -531,13 +521,6 @@ int main() {
     // Analyze and report results
     report.analyze();
     report.print_comparison();
-
-    // Export detailed data if requested
-    if (env_true("SHAPEIT5_TEST_TRACE")) {
-        std::string csv_file = "k_inflation_data.csv";
-        report.export_csv(csv_file);
-        std::cout << "\nDetailed K measurements exported to: " << csv_file << std::endl;
-    }
 
     // Test results
     bool test_passed = (report.median_inflation_ratio < 1.1); // Allow up to 10% inflation

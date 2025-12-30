@@ -105,10 +105,8 @@ public:
 		void check_options();
 		void verbose_options();
 		void verbose_files();
-		void rebuildSupersiteMetadata(const std::string& context, const std::vector<uint8_t>* diff_against = nullptr);
+		void rebuildSupersiteMetadata(const std::string& context);
 		void applySupersiteAnchorGuards();
-		void logPackedCodeDiff(const std::string& context, const std::vector<uint8_t>& before, const std::vector<uint8_t>& after) const;
-		void traceSupersiteAnchors(const std::string& context, const std::vector<uint8_t>& codes_snapshot, size_t max_sites = 2, size_t max_haps = 8) const;
 
 		//
 		void read_files_and_initialise();

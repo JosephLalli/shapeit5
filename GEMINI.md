@@ -46,7 +46,7 @@ The `phase_common` algorithm is an iterative MCMC approach with three stages: Bu
 The project employs a robust testing framework:
 *   **Unit Tests**: Located in `tests/src/`, these are C++ executables designed to validate specific components or algorithms (e.g., `test_supersite_representation_parity`, `test_supersite_outer_product`).
 *   **File-based Tests**: The `test/` directory contains numerous BCF files (`.bcf.csi`) and log files, serving as test cases and expected outputs for various scenarios.
-*   **Tracing**: Extensive debug logging and tracing mechanisms (e.g., `SHAPEIT5_TEST_TRACE`, `SHAPEIT5_DEBUG_UNDERFLOW`) are built into the HMM to aid in debugging and verifying numerical stability and algorithmic parity.
+*   **Tracing**: Debug logging mechanisms (e.g., `SHAPEIT5_DEBUG_UNDERFLOW`) are available to aid in debugging and verifying numerical stability and algorithmic parity.
 *   **Parity Checks**: A significant focus is on ensuring that the supersite implementation produces results identical to or consistent with the biallelic implementation, especially at anchor loci.
 
 ## 6. Documentation

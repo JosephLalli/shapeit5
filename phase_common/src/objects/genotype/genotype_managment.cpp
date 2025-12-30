@@ -23,83 +23,15 @@
 #include <objects/genotype/genotype_header.h>
 #include <models/super_site_accessor.h>
 #include <objects/super_site_builder.h>
-#include <objects/supersite_debug.h>
 #include <string>
 #include <iostream>
 #include <cstdlib>
 #include <cstdio>
 #include <iomanip>
 
-// K-inflation debug instrumentation
-namespace debug {
-std::string SUPERDEBUG_SAMPLENAME = "";
-int SUPERDEBUG_BP = 0;
-
-void load_debug_settings() {
-    const char* sample_env = std::getenv("SHAPEIT5_SUPERDEBUG_SAMPLENAME");
-    if (sample_env) {
-        SUPERDEBUG_SAMPLENAME = std::string(sample_env);
-    }
-    const char* bp_env = std::getenv("SHAPEIT5_SUPERDEBUG_BP");
-    if (bp_env) {
-        SUPERDEBUG_BP = std::atoi(bp_env);
-    }
-}
-
-void print_supersite_state(const genotype* G, const SuperSite& ss, const std::vector<int>& super_site_var_index, const std::string& context) {
-    if (G->name != SUPERDEBUG_SAMPLENAME || (int)ss.global_site_id != SUPERDEBUG_BP) return;
-
-    std::cout << std::fixed << std::setprecision(4);
-    std::cout << "[SUPERDEBUG] Sample=" << G->name << " Pos=" << ss.global_site_id << " Context='" << context << "'" << std::endl;
-
-    std::string hap0_str = "  HAP0: ";
-    std::string hap1_str = "  HAP1: ";
-
-    for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-        unsigned int split_locus = super_site_var_index[ss.var_start + ai];
-        unsigned char v_byte = G->Variants[DIV2(split_locus)];
-        hap0_str += std::to_string(VAR_GET_HAP0(MOD2(split_locus), v_byte)) + " ";
-        hap1_str += std::to_string(VAR_GET_HAP1(MOD2(split_locus), v_byte)) + " ";
-    }
-    std::cout << hap0_str << std::endl;
-    std::cout << hap1_str << std::endl;
-    std::cout.unsetf(std::ios_base::floatfield);
-}
-} // namespace debug
-// End K-inflation debug
-
-#if !defined(__OPTIMIZE__)
-#include <cstdlib>
-#include <iostream>
-
-namespace {
-template <typename Vec>
-inline void supersite_debug_require(const Vec* vec, size_t required, const char* vec_name, const char* func) {
-	if (!vec) {
-		std::cerr << "[supersite debug] " << func << ": " << vec_name << " pointer is null" << std::endl;
-		std::abort();
-	}
-	const size_t size = vec->size();
-	if (size < required) {
-		std::cerr << "[supersite debug] " << func << ": " << vec_name
-				  << " size=" << size << " required>=" << required << std::endl;
-		std::abort();
-	}
-}
-
-inline void supersite_debug_check_var_count(uint16_t var_count, const char* func) {
-	if (var_count == 0) {
-		std::cerr << "[supersite debug] " << func << ": supersite var_count is zero" << std::endl;
-		std::abort();
-	}
-}
-} // namespace
-#endif
-
 using namespace std;
 
 genotype::genotype(unsigned int _index) {
-	if (debug::SUPERDEBUG_BP == 0) debug::load_debug_settings();
 	index = _index;
 	n_segments = 0;
 	n_variants = 0;
@@ -297,30 +229,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 			// Phase 3: Check if this is a missing supersite anchor
 			int ss_idx = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
 			
-#if !defined(__OPTIMIZE__)
-			if (ss_idx >= 0) {
-				const char* dbg_func = __func__;
-				supersite_debug_require(super_sites, static_cast<size_t>(ss_idx) + 1, "super_sites", dbg_func);
-				supersite_debug_require(locus_to_super_idx, static_cast<size_t>(vabs) + 1, "locus_to_super_idx", dbg_func);
-				supersite_debug_require(super_site_var_index, static_cast<size_t>((*super_sites)[ss_idx].var_start) + (*super_sites)[ss_idx].var_count, "super_site_var_index", dbg_func);
-				supersite_debug_check_var_count((*super_sites)[ss_idx].var_count, dbg_func);
-				if (anchor_has_missing) {
-					supersite_debug_require(anchor_has_missing, static_cast<size_t>(ss_idx) + 1, "anchor_has_missing", dbg_func);
-				}
-				if (SC && anchor_has_missing && (*anchor_has_missing)[ss_idx]) {
-					std::cout << "[supersite debug] " << dbg_func << ": checking SC for ss_idx=" << ss_idx 
-					          << " n_classes=" << (*super_sites)[ss_idx].n_classes 
-					          << " anchor_has_missing=" << (*anchor_has_missing)[ss_idx] 
-					          << " SC.size()=" << SC->size() << std::endl;
-					std::cout.flush();
-					supersite_debug_require(supersite_sc_offset, static_cast<size_t>(ss_idx) + 1, "supersite_sc_offset", dbg_func);
-					const size_t offset_debug = (*supersite_sc_offset)[ss_idx];
-					const size_t required_debug = offset_debug + static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>((*super_sites)[ss_idx].n_classes);
-					supersite_debug_require(SC, required_debug, "SC", dbg_func);
-				}
-			}
-#endif
-
 			if (ss_idx >= 0 && anchor_has_missing && (*anchor_has_missing)[ss_idx] && SC) {
 				// This is a supersite with missing data
 				const SuperSite& ss = (*super_sites)[ss_idx];
@@ -367,32 +275,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 					uint8_t h0 = sample_supersite_class(hap0);
 					uint8_t h1 = sample_supersite_class(hap1);
 
-
-					// Optional SUPERDEBUG hook: retain existing behaviour but with new h0/h1
-					if (!debug::SUPERDEBUG_SAMPLENAME.empty() &&
-					    this->name == debug::SUPERDEBUG_SAMPLENAME &&
-					    static_cast<int>(ss.global_site_id) == debug::SUPERDEBUG_BP) {
-						debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo3: Enter missing anchor");
-						std::cout << "[SUPERDEBUG] H3: Imputing missing data at Pos=" << ss.global_site_id
-						          << " for sample " << this->name << std::endl;
-						std::cout << "[SUPERDEBUG] H3: SC offset=" << offset
-						          << " hap0_idx=" << static_cast<int>(hap0)
-						          << " hap1_idx=" << static_cast<int>(hap1)
-						          << " n_classes=" << C << std::endl;
-						std::string sc_probs0 = "  SC[hap0]: ";
-						std::string sc_probs1 = "  SC[hap1]: ";
-						for (int c = 0; c < C; ++c) {
-							sc_probs0 += std::to_string((*SC)[offset + hap0 * C + c]) + " ";
-							sc_probs1 += std::to_string((*SC)[offset + hap1 * C + c]) + " ";
-						}
-						std::cout << sc_probs0 << std::endl;
-						std::cout << sc_probs1 << std::endl;
-						std::cout << "[SUPERDEBUG] H3: sampled_h0=" << static_cast<int>(h0)
-						          << " sampled_h1=" << static_cast<int>(h1) << std::endl;
-					}
-
-					
-					
                     // Project to splits from sampled h0/h1: class 0=REF, 1..n_alts=ALT1..ALTn
 					// Iterate over all member variants and set based on sampled class
                     int alt_count_h0 = 0;
@@ -417,33 +299,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                         } else {
                             VAR_CLR_HAP1(MOD2(split_vabs), split_byte);
                         }
-                    }
-                    // HYPOTHESIS 3 DEBUGGING
-                    if (!debug::SUPERDEBUG_SAMPLENAME.empty() && this->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
-                        debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo3: After projection in missing");
-                    }
-					if (supersite_debug::guard_checks_enabled()) {
-						int alt_count_h0 = 0;
-						int alt_count_h1 = 0;
-						for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-							unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
-							unsigned char vbyte = Variants[DIV2(split_vabs)];
-							alt_count_h0 += VAR_GET_HAP0(MOD2(split_vabs), vbyte) ? 1 : 0;
-							alt_count_h1 += VAR_GET_HAP1(MOD2(split_vabs), vbyte) ? 1 : 0;
-						}
-						if (alt_count_h0 > 1 || alt_count_h1 > 1 || (h0 > 0 && alt_count_h0 == 0) || (h1 > 0 && alt_count_h1 == 0)) {
-                        std::string msg = "projection mismatch sample=" + name +
-                            " ss_idx=" + std::to_string(ss_idx) +
-                            " h0=" + std::to_string(h0) +
-                            " h1=" + std::to_string(h1) +
-                            " alt_h0=" + std::to_string(alt_count_h0) +
-                            " alt_h1=" + std::to_string(alt_count_h1);
-                        supersite_debug::report_guard_violation("genotype::make", msg.c_str());
-                        assert(alt_count_h0 <= 1);
-                        assert(alt_count_h1 <= 1);
-                        assert(h0 == 0 || alt_count_h0 > 0);
-                        assert(h1 == 0 || alt_count_h1 > 0);
-                    }
                     }
                     
                     // Persist the sampled classes for this epoch as the current h0/h1 pair
@@ -490,13 +345,8 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				}
 				m++;
 			}
-			if (VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)])) {
-				const bool is_superdebug_target =
-					(!debug::SUPERDEBUG_SAMPLENAME.empty() &&
-					 this->name == debug::SUPERDEBUG_SAMPLENAME &&
-					 static_cast<int>(vabs) == debug::SUPERDEBUG_BP);
-
-				// Recompute ss_idx for this specific variant
+				if (VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)])) {
+					// Recompute ss_idx for this specific variant
 				int ss_idx_amb = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
 				
 				// Check if this is a heterozygous supersite
@@ -506,18 +356,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 						// This is a heterozygous supersite anchor
                     // Determine h0/h1 (sampled classes for this epoch) from lanes and immutable c0/c1
                     
-                        if (is_superdebug_target) {
-							unsigned long dip_mask = Diplotypes[s];
-							std::cout << "[SUPERDEBUG] H2: Enter AMB block segment=" << s
-									  << " dip_mask=0x" << std::hex << dip_mask << std::dec
-									  << " DipSampled=" << static_cast<unsigned>(DipSampled[s])
-									  << " hap0_lane=" << static_cast<int>(hap0)
-									  << " hap1_lane=" << static_cast<int>(hap1)
-									  << std::endl;
-                            debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: Enter AMB block");
-                        }
-
-						// Get the current allele codes from the immutable supersite snapshot
+							// Get the current allele codes from the immutable supersite snapshot
                     uint8_t current_c0 = SUPERSITE_CODE_MISSING;
                     uint8_t current_c1 = SUPERSITE_CODE_MISSING;
                     getSupersiteObservedGt(ss_idx_amb, current_c0, current_c1);
@@ -532,24 +371,7 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                     uint8_t h0 = HAP_GET(amb_code, hap0) ? current_c1 : current_c0;
                     uint8_t h1 = HAP_GET(amb_code, hap1) ? current_c1 : current_c0;
 
-					if (is_superdebug_target) {
-						std::cout << "[SUPERDEBUG] lane_class map:";
-						for (int h = 0; h < HAP_NUMBER; ++h) {
-							uint8_t lc = HAP_GET(amb_code, h) ? current_c1 : current_c0;
-							std::cout << " h" << h << "=" << (int)lc;
-						}
-						std::cout << std::endl;
-					}
-
-                        // HYPOTHESIS 2 DEBUGGING
-                        if (is_superdebug_target) {
-                            std::cout << "[SUPERDEBUG] H2: Resolving het at Pos=" << ss.global_site_id << " for sample " << this->name << std::endl;
-                            std::cout << "[SUPERDEBUG] H2: current_c0=" << (int)current_c0 << " current_c1=" << (int)current_c1 << " amb_code=" << (int)amb_code << std::endl;
-                            std::cout << "[SUPERDEBUG] H2: hap0_lane=" << (int)hap0 << " hap1_lane=" << (int)hap1 << std::endl;
-                            std::cout << "[SUPERDEBUG] H2: sampled_h0=" << (int)h0 << " sampled_h1=" << (int)h1 << std::endl;
-                        }
-                    
-                    // Project to all splits based on sampled classes
+	                    // Project to all splits based on sampled classes
                     for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
                         unsigned int split_vabs = (*super_site_var_index)[ss.var_start + ai];
                         uint8_t alt_class = ai + 1;  // ALT1=1, ALT2=2, etc.
@@ -569,10 +391,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
                         }
                     }
 
-                        // HYPOTHESIS 2 DEBUGGING
-						if (is_superdebug_target) {
-                            debug::print_supersite_state(this, ss, *super_site_var_index, "Hypo2: After projection in AMB");
-                        }
                     // Persist sampled h0/h1 for this supersite anchor
                     setSupersitePhasedGt(ss_idx_amb, h0, h1);
 						
@@ -593,29 +411,6 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				}
 				
 				// Normal biallelic heterozygous site
-				if (is_superdebug_target) {
-					unsigned long dip_mask = Diplotypes[s];
-					unsigned char amb_code = Ambiguous[a];
-					uint8_t lane_h0 = HAP_GET(amb_code, hap0) ? 1 : 0;
-					uint8_t lane_h1 = HAP_GET(amb_code, hap1) ? 1 : 0;
-
-					std::cout << "[SUPERDEBUG] BIAL: segment=" << s
-					          << " dip_mask=0x" << std::hex << dip_mask << std::dec
-					          << " DipSampled=" << static_cast<unsigned>(DipSampled[s])
-					          << " HapLanes(" << static_cast<int>(hap0) << "," << static_cast<int>(hap1) << ")"
-					          << " amb_code=" << static_cast<int>(amb_code)
-					          << std::endl;
-
-					std::cout << "[SUPERDEBUG] lane_class map:";
-					for (int h = 0; h < HAP_NUMBER; ++h) {
-						uint8_t lc = HAP_GET(amb_code, h) ? 1 : 0;
-						std::cout << " h" << h << "=" << static_cast<int>(lc);
-					}
-					std::cout << std::endl;
-
-					std::cout << "[SUPERDEBUG] BIAL: sampled_h0=" << static_cast<int>(lane_h0)
-					          << " sampled_h1=" << static_cast<int>(lane_h1) << std::endl;
-				}
 				bool hap0_bit = HAP_GET(Ambiguous[a], hap0);
 				bool hap1_bit = HAP_GET(Ambiguous[a], hap1);
 				hap0_bit ? VAR_SET_HAP0(MOD2(vabs), Variants[DIV2(vabs)]) : VAR_CLR_HAP0(MOD2(vabs), Variants[DIV2(vabs)]);
@@ -715,13 +510,8 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 			}
 			bool is_amb = VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)]);
 
-			if (is_amb) {
-				const bool is_superdebug_target =
-					(!debug::SUPERDEBUG_SAMPLENAME.empty() &&
-					 this->name == debug::SUPERDEBUG_SAMPLENAME &&
-					 static_cast<int>(vabs) == debug::SUPERDEBUG_BP);
-
-				// Recompute ss_idx for this specific variant
+				if (is_amb) {
+					// Recompute ss_idx for this specific variant
 				int ss_idx_amb = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
 
 				// Check if this is a heterozygous supersite
@@ -785,29 +575,7 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 					}
 				}
 
-				// Normal biallelic heterozygous site
-				if (is_superdebug_target) {
-					unsigned long dip_mask = Diplotypes[s];
-					unsigned char amb_code = Ambiguous[a];
-					uint8_t lane_h0 = HAP_GET(amb_code, hap0) ? 1 : 0;
-					uint8_t lane_h1 = HAP_GET(amb_code, hap1) ? 1 : 0;
-					std::cout << "[SUPERDEBUG] BIAL: Enter AMB block (make) segment=" << s
-					          << " dip_mask=0x" << std::hex << dip_mask << std::dec
-					          << " DipSampled=" << static_cast<unsigned>(DipSampled[s])
-					          << " HapLanes(" << static_cast<int>(hap0) << "," << static_cast<int>(hap1) << ")"
-					          << " amb_code=" << static_cast<int>(amb_code)
-					          << " sampled_h0=" << static_cast<int>(lane_h0)
-					          << " sampled_h1=" << static_cast<int>(lane_h1)
-					          << std::endl;
-					std::cout << "[SUPERDEBUG] lane_class map:";
-					for (int h = 0; h < HAP_NUMBER; ++h) {
-						uint8_t lc = HAP_GET(amb_code, h) ? 1 : 0;
-						std::cout << " h" << h << "=" << static_cast<int>(lc);
-					}
-					std::cout << std::endl;
-				}
-
-				bool hap0_bit = HAP_GET(Ambiguous[a], hap0);
+					bool hap0_bit = HAP_GET(Ambiguous[a], hap0);
 				bool hap1_bit = HAP_GET(Ambiguous[a], hap1);
 				hap0_bit ? VAR_SET_HAP0(MOD2(vabs), Variants[DIV2(vabs)]) : VAR_CLR_HAP0(MOD2(vabs), Variants[DIV2(vabs)]);
 				hap1_bit ? VAR_SET_HAP1(MOD2(vabs), Variants[DIV2(vabs)]) : VAR_CLR_HAP1(MOD2(vabs), Variants[DIV2(vabs)]);
@@ -848,9 +616,6 @@ void genotype::projectSupersites() {
 		return; // No supersite data available
 	}
 
-	// Load invariant configuration once per call.
-	const auto& cfg = supersite_invariants::get_cached_supersite_debug_config();
-
 	// Iterate through all supersites to perform post-HMM projection
 	for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
 		const SuperSite& ss = (*super_sites)[ss_idx];
@@ -861,29 +626,11 @@ void genotype::projectSupersites() {
 			continue;
 		}
 
-		const bool is_superdebug_target =
-			(!debug::SUPERDEBUG_SAMPLENAME.empty() &&
-			 this->name == debug::SUPERDEBUG_SAMPLENAME &&
-			 static_cast<int>(ss.global_site_id) == debug::SUPERDEBUG_BP);
-
-		if (is_superdebug_target) {
-			debug::print_supersite_state(this, ss, *super_site_var_index, "projectSupersites:entry");
-		}
-
         // Determine current sampled classes (h0/h1) for this anchor from stored pair
         // Note: getSupersitePhasedGt returns the current epoch's h0/h1; c0/c1 remain immutable in emissions.
         uint8_t h0 = SUPERSITE_CODE_MISSING;
         uint8_t h1 = SUPERSITE_CODE_MISSING;
         getSupersitePhasedGt(static_cast<int>(ss_idx), h0, h1);
-
-        if (is_superdebug_target) {
-            std::cout << "[SUPERDEBUG] Sample=" << name
-                      << " Pos=" << ss.global_site_id
-                      << " Context='projectSupersites:anchor-classes'"
-                      << " h0=" << static_cast<unsigned>(h0)
-                      << " h1=" << static_cast<unsigned>(h1)
-                      << std::endl;
-        }
 
         // Project to splits from sampled h0/h1: class 0=REF, 1..n_alts=ALT1..ALTn
         for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
@@ -905,26 +652,5 @@ void genotype::projectSupersites() {
             }
         }
 
-		if (is_superdebug_target) {
-			debug::print_supersite_state(this, ss, *super_site_var_index, "projectSupersites:exit");
-		}
-	}
-
-	// After projection, validate supersite invariants for this sample.
-	if (cfg.guards_enabled && super_sites && super_site_var_index) {
-		supersite_invariants::SupersiteInvariantViolation viol;
-		if (!supersite_invariants::check_supersite_consistency_for_sample(
-				*this, *super_sites, *super_site_var_index, cfg, &viol)) {
-			if (cfg.verbose) {
-				std::fprintf(stderr,
-					"[supersite-invariant] sample=%s ss_idx=%u bp=%u: %s\n",
-					name.c_str(),
-					static_cast<unsigned>(viol.ss_idx),
-					static_cast<unsigned>((*super_sites)[viol.ss_idx].bp),
-					viol.message.c_str());
-			}
-			// For now, do not abort here; unit tests can call the checker
-			// directly and assert on failures when needed.
-		}
 	}
 }

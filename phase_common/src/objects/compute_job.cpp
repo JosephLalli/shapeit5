@@ -22,8 +22,6 @@
 
 #include <objects/compute_job.h>
 
-#include <cmath>
-#include <cstdio>
 
 using namespace std;
 
@@ -34,8 +32,7 @@ compute_job::compute_job(variant_map & _V, genotype_set & _G, conditioning_set &
 												 const std::vector<SuperSite>* ss,
 												 const std::vector<int>* locus_ss_idx,
 												 const std::vector<int>* ss_var_idx) 
-		: V(_V), G(_G), H(_H), super_sites(ss), locus_to_super_idx(locus_ss_idx), super_site_var_index(ss_var_idx),
-			sc_guard_value(std::numeric_limits<float>::quiet_NaN()), sc_guard_active(false) {
+		: V(_V), G(_G), H(_H), super_sites(ss), locus_to_super_idx(locus_ss_idx), super_site_var_index(ss_var_idx) {
 	T = vector < double > (n_max_transitions, 0.0);
 	M = vector < float > (n_max_missing , 0.0);
 	Ordering = vector < unsigned int > (H.n_hap);
@@ -54,7 +51,6 @@ void compute_job::free () {
 	Kbanned.clear();
 	Windows.clear();
 	SC.clear();
-	sc_guard_active = false;
 }
 
 void compute_job::make(unsigned int ind, double min_window_size) {
@@ -69,21 +65,14 @@ void compute_job::make(unsigned int ind, double min_window_size) {
 		vector < int > phap = vector < int > (2 * H.depth, -1);
 		for (int l = Windows.W[w].start_locus ; l <= Windows.W[w].stop_locus ; l++) {
 			if (H.sites_pbwt_selection[l]) {
-				for (int s = 0 ; s < H.depth ; s ++) {
-						// Diagnostic guard: compute the flat indices and check bounds before accessing
-						size_t vec_size = H.indexes_pbwt_neighbour.size();
+					for (int s = 0 ; s < H.depth ; s ++) {
 						unsigned long idx0 = static_cast<unsigned long>(s) * addr_offset + curr_hap0 * static_cast<unsigned long>(H.sites_pbwt_ngroups) + static_cast<unsigned long>(H.sites_pbwt_grouping[l]);
 						unsigned long idx1 = static_cast<unsigned long>(s) * addr_offset + curr_hap1 * static_cast<unsigned long>(H.sites_pbwt_ngroups) + static_cast<unsigned long>(H.sites_pbwt_grouping[l]);
-						if (idx0 >= vec_size || idx1 >= vec_size) {
-							std::fprintf(stderr, "PBWT index OOB: idx0=%lu idx1=%lu vec_size=%zu addr_offset=%lu s=%d curr_hap0=%lu curr_hap1=%lu grouping=%d l=%d H.sites_pbwt_ngroups=%d H.n_ind=%d H.n_hap=%d H.depth=%d n_windows=%d\n",
-								idx0, idx1, vec_size, addr_offset, s, curr_hap0, curr_hap1, H.sites_pbwt_grouping[l], l, H.sites_pbwt_ngroups, H.n_ind, H.n_hap, H.depth, n_windows);
-							std::abort();
-						}
 						int cond_hap0 = H.indexes_pbwt_neighbour[idx0];
 						int cond_hap1 = H.indexes_pbwt_neighbour[idx1];
-					if ((cond_hap0 >= 0) && (cond_hap0 != phap[2*s+0])) { Kstates[w].push_back(cond_hap0); phap[2*s+0] = cond_hap0; };
-					if ((cond_hap1 >= 0) && (cond_hap1 != phap[2*s+1])) { Kstates[w].push_back(cond_hap1); phap[2*s+1] = cond_hap1; };
-				}
+						if ((cond_hap0 >= 0) && (cond_hap0 != phap[2*s+0])) { Kstates[w].push_back(cond_hap0); phap[2*s+0] = cond_hap0; };
+						if ((cond_hap1 >= 0) && (cond_hap1 != phap[2*s+1])) { Kstates[w].push_back(cond_hap1); phap[2*s+1] = cond_hap1; };
+					}
 			}
 		}
 		sort(Kstates[w].begin(), Kstates[w].end());
@@ -169,29 +158,11 @@ void compute_job::make(unsigned int ind, double min_window_size) {
 		}
 		
 		if (total_size > 0) {
-			SC.assign(total_size + 2, 0.0f);
-			sc_guard_active = true;
-			const float guard = sc_guard_value;
-			SC.front() = guard;
-			SC.back() = guard;
-			for (size_t ss_idx = 0; ss_idx < supersite_sc_offset.size(); ++ss_idx) {
-				if (anchor_has_missing[ss_idx]) supersite_sc_offset[ss_idx] += 1;
-			}
+			SC.assign(total_size, 0.0f);
 		} else {
 			SC.clear();
-			sc_guard_active = false;
 		}
 	} else {
 		SC.clear();
-		sc_guard_active = false;
 	}
-}
-
-bool compute_job::verify_sc_guards() const {
-	if (!sc_guard_active || SC.size() < 2) return true;
-	return std::isnan(SC.front()) && std::isnan(SC.back());
-}
-
-bool compute_job::sc_buffer_active() const {
-	return sc_guard_active && SC.size() >= 2;
 }

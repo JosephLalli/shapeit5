@@ -6,9 +6,9 @@ Test `test_supersite_expansion_epochs` is failing with divergent results between
 
 ## Diagnostic Commands
 
-**Run test with full trace:**
+**Run test and capture output:**
 ```bash
-SHAPEIT5_TEST_TRACE=1 tests/bin/test_supersite_expansion_epochs &> hmm_trace.log
+tests/bin/test_supersite_expansion_epochs &> hmm_trace.log
 ```
 
 **Check backward probabilities at burn3:**
@@ -43,7 +43,6 @@ awk '/Iteration 3\/15/,/Iteration 4\/15/' hmm_trace.log | awk '/# Backward.*supe
 - **PBWT depth:** 16 (but iteration 1 uses 32)
 - **Iterations:** 15 (burn1, burn2, burn3, ...)
 - **Failure point:** burn3 (iteration 3)
-- **Trace enabled:** `SHAPEIT5_TEST_TRACE=1`
 
 ---
 
@@ -117,7 +116,6 @@ Extensive tracing already in place via environment variables:
 
 | Variable | Traces |
 |----------|--------|
-| `SHAPEIT5_TEST_TRACE=1` | Supersite emissions, probSumK, missing cache |
 | `SHAPEIT5_SUPERDEBUG_SAMPLENAME=HG01891` | Focus on specific sample |
 | `SHAPEIT5_SUPERDEBUG_BP=19000000` | Focus on genomic position |
 | `SHAPEIT5_IMPUTE_DEEP=1` | Deep missing imputation traces |
@@ -133,8 +131,7 @@ Extensive tracing already in place via environment variables:
 ### Investigation Commands
 
 ```bash
-# Run biallelic with trace
-SHAPEIT5_TEST_TRACE=1 \
+# Run biallelic and capture logs
 ./phase_common/bin/phase_common \
   --input 1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.biallelic.filtered.bcf \
   --filter-maf 0.001 \
@@ -144,8 +141,7 @@ SHAPEIT5_TEST_TRACE=1 \
   --seed 42 --thread 1 \
   2>&1 | tee test/tmp/trace_bial_full.log
 
-# Run supersite with trace
-SHAPEIT5_TEST_TRACE=1 \
+# Run supersite and capture logs
 ./phase_common/bin/phase_common \
   --input 1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.biallelic.filtered.bcf \
   --filter-maf 0.001 \

@@ -46,11 +46,6 @@
 
 namespace {
 
-static inline bool env_true(const char* name) {
-    const char* v = std::getenv(name);
-    return v && v[0] != '\0' && v[0] != '0';
-}
-
 enum class StageType { Burn, Prune, Main };
 
 struct StageDef {
@@ -646,20 +641,6 @@ int main() {
             }
         }
 
-        // Optional: Trace class codes at each epoch
-        if (env_true("SHAPEIT5_TEST_TRACE")) {
-            std::fprintf(stderr, "\n[CLASS_TRACE] Iteration %zu (%s):\n",
-                        iter+1, stage.label.c_str());
-            for (size_t ss_idx = 0; ss_idx < ctx.ss_context.super_sites.size(); ++ss_idx) {
-                const SuperSite& ss = ctx.ss_context.super_sites[ss_idx];
-                uint8_t c0 = getSampleSuperSiteAlleleCode(g, ss,
-                                ctx.ss_context.super_site_var_index, 0);
-                uint8_t c1 = getSampleSuperSiteAlleleCode(g, ss,
-                                ctx.ss_context.super_site_var_index, 1);
-                std::fprintf(stderr, "  ss[%zu]: c0=%d c1=%d\n",
-                            ss_idx, (int)c0, (int)c1);
-            }
-        }
     }
 
     SCENARIO_PASS("multiallelic_epochs", std::to_string(schedule.size()) +

@@ -32,39 +32,6 @@
 #include <cassert>
 #include <random>
 #include <stdexcept>
-#include <unordered_set>
-#include <sstream>
-
-namespace {
-// Parse comma-separated bp targets from SHAPEIT5_TRACE_BP
-const std::unordered_set<int>& bp_trace_targets() {
-	static std::unordered_set<int> targets;
-	static bool initialized = false;
-	if (!initialized) {
-		initialized = true;
-		const char* env = std::getenv("SHAPEIT5_TRACE_BP");
-		if (env && env[0]) {
-			std::stringstream ss(env);
-			std::string tok;
-			while (std::getline(ss, tok, ',')) {
-				try {
-					int bp = std::stoi(tok);
-					targets.insert(bp);
-				} catch (const std::exception&) {
-					// ignore parse errors
-				}
-			}
-		}
-	}
-	return targets;
-}
-
-bool should_trace_bp(int bp) {
-	const auto& targets = bp_trace_targets();
-	return !targets.empty() && targets.find(bp) != targets.end();
-}
-} // namespace
-
 // Build super-sites by collapsing split biallelic records at identical (chr,bp)
 // positions into multi-allelic "super-sites" and packing per-haplotype 4-bit codes.
 void buildSuperSites(
@@ -94,19 +61,6 @@ void buildSuperSites(
 
     for (auto& kv : sites_by_pos) {
         const std::vector<int>& variant_indices = kv.second;
-        const int site_bp = kv.first.second;
-        const bool trace_bp = should_trace_bp(site_bp);
-        if (trace_bp) {
-            std::fprintf(stdout,
-                         "[BP_SUPERSITE_TRACE] bp=%d variants=%zu indices=",
-                         site_bp,
-                         variant_indices.size());
-            for (size_t i = 0; i < variant_indices.size(); ++i) {
-                if (i) std::fprintf(stdout, ",");
-                std::fprintf(stdout, "%d", variant_indices[i]);
-            }
-            std::fprintf(stdout, "\n");
-        }
         if (variant_indices.size() <= 1) continue; // not multi-allelic
 
         const std::vector<int>& kept_indices = variant_indices;
@@ -179,43 +133,7 @@ void buildSuperSites(
             }
             current_panel_offset += n_bytes;
 
-            // Guard: verify packed codes match hap_codes when enabled
-            if (supersite_debug::guard_checks_enabled()) {
-                const uint8_t* buf = packed_allele_codes_out.data();
-                for (unsigned int h = 0; h < H.n_hap; ++h) {
-                    const uint8_t packed_code = unpackSuperSiteCode(buf, ss.panel_offset, h);
-                    if (packed_code != hap_codes[h]) {
-                        std::fprintf(stderr,
-                                     "[supersite-guard] packed code mismatch ss_idx=%zu hap=%u expected=%u got=%u\n",
-                                     super_sites_out.size(),
-                                     h,
-                                     static_cast<unsigned>(hap_codes[h]),
-                                     static_cast<unsigned>(packed_code));
-                        // Keep going; this is diagnostic only.
-                    }
-                }
-            }
-
             super_sites_out.push_back(ss);
-
-            if (trace_bp) {
-                const size_t ss_idx = super_sites_out.size() - 1;
-                std::fprintf(stdout,
-                             "[BP_SUPERSITE_TRACE] bp=%d ss_idx=%zu anchor_locus=%u n_alts=%u members=",
-                             site_bp,
-                             ss_idx,
-                             ss.global_site_id,
-                             static_cast<unsigned>(ss.n_alts));
-                for (uint16_t ai = 0; ai < ss.n_alts; ++ai) {
-                    const size_t offset = ss.var_start + ai;
-                    if (offset >= super_site_var_index_out.size()) break;
-                    if (ai) std::fprintf(stdout, ",");
-                    std::fprintf(stdout, "%d", super_site_var_index_out[offset]);
-                }
-                std::fprintf(stdout, " panel_offset=%u span_bytes=%u\n",
-                             ss.panel_offset,
-                             ss.panel_span_bytes);
-            }
         }
     }
 

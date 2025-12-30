@@ -109,7 +109,6 @@ For any failure:
 ```
 [FAILURE_CONTEXT] Last 20 lines before failure
 [FAILURE_CONTEXT] Environment:
-  SHAPEIT5_TEST_TRACE=1
   SHAPEIT5_DETAILED_ITERATION_TRACE=1
 ```
 

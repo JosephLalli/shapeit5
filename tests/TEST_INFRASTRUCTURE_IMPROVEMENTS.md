@@ -64,8 +64,6 @@ Example output:
 [FAILURE_CONTEXT] Last output before failure:
     [ITERATION] 9/15: burn7
     Anchor mismatch at locus 0: bial (1|0) vs supersite (0|1)
-[FAILURE_CONTEXT] Environment:
-    SHAPEIT5_TEST_TRACE=1
 ```
 
 #### Formatted Summary Table

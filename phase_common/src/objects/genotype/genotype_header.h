@@ -257,23 +257,4 @@ inline size_t genotype::supersite_class_index(int ss_idx, int lane, int cls) con
 }
 
 
-#include <string>
-#include <vector>
-
-// Forward declarations
-class genotype;
-struct SuperSite;
-
-namespace debug {
-// Global debug settings
-extern std::string SUPERDEBUG_SAMPLENAME;
-extern int SUPERDEBUG_BP;
-
-// Function to load settings from environment variables
-void load_debug_settings();
-
-// Function to print the state of a supersite for a genotype
-void print_supersite_state(const genotype* G, const SuperSite& ss, const std::vector<int>& super_site_var_index, const std::string& context);
-} // namespace debug
-
 #endif

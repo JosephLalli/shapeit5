@@ -32,7 +32,7 @@ int main() {
     // Construct absolute path to test_supersite_expansion_parity
     std::string expansion_parity_path = self_dir + "/test_supersite_expansion_parity";
 
-    std::string cmd = "LD_LIBRARY_PATH='" + ld + "' SHAPEIT5_TEST_TRACE=1 " + expansion_parity_path + " 2>&1";
+    std::string cmd = "LD_LIBRARY_PATH='" + ld + "' " + expansion_parity_path + " 2>&1";
 
     std::string output;
     const int bufsize = 4096;
@@ -49,11 +49,7 @@ int main() {
         output += buf;
     }
     int rc = pclose(f);
-    // Search for PASS diagnostics emitted by forward parity checks
-    bool pass_single = (output.find("[ss-amb-diag-PASS][single]") != std::string::npos);
-    bool pass_double = (output.find("[ss-amb-diag-PASS][double]") != std::string::npos);
-
-    if (pass_single && pass_double) {
+    if (rc == 0) {
         std::cout << "test_supersite_cursor_parity: PASS\n";
         TEST_SUMMARY();
         return 0;
@@ -62,6 +58,6 @@ int main() {
     // Otherwise print the captured output for debugging and fail
     std::cerr << "=== Captured output from child (for debugging) ===\n";
     std::cerr << output << std::endl;
-    std::cerr << "test_supersite_cursor_parity: FAIL - missing parity PASS diagnostics\n";
+    std::cerr << "test_supersite_cursor_parity: FAIL - child test returned non-zero\n";
     return 1;
 }

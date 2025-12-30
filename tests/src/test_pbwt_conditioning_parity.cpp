@@ -44,11 +44,6 @@
 
 namespace {
 
-static inline bool env_true(const char* name) {
-    const char* v = std::getenv(name);
-    return v && v[0] != '\0' && v[0] != '0';
-}
-
 struct SuperSiteContext {
     std::vector<SuperSite> super_sites;
     std::vector<bool> is_super_site;
@@ -129,36 +124,6 @@ struct PBWTParityAnalysis {
         }
     }
     
-    void print_details() {
-        if (!env_true("SHAPEIT5_TEST_TRACE")) return;
-        
-        std::cout << "\n=== DETAILED CONDITIONING COMPARISON ===" << std::endl;
-        for (const auto& comp : comparisons) {
-            if (comp.sets_identical) continue;
-            
-            std::cout << "\nLocus " << comp.locus << ":" << std::endl;
-            std::cout << "  Biallelic K: " << comp.biallelic_k << std::endl;
-            std::cout << "  Supersite K: " << comp.supersite_k << std::endl;
-            std::cout << "  Jaccard similarity: " << std::fixed << std::setprecision(3) << comp.jaccard_similarity << std::endl;
-            std::cout << "  Sets identical: " << (comp.sets_identical ? "YES" : "NO") << std::endl;
-            
-            if (env_true("SHAPEIT5_TEST_VERBOSE")) {
-                std::cout << "  Biallelic donors: {";
-                for (auto it = comp.biallelic_donors.begin(); it != comp.biallelic_donors.end(); ++it) {
-                    if (it != comp.biallelic_donors.begin()) std::cout << ", ";
-                    std::cout << *it;
-                }
-                std::cout << "}" << std::endl;
-                
-                std::cout << "  Supersite donors: {";
-                for (auto it = comp.supersite_donors.begin(); it != comp.supersite_donors.end(); ++it) {
-                    if (it != comp.supersite_donors.begin()) std::cout << ", ";
-                    std::cout << *it;
-                }
-                std::cout << "}" << std::endl;
-            }
-        }
-    }
 };
 
 static variant* make_var(std::string chr, int bp, std::string id,
@@ -236,13 +201,6 @@ static ConditioningComparison compare_conditioning_sets(
     comp.sets_identical = (comp.biallelic_donors == comp.supersite_donors);
     comp.significant_difference = (std::abs(comp.supersite_k - comp.biallelic_k) > 1) || 
                                  (comp.jaccard_similarity < 0.95);
-    
-    if (env_true("SHAPEIT5_TEST_TRACE") && comp.significant_difference) {
-        std::cout << "CONDITIONING_DIFF: locus=" << locus 
-                  << " bial_k=" << comp.biallelic_k
-                  << " ss_k=" << comp.supersite_k 
-                  << " jaccard=" << std::fixed << std::setprecision(3) << comp.jaccard_similarity << std::endl;
-    }
     
     return comp;
 }
@@ -355,8 +313,6 @@ int main() {
     // Analyze and report results
     analysis.analyze();
     analysis.print_summary();
-    analysis.print_details();
-
     // Test results
     bool test_passed = (analysis.loci_with_differences == 0);
     

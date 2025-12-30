@@ -43,11 +43,6 @@
 
 namespace {
 
-static inline bool env_true(const char* name) {
-    const char* v = std::getenv(name);
-    return v && v[0] != '\0' && v[0] != '0';
-}
-
 struct SuperSiteContext {
     std::vector<SuperSite> super_sites;
     std::vector<bool> is_super_site;
@@ -126,20 +121,6 @@ struct EmissionAnalysis {
         }
     }
     
-    void print_details() {
-        if (!env_true("SHAPEIT5_TEST_TRACE")) return;
-        
-        std::cout << "\n=== DETAILED EMISSION COMPARISON ===" << std::endl;
-        for (const auto& comp : comparisons) {
-            if (!comp.significant_difference) continue;
-            
-            std::cout << "\nLocus " << comp.locus << ":" << std::endl;
-            std::cout << "  Donors: " << comp.n_donors << std::endl;
-            std::cout << "  Biallelic matches: " << comp.biallelic_matches << std::endl;
-            std::cout << "  Supersite matches: " << comp.supersite_matches << std::endl;
-            std::cout << "  Match ratio: " << std::fixed << std::setprecision(3) << comp.match_ratio << std::endl;
-        }
-    }
 };
 
 enum PhaseCode : int { REF_REF = 0, ALT_ALT = 1, ALT_REF = 2, REF_ALT = 3 };
@@ -237,12 +218,6 @@ static EmissionComparison compare_emission_logic(
         
         comp.significant_difference = (std::abs(comp.supersite_matches - comp.biallelic_matches) > 0);
         
-        if (env_true("SHAPEIT5_TEST_TRACE") && comp.significant_difference) {
-            std::cout << "EMISSION_DIFF: locus=" << locus 
-                      << " bial=" << comp.biallelic_matches
-                      << " ss=" << comp.supersite_matches
-                      << " ratio=" << std::fixed << std::setprecision(3) << comp.match_ratio << std::endl;
-        }
     }
     
     return comp;
@@ -370,8 +345,6 @@ int main() {
     // Analyze results
     analysis.analyze();
     analysis.print_summary();
-    analysis.print_details();
-
     // Test results
     bool test_passed = (analysis.loci_with_inflation == 0);
     
