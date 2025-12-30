@@ -997,9 +997,10 @@ void haplotype_segment_single::INIT_HOM() {
             return;
         }
 
-        // Classify and dispatch to supersite logic
+        // Classify using IMMUTABLE observed genotype (c0, c1)
         uint8_t c0, c1;
-        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        G->getSupersiteObservedGt(ss_idx, c0, c1);
+        SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
             case SSClass::MIS: INIT_MIS(); return;
             case SSClass::HOM: SS_INIT_HOM(ss, ss_idx, c0); return;
@@ -1032,12 +1033,13 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
             // Sibling: true no-op (preserve probability state, no DP)
             return true;
         }
-        
-        // Classify and dispatch to supersite logic
+
+        // Classify using IMMUTABLE observed genotype (c0, c1)
         uint8_t c0, c1;
-        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        G->getSupersiteObservedGt(ss_idx, c0, c1);
+        SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
-            case SSClass::MIS: RUN_MIS(); return true;  // BUG FIX #1: Use biallelic MIS
+            case SSClass::MIS: RUN_MIS(); return true;
             case SSClass::HOM: return SS_RUN_HOM(ss, ss_idx, c0);
             case SSClass::AMB: return SS_RUN_AMB(ss, ss_idx, c0, c1);
         }
@@ -1131,16 +1133,17 @@ void haplotype_segment_single::COLLAPSE_HOM() {
             return;
         }
         
-        // Classify and dispatch to supersite logic
+        // Classify using IMMUTABLE observed genotype (c0, c1)
         uint8_t c0, c1;
-        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        G->getSupersiteObservedGt(ss_idx, c0, c1);
+        SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
-            case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
+            case SSClass::MIS: COLLAPSE_MIS(); return;
             case SSClass::HOM: SS_COLLAPSE_HOM(ss, ss_idx, c0); return;
             case SSClass::AMB: SS_COLLAPSE_AMB(ss, ss_idx, c0, c1); return;
         }
     }
-    
+
     // Biallelic path
     // DEBUG: Log entry state
     if (supersite_trace_enabled()) {
