@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstdlib>
 #include <cmath>
 #include <iomanip>
 #include <iostream>
@@ -48,6 +49,21 @@ static inline bool env_true(const char* name) {
     const char* v = std::getenv(name);
     return v && v[0] != '\0' && v[0] != '0';
 }
+
+namespace debug {
+static std::string SUPERDEBUG_SAMPLENAME;
+static int SUPERDEBUG_BP = 0;
+
+static void load_debug_settings() {
+    if (SUPERDEBUG_BP != 0 || !SUPERDEBUG_SAMPLENAME.empty()) return;
+    if (const char* env = std::getenv("SHAPEIT5_SUPERDEBUG_SAMPLENAME")) {
+        if (env[0] != '\0') SUPERDEBUG_SAMPLENAME = env;
+    }
+    if (const char* bp_env = std::getenv("SHAPEIT5_SUPERDEBUG_BP")) {
+        if (bp_env[0] != '\0') SUPERDEBUG_BP = std::atoi(bp_env);
+    }
+}
+} // namespace debug
 
 enum class StageType { Burn, Prune, Main };
 

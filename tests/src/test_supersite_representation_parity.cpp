@@ -253,18 +253,75 @@ static FBState run_forward_only(genotype& G,
     return s;
 }
 
-static inline bool is_anchor_site(const haplotype_segment_double& HS, int locus) {
-    if (!(HS.super_sites && HS.locus_to_super_idx)) return false;
-    if (locus < 0 || locus >= static_cast<int>(HS.locus_to_super_idx->size())) return false;
-    int ss_idx = (*HS.locus_to_super_idx)[locus];
-    return (ss_idx >= 0 && locus == static_cast<int>((*HS.super_sites)[ss_idx].global_site_id));
+static FBResult run_forward_backward(genotype& G,
+                                     conditioning_set& H,
+                                     hmm_parameters& M,
+                                     const window& W,
+                                     const std::vector<unsigned int>& idxH,
+                                     const SuperSiteContext* ctx) {
+    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
+    const std::vector<bool>* is_super_site = ctx ? &ctx->is_super_site : nullptr;
+    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
+    const std::vector<int>* super_site_var_index = ctx ? &ctx->super_site_var_index : nullptr;
+    const uint8_t* panel_codes = (ctx && !ctx->packed_codes.empty()) ? ctx->packed_codes.data() : nullptr;
+    const size_t panel_codes_size = ctx ? ctx->packed_codes.size() : 0;
+
+    haplotype_segment_double HS(&G, H.H_opt_hap, const_cast<std::vector<unsigned int>&>(idxH),
+                                const_cast<window&>(W), M,
+                                super_sites, is_super_site, locus_to_super_idx,
+                                panel_codes, panel_codes_size, super_site_var_index);
+
+    HS.forward();
+
+    std::vector<double> transition_probabilities(G.countTransitions(), 0.0);
+    std::vector<float> missing_probabilities;
+    HS.backward(transition_probabilities, missing_probabilities,
+                /*SC*/nullptr, /*anchor_has_missing*/nullptr);
+
+    FBResult res;
+    res.prob.assign(HS.prob.begin(), HS.prob.end());
+    res.probSumH.assign(HS.probSumH.begin(), HS.probSumH.end());
+    res.probSumT = HS.probSumT;
+    res.transition_probabilities = transition_probabilities;
+    return res;
 }
 
-static inline bool is_sibling_site(const haplotype_segment_double& HS, int locus) {
-    if (!(HS.super_sites && HS.locus_to_super_idx)) return false;
-    if (locus < 0 || locus >= static_cast<int>(HS.locus_to_super_idx->size())) return false;
-    int ss_idx = (*HS.locus_to_super_idx)[locus];
-    return (ss_idx >= 0 && locus != static_cast<int>((*HS.super_sites)[ss_idx].global_site_id));
+static double evaluate_orientation(genotype& G,
+                                   conditioning_set& H,
+                                   hmm_parameters& M,
+                                   const window& W,
+                                   const std::vector<unsigned int>& idxH,
+                                   const SuperSiteContext* ctx,
+                                   const Orientation& orient) {
+    const std::vector<unsigned char> backup = G.Variants;
+    apply_orientation(G, orient);
+
+    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
+    const std::vector<bool>* is_super_site = ctx ? &ctx->is_super_site : nullptr;
+    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
+    const std::vector<int>* super_site_var_index = ctx ? &ctx->super_site_var_index : nullptr;
+    const uint8_t* panel_codes = (ctx && !ctx->packed_codes.empty()) ? ctx->packed_codes.data() : nullptr;
+    const size_t panel_codes_size = ctx ? ctx->packed_codes.size() : 0;
+
+    haplotype_segment_double HS(&G, H.H_opt_hap, const_cast<std::vector<unsigned int>&>(idxH),
+                                const_cast<window&>(W), M,
+                                super_sites, is_super_site, locus_to_super_idx,
+                                panel_codes, panel_codes_size, super_site_var_index);
+    HS.forward();
+    const double likelihood = HS.probSumT;
+
+    restore_genotype(G, backup);
+    return likelihood;
+}
+
+static std::string phase_to_string(PhaseCode code) {
+    switch (code) {
+        case REF_REF: return "0|0";
+        case ALT_ALT: return "1|1";
+        case ALT_REF: return "1|0";
+        case REF_ALT: return "0|1";
+    }
+    return "?";
 }
 
 } // namespace
