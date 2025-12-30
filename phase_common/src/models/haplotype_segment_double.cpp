@@ -367,9 +367,9 @@ void haplotype_segment_double::forward() {
             if (curr_rel_locus == 0) {
                 if (is_anchor) {
 					switch (emit) {
-						case EmitKind::Hom: SS_INIT_HOM(); break;
-						case EmitKind::Amb: SS_INIT_AMB(); break;
-						case EmitKind::Mis: SS_INIT_MIS(); break;
+						case EmitKind::Hom: INIT_HOM(); break;
+						case EmitKind::Amb: INIT_AMB(); break;
+						case EmitKind::Mis: INIT_MIS(); break;
 					}
 			} else if (is_sibling) {
 				// Sibling at window start: initialize neutrally but do not advance prev_abs_locus
@@ -384,13 +384,13 @@ void haplotype_segment_double::forward() {
                 if (is_anchor) {
 					switch (emit) {
 						case EmitKind::Hom:
-							update_prev_locus = SS_RUN_HOM();
+							update_prev_locus = RUN_HOM(rare_allele);
 							break;
 						case EmitKind::Amb:
-							SS_RUN_AMB();
+							RUN_AMB();
 							break;
 						case EmitKind::Mis:
-							SS_RUN_MIS();
+							RUN_MIS();
 							break;
 					}
 			} else if (is_sibling) {
@@ -404,9 +404,9 @@ void haplotype_segment_double::forward() {
             } else {
                 if (is_anchor) {
 					switch (emit) {
-						case EmitKind::Hom: SS_COLLAPSE_HOM(); break;
-						case EmitKind::Amb: SS_COLLAPSE_AMB(); break;
-						case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
+						case EmitKind::Hom: COLLAPSE_HOM(); break;
+						case EmitKind::Amb: COLLAPSE_AMB(); break;
+						case EmitKind::Mis: COLLAPSE_MIS(); break;
 					}
 			} else if (is_sibling) {
 				// Sibling at segment boundary: no-op and do not advance prev_abs_locus
@@ -703,9 +703,9 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			need_init = false;
 			pending_collapse = false;
 			switch (emit) {
-				case EmitKind::Hom: SS_INIT_HOM(); break;
-				case EmitKind::Amb: SS_INIT_AMB(); break;
-				case EmitKind::Mis: SS_INIT_MIS(); break;
+				case EmitKind::Hom: INIT_HOM(); break;
+				case EmitKind::Amb: INIT_AMB(); break;
+				case EmitKind::Mis: INIT_MIS(); break;
 			}
 		} else if (need_init && !is_sibling) {
 			// Deferred initialization: first biallelic after starting on a sibling - use INIT
@@ -718,13 +718,13 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 			if (is_anchor) {
 				switch (emit) {
 					case EmitKind::Hom:
-						update_prev_locus = SS_RUN_HOM();
+						update_prev_locus = RUN_HOM(rare_allele);
 						break;
 					case EmitKind::Amb:
-						SS_RUN_AMB();
+						RUN_AMB();
 						break;
 					case EmitKind::Mis:
-						SS_RUN_MIS();
+						RUN_MIS();
 						break;
 				}
 			} else if (is_sibling) {
@@ -739,9 +739,9 @@ int haplotype_segment_double::backward(vector < double > & transition_probabilit
 		} else {
 			if (is_anchor) {
 				switch (emit) {
-					case EmitKind::Hom: SS_COLLAPSE_HOM(); break;
-					case EmitKind::Amb: SS_COLLAPSE_AMB(); break;
-					case EmitKind::Mis: SS_COLLAPSE_MIS(); break;
+					case EmitKind::Hom: COLLAPSE_HOM(); break;
+					case EmitKind::Amb: COLLAPSE_AMB(); break;
+					case EmitKind::Mis: COLLAPSE_MIS(); break;
 				}
 				pending_collapse = false;
 			} else if (is_sibling) {
