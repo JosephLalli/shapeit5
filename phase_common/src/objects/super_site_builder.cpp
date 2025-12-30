@@ -150,6 +150,21 @@ void buildSuperSites(
                 hap_codes[static_cast<size_t>(h)] = code;
             }
 
+            // Compute rare_code_mask: count code frequencies and mark rare ones
+            // Bit i = 1 means code i is rare (freq < RARE_VARIANT_FREQ)
+            std::vector<uint32_t> code_counts(static_cast<size_t>(n_alts + 1), 0);
+            for (unsigned long h = 0; h < H.n_hap; ++h) {
+                uint8_t c = hap_codes[h];
+                if (c <= n_alts) code_counts[c]++;
+            }
+            ss.rare_code_mask = 0;
+            for (uint8_t c = 0; c <= n_alts; ++c) {
+                float freq = static_cast<float>(code_counts[c]) / static_cast<float>(H.n_hap);
+                if (freq < RARE_VARIANT_FREQ) {
+                    ss.rare_code_mask |= static_cast<uint16_t>(1u << c);
+                }
+            }
+
             // Pack codes: 2 per byte (4 bits each)
             uint32_t n_bytes = static_cast<uint32_t>((H.n_hap + 1) / 2);
             ss.panel_span_bytes = n_bytes;

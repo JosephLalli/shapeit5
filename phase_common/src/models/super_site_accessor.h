@@ -102,6 +102,11 @@ struct SuperSite {
 	// Phase 3: Multi-class posterior indexing (n_classes cached for convenience)
 	// NOTE: class_prob_offset moved to thread-local storage to fix race condition
 	uint8_t n_classes;          // C = 1 + n_alts (REF + ALT1..ALTn), cached for convenience
+
+	// Rare code gating (mirrors biallelic rare_allele[])
+	// Bit i = 1 means code i is rare (freq < RARE_VARIANT_FREQ in panel)
+	// Used by RUN_HOM to skip emission updates for common alleles
+	uint16_t rare_code_mask;
 };
 
 namespace supersite_debug {
