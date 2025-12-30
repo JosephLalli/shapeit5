@@ -1003,8 +1003,38 @@ void haplotype_segment_single::INIT_HOM() {
         SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
             case SSClass::MIS: INIT_MIS(); return;
-            case SSClass::HOM: SS_INIT_HOM(ss, ss_idx, c0); return;
             case SSClass::AMB: SS_INIT_AMB(ss, ss_idx, c0, c1); return;
+            case SSClass::HOM:
+                ss_load_cond_codes(ss, ss_idx);
+                {
+                    const float error_ratio = M.error_ratio[curr_abs_locus];
+                    __m256 _sum = _mm256_set1_ps(0.0f);
+                    for (int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+                        float emission = (c0 == ss_cond_codes[k]) ? 1.0f : error_ratio;
+                        __m256 _prob = _mm256_set1_ps(emission);
+                        _sum = _mm256_add_ps(_sum, _prob);
+                        _mm256_store_ps(&prob[i], _prob);
+                    }
+                    _mm256_store_ps(&probSumH[0], _sum);
+                    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+                }
+
+                // Trace: matches per lane at anchor (HOM)
+                if (supersite_trace_enabled() && trace_anchor_match_logs_remaining > 0) {
+                    int lane_matches[HAP_NUMBER] = {0};
+                    for (unsigned int k = 0; k < n_cond_haps; ++k) {
+                        const uint8_t dc = ss_cond_codes[k];
+                        for (int h = 0; h < HAP_NUMBER; ++h) {
+                            if (dc == c0) lane_matches[h]++;
+                        }
+                    }
+                    supersite_trace_log("[SupersiteEmit] matches_per_lane locus=%d ss_idx=%d n_cond=%u",
+                                        curr_abs_locus, ss_idx, n_cond_haps);
+                    for (int h = 0; h < HAP_NUMBER; ++h) supersite_trace_log(" %d:%d", h, lane_matches[h]);
+                    supersite_trace_log("\n");
+                    trace_anchor_match_logs_remaining--;
+                }
+                return;
         }
     }
 
