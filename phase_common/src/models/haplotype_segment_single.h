@@ -1070,8 +1070,111 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
         SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
             case SSClass::MIS: RUN_MIS(); return true;
-            case SSClass::HOM: return SS_RUN_HOM(ss, ss_idx, c0);
             case SSClass::AMB: return SS_RUN_AMB(ss, ss_idx, c0, c1);
+            case SSClass::HOM: {
+                const uint8_t sample_code = c0;
+                if (ss.rare_code_mask != 0 && sample_code <= ss.n_alts) {
+                    if ((ss.rare_code_mask & static_cast<uint16_t>(1u << sample_code)) == 0) return false;
+                }
+
+                ss_load_cond_codes(ss, ss_idx);
+
+                // DETAILED BACKWARD TRACING
+                const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+                bool trace_enabled = (tr && tr[0] != '\0' && tr[0] != '0');
+                if (trace_enabled) {
+                    std::fprintf(stdout, "[SS_RUN_HOM_TRACE] locus=%d ss_idx=%d sample_code=%u n_cond=%u\n",
+                                 curr_abs_locus, ss_idx, (unsigned)sample_code, n_cond_haps);
+                    std::fprintf(stdout, "  Input probSumT=%.10f\n", (double)probSumT);
+                    std::fprintf(stdout, "  Input probSumH=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+                                 (double)probSumH[0], (double)probSumH[1], (double)probSumH[2], (double)probSumH[3],
+                                 (double)probSumH[4], (double)probSumH[5], (double)probSumH[6], (double)probSumH[7]);
+                    std::fprintf(stdout, "  Transition: yt=%.10f nt=%.10f\n", yt, nt);
+                    std::fprintf(stdout, "  Panel codes: ");
+                    for (unsigned int k = 0; k < n_cond_haps; ++k) {
+                        std::fprintf(stdout, "%u ", (unsigned)ss_cond_codes[k]);
+                    }
+                    std::fprintf(stdout, "\n  Match counts: ");
+                    unsigned int matches = 0, mismatches = 0;
+                    for (unsigned int k = 0; k < n_cond_haps; ++k) {
+                        if (ss_cond_codes[k] == sample_code) matches++; else mismatches++;
+                    }
+                    std::fprintf(stdout, "match=%u mismatch=%u\n", matches, mismatches);
+                    // Emit per-lane classes (all lanes want sample_code for HOM)
+                    std::fprintf(stdout, "[SS_RUN_HOM_CLASSES] locus=%d ss_idx=%d class=%u lanes:", curr_abs_locus, ss_idx, (unsigned)sample_code);
+                    for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %u", (unsigned)sample_code);
+                    std::fprintf(stdout, "\n");
+                }
+
+                if (trace_enabled) {
+                    std::fprintf(stdout, "  Panel codes and emissions:\n");
+                    std::fprintf(stdout, "  SS_DETAILED: _factor=%.10f _nt=%.10f\n",
+                                 yt / (n_cond_haps * probSumT), nt / probSumT);
+                    alignas(32) float tfreq_arr[HAP_NUMBER];
+                    _mm256_store_ps(tfreq_arr, _mm256_load_ps(&probSumH[0]));
+                    std::fprintf(stdout, "  SS_DETAILED: probSumH_before=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+                                 tfreq_arr[0], tfreq_arr[1], tfreq_arr[2], tfreq_arr[3],
+                                 tfreq_arr[4], tfreq_arr[5], tfreq_arr[6], tfreq_arr[7]);
+                }
+
+                // Update probabilities with transitions
+                __m256 _sum = _mm256_set1_ps(0.0f);
+                __m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
+                __m256 _tFreq = _mm256_load_ps(&probSumH[0]);
+                _tFreq = _mm256_mul_ps(_tFreq, _factor);
+                __m256 _nt = _mm256_set1_ps(nt / probSumT);
+                const float error_ratio = M.error_ratio[curr_abs_locus];
+                __m256 _mismatch = _mm256_set1_ps(error_ratio);
+
+                if (trace_enabled) {
+                    alignas(32) float tfreq_arr2[HAP_NUMBER];
+                    _mm256_store_ps(tfreq_arr2, _tFreq);
+                    std::fprintf(stdout, "  SS_DETAILED: _tFreq=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+                                 tfreq_arr2[0], tfreq_arr2[1], tfreq_arr2[2], tfreq_arr2[3],
+                                 tfreq_arr2[4], tfreq_arr2[5], tfreq_arr2[6], tfreq_arr2[7]);
+                }
+
+                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+                    __m256 _prob = _mm256_load_ps(&prob[i]);
+                    if (trace_enabled && k == 0) {
+                        alignas(32) float prob_before[HAP_NUMBER];
+                        _mm256_store_ps(prob_before, _prob);
+                        std::fprintf(stdout, "  SS_DETAILED k=0 prob_before=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+                                     prob_before[0], prob_before[1], prob_before[2], prob_before[3],
+                                     prob_before[4], prob_before[5], prob_before[6], prob_before[7]);
+                    }
+                    _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+                    if (trace_enabled && k == 0) {
+                        alignas(32) float prob_after_fma[HAP_NUMBER];
+                        _mm256_store_ps(prob_after_fma, _prob);
+                        std::fprintf(stdout, "  SS_DETAILED k=0 prob_after_FMA=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+                                     prob_after_fma[0], prob_after_fma[1], prob_after_fma[2], prob_after_fma[3],
+                                     prob_after_fma[4], prob_after_fma[5], prob_after_fma[6], prob_after_fma[7]);
+                    }
+                    const bool match = (ss_cond_codes[k] == sample_code);
+                    if (!match) _prob = _mm256_mul_ps(_prob, _mismatch);
+                    _sum = _mm256_add_ps(_sum, _prob);
+                    _mm256_store_ps(&prob[i], _prob);
+
+                    if (trace_enabled) {
+                        float emission = match ? 1.0f : error_ratio;
+                        std::fprintf(stdout, "    k=%u code=%u match=%d emission=%.6f\n",
+                                     k, (unsigned)ss_cond_codes[k], match, emission);
+                    }
+                }
+                _mm256_store_ps(&probSumH[0], _sum);
+                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
+                // DETAILED BACKWARD TRACING - OUTPUT
+                if (trace_enabled) {
+                    std::fprintf(stdout, "  Output probSumT=%.10f\n", (double)probSumT);
+                    std::fprintf(stdout, "  Output probSumH=[%.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f, %.10f]\n",
+                                 (double)probSumH[0], (double)probSumH[1], (double)probSumH[2], (double)probSumH[3],
+                                 (double)probSumH[4], (double)probSumH[5], (double)probSumH[6], (double)probSumH[7]);
+                }
+
+                return true;
+            }
         }
     }
     
