@@ -597,7 +597,7 @@ void haplotype_segment_single::forward() {
                         INIT_HOM();
                         break;
                     case EmitKind::Amb:
-                        SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+                        INIT_AMB();
                         break;
                     case EmitKind::Mis:
                         SS_INIT_MIS();
@@ -619,7 +619,7 @@ void haplotype_segment_single::forward() {
                         update_prev_locus = RUN_HOM(rare_allele);
                         break;
                     case EmitKind::Amb:
-                        update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+                        RUN_AMB();
                         break;
                     case EmitKind::Mis:
                         update_prev_locus = SS_RUN_MIS();
@@ -641,7 +641,7 @@ void haplotype_segment_single::forward() {
                         COLLAPSE_HOM();
                         break;
                     case EmitKind::Amb:
-                        SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+                        COLLAPSE_AMB();
                         break;
                     case EmitKind::Mis:
                         SS_COLLAPSE_MIS();
@@ -989,7 +989,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 					INIT_HOM();
 					break;
 				case EmitKind::Amb:
-					SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+					INIT_AMB();
 					break;
 				case EmitKind::Mis:
 					SS_INIT_MIS();
@@ -1009,7 +1009,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 						update_prev_locus = RUN_HOM(rare_allele);
 						break;
 					case EmitKind::Amb:
-						update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						RUN_AMB();
 						break;
 					case EmitKind::Mis:
 						update_prev_locus = SS_RUN_MIS();
@@ -1031,7 +1031,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 						COLLAPSE_HOM();
 						break;
 					case EmitKind::Amb:
-						SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
+						COLLAPSE_AMB();
 						break;
 					case EmitKind::Mis:
 						SS_COLLAPSE_MIS();

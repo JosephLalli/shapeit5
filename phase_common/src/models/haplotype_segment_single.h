@@ -457,6 +457,8 @@ probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] +
 }
 #endif
 
+// Dead code: SS_INIT_AMB kept for easy reversion; no longer referenced.
+#if 0
 inline
 void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
     // Load cached conditioning haplotype codes
@@ -514,6 +516,7 @@ void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint
         trace_anchor_match_logs_remaining--;
     }
 }
+#endif
 
 inline
 void haplotype_segment_single::SS_INIT_MIS() {
@@ -629,6 +632,8 @@ bool haplotype_segment_single::SS_RUN_HOM(const SuperSite& ss, int ss_idx, uint8
 }
 #endif
 
+// Dead code: SS_RUN_AMB kept for easy reversion; no longer referenced.
+#if 0
 inline
 bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
     // Load cached conditioning haplotype codes
@@ -740,6 +745,7 @@ bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8
     probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
     return true;
 }
+#endif
 
 inline
 bool haplotype_segment_single::SS_RUN_MIS() {
@@ -844,6 +850,8 @@ void haplotype_segment_single::SS_COLLAPSE_HOM(const SuperSite& ss, int ss_idx, 
 }
 #endif
 
+// Dead code: SS_COLLAPSE_AMB kept for easy reversion; no longer referenced.
+#if 0
 inline
 void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
     // Load cached conditioning haplotype codes
@@ -930,6 +938,7 @@ void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, 
         std::fprintf(stdout, " probSumT=%.6f\n", probSumT);
     }
 }
+#endif
 
 inline
 void haplotype_segment_single::SS_COLLAPSE_MIS() {
@@ -995,8 +1004,6 @@ bool haplotype_segment_single::prepare_outer_product_mix(int rel_prev_segment, _
 
 inline
 void haplotype_segment_single::INIT_HOM() {
-    const char rare_allele = M.rare_allele[curr_abs_locus];
-
     // Supersite dispatcher
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
@@ -1015,7 +1022,7 @@ void haplotype_segment_single::INIT_HOM() {
         SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
             case SSClass::MIS: INIT_MIS(); return;
-            case SSClass::AMB: SS_INIT_AMB(ss, ss_idx, c0, c1); return;
+            case SSClass::AMB: INIT_AMB(); return;
             case SSClass::HOM:
                 ss_load_cond_codes(ss, ss_idx);
                 {
@@ -1082,7 +1089,7 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
         SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
             case SSClass::MIS: RUN_MIS(); return true;
-            case SSClass::AMB: return SS_RUN_AMB(ss, ss_idx, c0, c1);
+            case SSClass::AMB: RUN_AMB(); return true;
             case SSClass::HOM: {
                 const uint8_t sample_code = c0;
                 if (ss.rare_code_mask != 0 && sample_code <= ss.n_alts) {
@@ -1284,7 +1291,7 @@ void haplotype_segment_single::COLLAPSE_HOM() {
         SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
             case SSClass::MIS: COLLAPSE_MIS(); return;
-            case SSClass::AMB: SS_COLLAPSE_AMB(ss, ss_idx, c0, c1); return;
+            case SSClass::AMB: COLLAPSE_AMB(); return;
             case SSClass::HOM: {
                 const uint8_t sample_code = c0;
                 // DEBUG: Log entry state
@@ -1435,13 +1442,64 @@ void haplotype_segment_single::INIT_AMB() {
             return;
         }
 
-        // Classify and dispatch to supersite logic
+        // Classify using IMMUTABLE observed genotype (c0, c1)
         uint8_t c0, c1;
-        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        G->getSupersiteObservedGt(ss_idx, c0, c1);
+        SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
             case SSClass::MIS: INIT_MIS(); return;  // BUG FIX #1: Use biallelic MIS
             case SSClass::HOM: INIT_HOM(); return;
-            case SSClass::AMB: SS_INIT_AMB(ss, ss_idx, c0, c1); return;
+            case SSClass::AMB: {
+                // Load cached conditioning haplotype codes
+                ss_load_cond_codes(ss, ss_idx);
+
+                // Build per-lane expected class vector (8 lanes)
+                uint8_t expected_class[HAP_NUMBER];
+                unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+                                        ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+                if (c0 == c1) {
+                    for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+                } else {
+                    for (int h = 0; h < HAP_NUMBER; ++h) {
+                        bool use_c1 = ((amb_mask >> h) & 1U);
+                        expected_class[h] = use_c1 ? c1 : c0;
+                    }
+                }
+                __m256 match_f = _mm256_set1_ps(1.0f);
+                __m256 mis_f   = _mm256_set1_ps(M.error_ratio[curr_abs_locus]);
+                alignas(32) int expv[HAP_NUMBER];
+                for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
+                __m256i exp_vec = _mm256_load_si256((__m256i*)expv);
+
+                // Strict multi-allelic semantics: donor must match per-lane expected class
+                __m256 _sum = _mm256_set1_ps(0.0f);
+                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+                    __m256i donor_vec = _mm256_set1_epi32((int)ss_cond_codes[k]);
+                    __m256i match_vec_i = _mm256_cmpeq_epi32(donor_vec, exp_vec);
+                    __m256 emit = _mm256_blendv_ps(mis_f, match_f, _mm256_castsi256_ps(match_vec_i));
+                    _sum = _mm256_add_ps(_sum, emit);
+                    _mm256_store_ps(&prob[i], emit);
+                }
+                _mm256_store_ps(&probSumH[0], _sum);
+                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
+                // Trace: matches per lane at anchor (AMB)
+                if (supersite_trace_enabled() && trace_anchor_match_logs_remaining > 0) {
+                    int lane_matches[HAP_NUMBER] = {0};
+                    for (unsigned int k = 0; k < n_cond_haps; ++k) {
+                        const uint8_t dc = ss_cond_codes[k];
+                        for (int h = 0; h < HAP_NUMBER; ++h) {
+                            if ((int)dc == (int)expected_class[h]) lane_matches[h]++;
+                        }
+                    }
+                    supersite_trace_log("[SupersiteEmit] matches_per_lane locus=%d ss_idx=%d n_cond=%u",
+                                        curr_abs_locus, ss_idx, n_cond_haps);
+                    for (int h = 0; h < HAP_NUMBER; ++h) supersite_trace_log(" %d:%d", h, lane_matches[h]);
+                    supersite_trace_log("\n");
+                    trace_anchor_match_logs_remaining--;
+                }
+                return;
+            }
         }
     }
     
@@ -1503,17 +1561,127 @@ void haplotype_segment_single::RUN_AMB() {
             return;
         }
 
-        // Classify and dispatch to supersite logic
+        // Classify using IMMUTABLE observed genotype (c0, c1)
         uint8_t c0, c1;
-        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        G->getSupersiteObservedGt(ss_idx, c0, c1);
+        SSClass cls = classifyObservedGt(c0, c1);
         if (trace_enabled) {
-            std::fprintf(stdout, "BIAL_RUN_AMB: locus=%d SUPERSITE DISPATCH c0=%u c1=%u cls=%d\n", 
+            std::fprintf(stdout, "BIAL_RUN_AMB: locus=%d SUPERSITE DISPATCH c0=%u c1=%u cls=%d\n",
                          curr_abs_locus, (unsigned)c0, (unsigned)c1, (int)cls);
         }
         switch (cls) {
             case SSClass::MIS: RUN_MIS(); return;  // BUG FIX #1: Use biallelic MIS
             case SSClass::HOM: RUN_HOM(rare_allele); return;
-            case SSClass::AMB: SS_RUN_AMB(ss, ss_idx, c0, c1); return;
+            case SSClass::AMB: {
+                // Load cached conditioning haplotype codes
+                ss_load_cond_codes(ss, ss_idx);
+
+                // Build per-lane expected class vector
+                uint8_t expected_class[HAP_NUMBER];
+                unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+                                        ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+                if (c0 == c1) {
+                    for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+                } else {
+                    for (int h = 0; h < HAP_NUMBER; ++h) {
+                        bool use_c1 = ((amb_mask >> h) & 1U);
+                        expected_class[h] = use_c1 ? c1 : c0;
+                    }
+                }
+
+                if (trace_enabled) {
+                    std::fprintf(stderr, "DEBUG SS_RUN_AMB: trace_enabled is TRUE. locus=%d\n", curr_abs_locus);
+                }
+
+                if (trace_enabled) {
+                    std::fprintf(stderr, "[SS_LANE_DEBUG] amb_mask=%d (0x%02x) c0=%d c1=%d\n", (int)amb_mask, (int)amb_mask, (int)c0, (int)c1);
+                    for (int h = 0; h < HAP_NUMBER; ++h) {
+                        bool bit = ((amb_mask >> h) & 1U);
+                        std::fprintf(stderr, "  Lane %d: bit=%d expected=%d\n", h, (int)bit, (int)expected_class[h]);
+                    }
+                    // Emit per-lane expected classes to stdout for easier capture
+                    std::fprintf(stdout, "[SS_RUN_AMB_CLASSES] locus=%d ss_idx=%d c0=%u c1=%u amb_mask=0x%02x lanes:",
+                                 curr_abs_locus, ss_idx, (unsigned)c0, (unsigned)c1, (unsigned)amb_mask);
+                    for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %u", (unsigned)expected_class[h]);
+                    std::fprintf(stdout, "\n");
+                    // Emit first few donor codes and match mask
+                    std::fprintf(stdout, "[SS_RUN_AMB_CODES] locus=%d ss_idx=%d n_cond=%u codes:",
+                                 curr_abs_locus, ss_idx, (unsigned)n_cond_haps);
+                    for (unsigned int k = 0; k < std::min(16u, n_cond_haps); ++k) {
+                        std::fprintf(stdout, " %u", (unsigned)ss_cond_codes[k]);
+                    }
+                    std::fprintf(stdout, "\n");
+                }
+
+                // HYPOTHESIS 1 DEBUGGING
+                if (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP) {
+                    std::cout << "[SUPERDEBUG] H1: ENTER SS_RUN_AMB" << std::endl;
+                    std::cout << "[SUPERDEBUG] H1: Sample=" << G->name << " Pos=" << ss.global_site_id
+                              << " c0=" << (int)c0 << " c1=" << (int)c1 << " amb_mask=" << (int)amb_mask << std::endl;
+                    std::string expected_str = "  Expected classes: ";
+                    for (int h = 0; h < HAP_NUMBER; ++h) expected_str += std::to_string(expected_class[h]) + " ";
+                    std::cout << expected_str << std::endl;
+                }
+                
+                // DEBUG: Print emission setup
+                if (trace_enabled) {
+                    std::fprintf(stdout, "SS_RUN_AMB: locus=%d c0=%u c1=%u amb_mask=0x%02x\n", 
+                                 curr_abs_locus, (unsigned)c0, (unsigned)c1, (unsigned)amb_mask);
+                    std::fprintf(stdout, "  Expected classes per lane:");
+                    for (int h = 0; h < HAP_NUMBER; ++h) {
+                        std::fprintf(stdout, " %u", (unsigned)expected_class[h]);
+                    }
+                    std::fprintf(stdout, "\n");
+                    std::fprintf(stdout, "  Panel codes:");
+                    for (int k = 0; k < (int)n_cond_haps; ++k) {
+                        std::fprintf(stdout, " %u", (unsigned)ss_cond_codes[k]);
+                    }
+                    std::fprintf(stdout, "\n");
+                }
+                
+                alignas(32) int expv[HAP_NUMBER];
+                for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
+                __m256i exp_vec = _mm256_load_si256((__m256i*)expv);
+                __m256 match_f = _mm256_set1_ps(1.0f);
+                __m256 mis_f   = _mm256_set1_ps(M.error_ratio[curr_abs_locus]);
+
+                // Update probabilities with transitions and per-lane emissions
+                __m256 _sum = _mm256_set1_ps(0.0f);
+                __m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
+                __m256 _tFreq = _mm256_load_ps(&probSumH[0]);
+                _tFreq = _mm256_mul_ps(_tFreq, _factor);
+                __m256 _nt = _mm256_set1_ps(nt / probSumT);
+
+                // Strict multi-allelic semantics: donor must match per-lane expected class
+                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+                    __m256 _prob = _mm256_load_ps(&prob[i]);
+                    _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+
+                    __m256i donor_vec = _mm256_set1_epi32((int)ss_cond_codes[k]);
+                    __m256i match_vec_i = _mm256_cmpeq_epi32(donor_vec, exp_vec);
+                    __m256 emit = _mm256_blendv_ps(mis_f, match_f, _mm256_castsi256_ps(match_vec_i));
+
+                    if (!debug::SUPERDEBUG_SAMPLENAME.empty() && G->name == debug::SUPERDEBUG_SAMPLENAME && (int)ss.global_site_id == debug::SUPERDEBUG_BP && k < 5) {
+                        std::cout << "[SUPERDEBUG] H1: k=" << k << " donor_code=" << (int)ss_cond_codes[k]
+                                  << " (strict) first-lane emit=" << ((float*)&emit)[0] << std::endl;
+                    }
+
+                    if (trace_enabled) {
+                        std::fprintf(stdout, "    SS_donor_%d dc=%d strict per-lane emit:", k, (int)ss_cond_codes[k]);
+                        alignas(32) float emit_arr_dbg[HAP_NUMBER];
+                        _mm256_store_ps(emit_arr_dbg, emit);
+                        for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", emit_arr_dbg[h]);
+                        std::fprintf(stdout, "\n");
+                    }
+
+                    _prob = _mm256_mul_ps(_prob, emit);
+                    _sum = _mm256_add_ps(_sum, _prob);
+                    _mm256_store_ps(&prob[i], _prob);
+                }
+                _mm256_store_ps(&probSumH[0], _sum);
+                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+                return;
+            }
         }
     }
     
@@ -1622,13 +1790,99 @@ void haplotype_segment_single::COLLAPSE_AMB() {
             return;
         }
 
-        // Classify and dispatch to supersite logic
+        // Classify using IMMUTABLE observed genotype (c0, c1)
         uint8_t c0, c1;
-        SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
+        G->getSupersiteObservedGt(ss_idx, c0, c1);
+        SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
             case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
             case SSClass::HOM: COLLAPSE_HOM(); return;
-            case SSClass::AMB: SS_COLLAPSE_AMB(ss, ss_idx, c0, c1); return;
+            case SSClass::AMB: {
+                // Load cached conditioning haplotype codes
+                ss_load_cond_codes(ss, ss_idx);
+
+                // DEBUG: Check if we're in trace mode
+                const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
+                bool trace_enabled = (tr && tr[0] != '\0' && tr[0] != '0');
+
+                // Build per-lane expected class vector
+                uint8_t expected_class[HAP_NUMBER];
+                unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+                                        ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+                if (c0 == c1) {
+                    for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+                } else {
+                    for (int h = 0; h < HAP_NUMBER; ++h) {
+                        bool use_c1 = ((amb_mask >> h) & 1U);
+                        expected_class[h] = use_c1 ? c1 : c0;
+                    }
+                }
+                
+                // DEBUG: Print emission setup
+                if (trace_enabled) {
+                    std::fprintf(stdout, "SS_COLLAPSE_AMB: locus=%d c0=%u c1=%u amb_mask=0x%02x\n", 
+                                 curr_abs_locus, (unsigned)c0, (unsigned)c1, (unsigned)amb_mask);
+                    std::fprintf(stdout, "  Expected classes per lane:");
+                    for (int h = 0; h < HAP_NUMBER; ++h) {
+                        std::fprintf(stdout, " %u", (unsigned)expected_class[h]);
+                    }
+                    std::fprintf(stdout, "\n");
+                }
+                
+                // Precompute emission vectors based on mode (BUG FIX #5: unified code path)
+                __m256 match_f = _mm256_set1_ps(1.0f);
+                __m256 mis_f   = _mm256_set1_ps(M.error_ratio[curr_abs_locus]);
+                __m256i exp_vec;
+                
+                // Strict 4-bit class equality semantics
+                alignas(32) int expv[HAP_NUMBER];
+                for (int h = 0; h < HAP_NUMBER; ++h)
+                    expv[h] = (int)expected_class[h];
+                exp_vec = _mm256_load_si256((__m256i*)expv);
+
+                // Collapse from previous segment with per-lane emissions
+                __m256 _sum = _mm256_set1_ps(0.0f);
+                __m256 col_mix;
+                float row_stay = 0.0f, row_switch = 0.0f;
+                int rel_prev_seg = (curr_segment_index - segment_first) - 1;
+                const bool use_outer = prepare_outer_product_mix(rel_prev_seg, col_mix, row_stay, row_switch);
+                __m256 _tFreq = use_outer ? _mm256_set1_ps(0.0f) : _mm256_set1_ps(yt / n_cond_haps);
+                __m256 _nt = use_outer ? _mm256_set1_ps(0.0f) : _mm256_set1_ps(nt / probSumT);
+
+                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+                    __m256 _prob;
+                    if (use_outer) {
+                        float row_mix = row_stay * probSumK[k] + row_switch;
+                        _prob = _mm256_mul_ps(col_mix, _mm256_set1_ps(row_mix));
+                    } else {
+                        _prob = _mm256_set1_ps(probSumK[k]);
+                        _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+                    }
+
+                    __m256i donor_vec = _mm256_set1_epi32((int)ss_cond_codes[k]);
+                    __m256i match_vec_i = _mm256_cmpeq_epi32(donor_vec, exp_vec);
+                    __m256 emit = _mm256_blendv_ps(mis_f, match_f, _mm256_castsi256_ps(match_vec_i));
+                    if (trace_enabled) {
+                        alignas(32) float emit_arr_dbg[HAP_NUMBER];
+                        _mm256_store_ps(emit_arr_dbg, emit);
+                        std::fprintf(stdout, "  Donor %d: raw_code=%u strict emit:", k, (unsigned)ss_cond_codes[k]);
+                        for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", emit_arr_dbg[h]);
+                        std::fprintf(stdout, "\n");
+                    }
+                    _prob = _mm256_mul_ps(_prob, emit);
+                    _sum = _mm256_add_ps(_sum, _prob);
+                    _mm256_store_ps(&prob[i], _prob);
+                }
+                
+                _mm256_store_ps(&probSumH[0], _sum);
+                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+                if (trace_enabled) {
+                    std::fprintf(stdout, "  BIAL sums lanes:");
+                    for (int h = 0; h < HAP_NUMBER; ++h) std::fprintf(stdout, " %.6f", probSumH[h]);
+                    std::fprintf(stdout, " probSumT=%.6f\n", probSumT);
+                }
+                return;
+            }
         }
     }
     
