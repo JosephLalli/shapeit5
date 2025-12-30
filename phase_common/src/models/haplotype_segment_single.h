@@ -418,6 +418,8 @@ void haplotype_segment_single::ss_load_cond_codes(const SuperSite& ss, int ss_id
     // The static matrix is our "cache" and it's always valid.
 }
 
+// Dead code: SS_INIT_HOM kept for easy reversion; no longer referenced.
+#if 0
 inline
 void haplotype_segment_single::SS_INIT_HOM(const SuperSite& ss, int ss_idx, uint8_t sample_code) {
     // Load cached conditioning haplotype codes
@@ -453,6 +455,7 @@ probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] +
      trace_anchor_match_logs_remaining--;
  }
 }
+#endif
 
 inline
 void haplotype_segment_single::SS_INIT_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
@@ -520,6 +523,8 @@ void haplotype_segment_single::SS_INIT_MIS() {
     probSumT = 1.0f;
 }
 
+// Dead code: SS_RUN_HOM kept for easy reversion; no longer referenced.
+#if 0
 inline
 bool haplotype_segment_single::SS_RUN_HOM(const SuperSite& ss, int ss_idx, uint8_t sample_code) {
     // Load cached conditioning haplotype codes
@@ -528,6 +533,7 @@ bool haplotype_segment_single::SS_RUN_HOM(const SuperSite& ss, int ss_idx, uint8
     // DETAILED BACKWARD TRACING
     const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
     bool trace_enabled = (tr && tr[0] != '\0' && tr[0] != '0');
+    const char rare_allele = M.rare_allele[curr_abs_locus];
     if (trace_enabled) {
         std::fprintf(stdout, "[SS_RUN_HOM_TRACE] locus=%d ss_idx=%d sample_code=%u n_cond=%u\n",
                      curr_abs_locus, ss_idx, (unsigned)sample_code, n_cond_haps);
@@ -621,6 +627,7 @@ bool haplotype_segment_single::SS_RUN_HOM(const SuperSite& ss, int ss_idx, uint8
 
     return true;
 }
+#endif
 
 inline
 bool haplotype_segment_single::SS_RUN_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
@@ -754,6 +761,8 @@ bool haplotype_segment_single::SS_RUN_MIS() {
     return true;
 }
 
+// Dead code: SS_COLLAPSE_HOM kept for easy reversion; no longer referenced.
+#if 0
 inline
 void haplotype_segment_single::SS_COLLAPSE_HOM(const SuperSite& ss, int ss_idx, uint8_t sample_code) {
     // DEBUG: Log entry state
@@ -833,6 +842,7 @@ void haplotype_segment_single::SS_COLLAPSE_HOM(const SuperSite& ss, int ss_idx, 
         trace_anchor_match_logs_remaining--;
     }
 }
+#endif
 
 inline
 void haplotype_segment_single::SS_COLLAPSE_AMB(const SuperSite& ss, int ss_idx, uint8_t c0, uint8_t c1) {
@@ -985,6 +995,8 @@ bool haplotype_segment_single::prepare_outer_product_mix(int rel_prev_segment, _
 
 inline
 void haplotype_segment_single::INIT_HOM() {
+    const char rare_allele = M.rare_allele[curr_abs_locus];
+
     // Supersite dispatcher
     int ss_idx = -1;
     if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
@@ -1272,8 +1284,87 @@ void haplotype_segment_single::COLLAPSE_HOM() {
         SSClass cls = classifyObservedGt(c0, c1);
         switch (cls) {
             case SSClass::MIS: COLLAPSE_MIS(); return;
-            case SSClass::HOM: SS_COLLAPSE_HOM(ss, ss_idx, c0); return;
             case SSClass::AMB: SS_COLLAPSE_AMB(ss, ss_idx, c0, c1); return;
+            case SSClass::HOM: {
+                const uint8_t sample_code = c0;
+                // DEBUG: Log entry state
+                if (supersite_trace_enabled()) {
+                    std::fprintf(stderr, "[SS_COLLAPSE_HOM_ENTER] locus=%d ss_idx=%d probSumT_before=%.10f yt=%.10f nt=%.10f n_cond=%u\n",
+                                 curr_abs_locus, ss_idx, (double)probSumT, (double)yt, (double)nt, n_cond_haps);
+                }
+
+                // Load cached conditioning haplotype codes
+                ss_load_cond_codes(ss, ss_idx);
+
+                // Precompute emissions
+                precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0f, M.error_ratio[curr_abs_locus], ss_emissions);
+
+                // Collapse from probSumK with optional outer-product seeding
+                __m256 _sum = _mm256_set1_ps(0.0f);
+                __m256 col_mix;
+                float row_stay = 0.0f, row_switch = 0.0f;
+                int rel_prev_seg = (curr_segment_index - segment_first) - 1;
+                const bool use_outer = prepare_outer_product_mix(rel_prev_seg, col_mix, row_stay, row_switch);
+                __m256 _tFreq = use_outer ? _mm256_set1_ps(0.0f) : _mm256_set1_ps(yt / n_cond_haps);
+                __m256 _nt = use_outer ? _mm256_set1_ps(0.0f) : _mm256_set1_ps(nt / probSumT);
+
+                // DEBUG: Log flags and computed values
+                if (supersite_trace_enabled()) {
+                    float nt_val = use_outer ? 0.0f : (nt / probSumT);
+                    float tFreq_val = use_outer ? 0.0f : (yt / n_cond_haps);
+                    std::fprintf(stderr, "[SS_COLLAPSE_HOM_FLAGS] use_outer=%d rel_prev_seg=%d nt_val=%.10f tFreq_val=%.10f\n",
+                                 (int)use_outer, rel_prev_seg, (double)nt_val, (double)tFreq_val);
+                }
+                
+                // DEBUG: Log first few probSumK values
+                if (supersite_trace_enabled()) {
+                    std::fprintf(stderr, "[SS_COLLAPSE_HOM_PROBSUMK] first_4:");
+                    for (int k = 0; k < std::min(4, (int)n_cond_haps); ++k) {
+                        std::fprintf(stderr, " %.10f", (double)probSumK[k]);
+                    }
+                    std::fprintf(stderr, "\n");
+                }
+
+                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+                    __m256 _emit = _mm256_set1_ps(ss_emissions[k]);
+                    __m256 _prob;
+                    if (use_outer) {
+                        float row_mix = row_stay * probSumK[k] + row_switch;
+                        _prob = _mm256_mul_ps(col_mix, _mm256_set1_ps(row_mix));
+                    } else {
+                        _prob = _mm256_set1_ps(probSumK[k]);
+                        _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
+                    }
+                    if (ss_emissions[k] != 1.0f) _prob = _mm256_mul_ps(_prob, _emit);
+                    _sum = _mm256_add_ps(_sum, _prob);
+                    _mm256_store_ps(&prob[i], _prob);
+                }
+                _mm256_store_ps(&probSumH[0], _sum);
+                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+
+                // DEBUG: Log exit state
+                if (supersite_trace_enabled()) {
+                    std::fprintf(stderr, "[SS_COLLAPSE_HOM_EXIT] locus=%d probSumT_after=%.10f probSumH[0-3]=%.6f %.6f %.6f %.6f\n",
+                                 curr_abs_locus, (double)probSumT, (double)probSumH[0], (double)probSumH[1], (double)probSumH[2], (double)probSumH[3]);
+                }
+
+                // Trace: matches per lane at anchor (HOM)
+                if (supersite_trace_enabled() && trace_anchor_match_logs_remaining > 0) {
+                    int lane_matches[HAP_NUMBER] = {0};
+                    for (unsigned int k = 0; k < n_cond_haps; ++k) {
+                        const uint8_t dc = ss_cond_codes[k];
+                        for (int h = 0; h < HAP_NUMBER; ++h) {
+                            if (dc == sample_code) lane_matches[h]++;
+                        }
+                    }
+                    supersite_trace_log("[SupersiteEmit] matches_per_lane locus=%d ss_idx=%d n_cond=%u",
+                                        curr_abs_locus, ss_idx, n_cond_haps);
+                    for (int h = 0; h < HAP_NUMBER; ++h) supersite_trace_log(" %d:%d", h, lane_matches[h]);
+                    supersite_trace_log("\n");
+                    trace_anchor_match_logs_remaining--;
+                }
+                return;
+            }
         }
     }
 
@@ -1349,7 +1440,7 @@ void haplotype_segment_single::INIT_AMB() {
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
             case SSClass::MIS: INIT_MIS(); return;  // BUG FIX #1: Use biallelic MIS
-            case SSClass::HOM: SS_INIT_HOM(ss, ss_idx, c0); return;
+            case SSClass::HOM: INIT_HOM(); return;
             case SSClass::AMB: SS_INIT_AMB(ss, ss_idx, c0, c1); return;
         }
     }
@@ -1396,6 +1487,7 @@ void haplotype_segment_single::RUN_AMB() {
     // DEBUG: Check if we're in trace mode
     const char* tr = std::getenv("SHAPEIT5_TEST_TRACE");
     bool trace_enabled = (tr && tr[0] != '\0' && tr[0] != '0');
+    const char rare_allele = M.rare_allele[curr_abs_locus];
     
     // Supersite dispatcher
     int ss_idx = -1;
@@ -1420,7 +1512,7 @@ void haplotype_segment_single::RUN_AMB() {
         }
         switch (cls) {
             case SSClass::MIS: RUN_MIS(); return;  // BUG FIX #1: Use biallelic MIS
-            case SSClass::HOM: SS_RUN_HOM(ss, ss_idx, c0); return;
+            case SSClass::HOM: RUN_HOM(rare_allele); return;
             case SSClass::AMB: SS_RUN_AMB(ss, ss_idx, c0, c1); return;
         }
     }
@@ -1535,7 +1627,7 @@ void haplotype_segment_single::COLLAPSE_AMB() {
         SSClass cls = classify_supersite(G, ss, *super_site_var_index, c0, c1);
         switch (cls) {
             case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
-            case SSClass::HOM: SS_COLLAPSE_HOM(ss, ss_idx, c0); return;
+            case SSClass::HOM: COLLAPSE_HOM(); return;
             case SSClass::AMB: SS_COLLAPSE_AMB(ss, ss_idx, c0, c1); return;
         }
     }

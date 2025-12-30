@@ -594,7 +594,7 @@ void haplotype_segment_single::forward() {
             if (is_anchor) {
                 switch (emit) {
                     case EmitKind::Hom:
-                        SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+                        INIT_HOM();
                         break;
                     case EmitKind::Amb:
                         SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
@@ -616,7 +616,7 @@ void haplotype_segment_single::forward() {
             if (is_anchor) {
                 switch (emit) {
                     case EmitKind::Hom:
-                        update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+                        update_prev_locus = RUN_HOM(rare_allele);
                         break;
                     case EmitKind::Amb:
                         update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
@@ -638,7 +638,7 @@ void haplotype_segment_single::forward() {
             if (is_anchor) {
                 switch (emit) {
                     case EmitKind::Hom:
-                        SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+                        COLLAPSE_HOM();
                         break;
                     case EmitKind::Amb:
                         SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
@@ -986,7 +986,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			prev_abs_locus = curr_abs_locus;
 			switch (emit) {
 				case EmitKind::Hom:
-					SS_INIT_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+					INIT_HOM();
 					break;
 				case EmitKind::Amb:
 					SS_INIT_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
@@ -1006,7 +1006,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			if (is_anchor) {
 				switch (emit) {
 					case EmitKind::Hom:
-						update_prev_locus = SS_RUN_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						update_prev_locus = RUN_HOM(rare_allele);
 						break;
 					case EmitKind::Amb:
 						update_prev_locus = SS_RUN_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
@@ -1028,7 +1028,7 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			if (is_anchor) {
 				switch (emit) {
 					case EmitKind::Hom:
-						SS_COLLAPSE_HOM(*site_view.supersite, site_view.supersite_index, site_view.sample_class0);
+						COLLAPSE_HOM();
 						break;
 					case EmitKind::Amb:
 						SS_COLLAPSE_AMB(*site_view.supersite, site_view.supersite_index, site_view.sample_class0, site_view.sample_class1);
