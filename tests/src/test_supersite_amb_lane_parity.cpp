@@ -427,7 +427,7 @@ int main() {
                             &ctx_ss.locus_to_super_idx,
                             &ctx_ss.super_site_var_index,
                             nullptr, nullptr, nullptr);
-    G_ss.snapshotSupersiteBaseClasses(ctx_ss.super_sites, ctx_ss.super_site_var_index);
+    G_ss.snapshotSupersiteObservedGts(ctx_ss.super_sites, ctx_ss.super_site_var_index);
     G_ss.build();
 
     // Select conditioning haplotypes

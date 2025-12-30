@@ -246,7 +246,21 @@ inline uint8_t getSampleSuperSiteAlleleCode(
 
 enum class SSClass { MIS, HOM, AMB };
 
+// Classify observed genotype from immutable c0/c1 values
+// Input: c0, c1 from getSupersiteObservedGt() (can be 0-15 or MISSING=255)
+// Output: SSClass (MIS, HOM, or AMB)
+inline SSClass classifyObservedGt(uint8_t c0, uint8_t c1) {
+	if (c0 == SUPERSITE_CODE_MISSING && c1 == SUPERSITE_CODE_MISSING)
+		return SSClass::MIS;
+	if (c0 == c1)
+		return SSClass::HOM;
+	return SSClass::AMB;
+}
+
 // Classify a supersite genotype based on both haplotype codes
+// NOTE: This function reads from MUTABLE Variants[] and should only be used
+// for dynamic classification. For emission-based dispatch, use classifyObservedGt()
+// with values from getSupersiteObservedGt() instead.
 inline SSClass classify_supersite(
     const genotype* G,
     const SuperSite& ss,

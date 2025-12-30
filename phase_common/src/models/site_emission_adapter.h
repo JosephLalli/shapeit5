@@ -184,8 +184,8 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
     uint8_t c0 = SUPERSITE_CODE_MISSING;
     uint8_t c1 = SUPERSITE_CODE_MISSING;
     if (G_) {
-        // Use immutable base classes (c0,c1) for emissions
-        G_->getSupersiteBaseClassPair(ss_idx, c0, c1);
+        // Use immutable observed genotype (c0,c1) for emissions
+        G_->getSupersiteObservedGt(ss_idx, c0, c1);
     }
 
     const unsigned char anchor_byte = G_ ? G_->Variants[DIV2(ss.global_site_id)] : 0;

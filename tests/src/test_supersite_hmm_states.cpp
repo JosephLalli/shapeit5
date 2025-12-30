@@ -125,7 +125,7 @@ int main() {
 
     // Provide supersite context to the genotype so getSuperSiteContext/cursors work
     G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
-    G.snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
+    G.snapshotSupersiteObservedGts(super_sites, super_site_var_index);
 
     // Pre-compute transition capacity for the two segments
     const size_t n_transitions = G.countTransitions();

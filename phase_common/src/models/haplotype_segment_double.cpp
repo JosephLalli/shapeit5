@@ -185,13 +185,13 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
     supersite_sc_offset(nullptr),
     supersites_enabled_flag(_super_sites && _locus_to_super_idx && _super_site_var_index && _panel_codes) {
 	// Tests may skip explicit supersite setup; attach context and snapshot immutable
-	// supersite base classes here to keep emissions well-defined.
+	// supersite observed genotypes here to keep emissions well-defined.
 	if (G && supersites_enabled_flag) {
 		if (!G->super_sites || !G->locus_to_super_idx || !G->super_site_var_index) {
 			G->setSuperSiteContext(super_sites, locus_to_super_idx, super_site_var_index, nullptr, nullptr, nullptr);
 		}
-		if (G->supersite_class_pairs_base.empty()) {
-			G->snapshotSupersiteBaseClasses(*super_sites, *super_site_var_index);
+		if (G->ss_observed_gts.empty()) {
+			G->snapshotSupersiteObservedGts(*super_sites, *super_site_var_index);
 		}
 	}
 	segment_first = W.start_segment;

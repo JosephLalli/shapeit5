@@ -152,9 +152,9 @@ public:
 	const std::vector<bool>* anchor_has_missing;
 	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets
 	// Mutable per-epoch sampled classes (h0,h1) per supersite
-	std::vector<uint8_t> supersite_class_pairs;
+	std::vector<uint8_t> ss_phased_gts;
 	// Immutable snapshot of site classes (c0,c1) per supersite, used for emissions
-		std::vector<uint8_t> supersite_class_pairs_base;
+	std::vector<uint8_t> ss_observed_gts;
 		// Per-sample RNG for deterministic multithreaded runs
 		random_number_generator sample_rng;
 		bool revert_buffer_fix; // Opt-in legacy sampler behavior
@@ -173,15 +173,15 @@ public:
 	                          const std::vector<float>* _SC,
 	                          const std::vector<bool>* _anchor_has_missing,
 	                          const std::vector<uint32_t>* _supersite_sc_offset = nullptr);
-	void snapshotSupersiteClasses(const std::vector<SuperSite>& super_sites,
-	                              const std::vector<int>& super_site_var_index);
+	void snapshotSupersitePhasedGts(const std::vector<SuperSite>& super_sites,
+	                                const std::vector<int>& super_site_var_index);
 	// Capture immutable c0/c1 snapshot for emissions
-	void snapshotSupersiteBaseClasses(const std::vector<SuperSite>& super_sites,
+	void snapshotSupersiteObservedGts(const std::vector<SuperSite>& super_sites,
 	                                  const std::vector<int>& super_site_var_index);
 	void setRevertBufferFix(bool value) { revert_buffer_fix = value; }
-	void setSupersiteClassPair(int ss_idx, uint8_t class0, uint8_t class1);
-	void getSupersiteClassPair(int ss_idx, uint8_t& class0, uint8_t& class1) const;
-	void getSupersiteBaseClassPair(int ss_idx, uint8_t& class0, uint8_t& class1) const;
+	void setSupersitePhasedGt(int ss_idx, uint8_t h0, uint8_t h1);
+	void getSupersitePhasedGt(int ss_idx, uint8_t& h0, uint8_t& h1) const;
+	void getSupersiteObservedGt(int ss_idx, uint8_t& c0, uint8_t& c1) const;
 	bool supersiteIsAmbiguous(int ss_idx) const;
 	void build();
 	void sample(std::vector < double > &, std::vector < float > &);

@@ -412,7 +412,7 @@ static MiniContext build_context(bool supersite, unsigned int n_ref_samples, int
                                 &ctx.ss_context.locus_to_super_idx,
                                 &ctx.ss_context.super_site_var_index,
                                 nullptr, nullptr, nullptr);
-        g0->snapshotSupersiteBaseClasses(ctx.ss_context.super_sites,
+        g0->snapshotSupersiteObservedGts(ctx.ss_context.super_sites,
                                          ctx.ss_context.super_site_var_index);
         // Rebuild after setting supersite context to populate supersite_flags
         g0->build();
@@ -486,7 +486,7 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
                                    &ctx.ss_context.locus_to_super_idx,
                                    &ctx.ss_context.super_site_var_index,
                                    nullptr, nullptr, nullptr);
-        g_pre->snapshotSupersiteClasses(ctx.ss_context.super_sites,
+        g_pre->snapshotSupersitePhasedGts(ctx.ss_context.super_sites,
                                         ctx.ss_context.super_site_var_index);
     }
 

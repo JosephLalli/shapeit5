@@ -105,8 +105,8 @@ int main() {
 		G.Variants[DIV2(v0)] = byte;
 
 		// Snapshot base classes (c0/c1) for this configuration and set sampled h0/h1.
-		G.snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
-		G.setSupersiteClassPair(0, /*h0=*/1, /*h1=*/2);
+		G.snapshotSupersiteObservedGts(super_sites, super_site_var_index);
+		G.setSupersitePhasedGt(0, /*h0=*/1, /*h1=*/2);
 
 		SupersiteDebugConfig cfg;
 		cfg.guards_enabled = true;
@@ -138,8 +138,8 @@ int main() {
 		G.Variants[DIV2(v0)] = byte;
 
 		// Snapshot base classes for this (now inconsistent) configuration and set sampled h0/h1.
-		G.snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
-		G.setSupersiteClassPair(0, /*h0=*/1, /*h1=*/2);
+		G.snapshotSupersiteObservedGts(super_sites, super_site_var_index);
+		G.setSupersitePhasedGt(0, /*h0=*/1, /*h1=*/2);
 
 		SupersiteDebugConfig cfg;
 		cfg.guards_enabled = true;

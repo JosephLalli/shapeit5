@@ -266,7 +266,7 @@ static void build_supersites(TestContext& ctx) {
                                &ctx.locus_to_super_idx,
                                &ctx.super_site_var_index,
                                nullptr, nullptr, nullptr);
-        g->snapshotSupersiteBaseClasses(ctx.super_sites, ctx.super_site_var_index);
+        g->snapshotSupersiteObservedGts(ctx.super_sites, ctx.super_site_var_index);
         g->build();
     }
 }

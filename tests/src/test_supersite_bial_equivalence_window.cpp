@@ -143,8 +143,8 @@ int main() {
 	std::vector<uint32_t> dummy_sc_offset;       // not used here
 	G_ss.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index,
 	                         &dummy_SC, &dummy_anchor_missing, &dummy_sc_offset);
-	G_ss.snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
-	G_ss.setSupersiteClassPair(0, /*h0=*/1, /*h1=*/0);
+	G_ss.snapshotSupersiteObservedGts(super_sites, super_site_var_index);
+	G_ss.setSupersitePhasedGt(0, /*h0=*/1, /*h1=*/0);
 
 	// Project sampled classes to split bits.
 	G_ss.projectSupersites();

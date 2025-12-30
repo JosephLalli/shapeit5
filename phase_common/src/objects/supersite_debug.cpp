@@ -164,7 +164,7 @@ bool check_supersite_consistency_for_sample(
 		// Check compatibility with current sampled classes (h0/h1) if available.
 		uint8_t h0 = SUPERSITE_CODE_MISSING;
 		uint8_t h1 = SUPERSITE_CODE_MISSING;
-		sample_g.getSupersiteClassPair(static_cast<int>(ss_idx), h0, h1);
+		sample_g.getSupersitePhasedGt(static_cast<int>(ss_idx), h0, h1);
 		if (h0 != SUPERSITE_CODE_MISSING) {
 			if (hap_class[0] != SUPERSITE_CODE_CONFLICT && hap_class[0] != h0) {
 				SupersiteInvariantViolation tmp;
@@ -197,7 +197,7 @@ bool check_supersite_consistency_for_sample(
 		// Check compatibility with immutable c0/c1 snapshot (emission snapshot) when available.
 		uint8_t c0 = SUPERSITE_CODE_MISSING;
 		uint8_t c1 = SUPERSITE_CODE_MISSING;
-		sample_g.getSupersiteBaseClassPair(static_cast<int>(ss_idx), c0, c1);
+		sample_g.getSupersiteObservedGt(static_cast<int>(ss_idx), c0, c1);
 		const bool have_base = (c0 != SUPERSITE_CODE_MISSING || c1 != SUPERSITE_CODE_MISSING);
 		if (have_base) {
 			for (int hap = 0; hap < 2; ++hap) {

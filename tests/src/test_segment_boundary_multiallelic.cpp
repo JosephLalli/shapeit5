@@ -201,7 +201,7 @@ bool test_single_multiallelic_per_segment() {
     G.build();  // Build segments, diplotypes, etc.
     // Attach supersite context and snapshot base classes, mirroring production
     G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
-    G.snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
+    G.snapshotSupersiteObservedGts(super_sites, super_site_var_index);
     // Mirror production: biological segment length counts only anchors (1 here)
     G.Lengths_bio.assign(1, 1);
     // And keep stored-length (all records) for bookkeeping
@@ -255,7 +255,7 @@ bool test_single_multiallelic_per_segment() {
     Hwrap.H_opt_var.transpose(Hwrap.H_opt_hap);
     // Mirror supersite context
     Gset.vecG[0]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
-    Gset.vecG[0]->snapshotSupersiteBaseClasses(super_sites, super_site_var_index);
+    Gset.vecG[0]->snapshotSupersiteObservedGts(super_sites, super_site_var_index);
 
     compute_job job(V, Gset, Hwrap, /*max_trans*/128, /*max_missing*/64,
                     &super_sites, &locus_to_super_idx, &super_site_var_index);

@@ -556,7 +556,7 @@ void phaser::rebuildSupersiteMetadata(const std::string& context, const std::vec
 
 	for (unsigned int i = 0; i < G.n_ind; ++i) {
 		G.vecG[i]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
-		G.vecG[i]->snapshotSupersiteClasses(super_sites, super_site_var_index);
+		G.vecG[i]->snapshotSupersitePhasedGts(super_sites, super_site_var_index);
 	}
 }
 
