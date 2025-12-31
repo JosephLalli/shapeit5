@@ -34,8 +34,6 @@ variant::variant(std::string & chr, int bp, std::string & id, std::string & ref,
 	this->calt = 0;
 	this->cmis = 0;
 	cm = -1;
-	// Determine if this is a SNP (single nucleotide substitution)
-	this->is_snp = (ref.length() == 1) && (alt.length() == 1);
 }
 
 variant::~variant() {
@@ -64,5 +62,4 @@ bool variant::isSingleton() {
 bool variant::isMonomorphic() {
 	return (calt == 0 || cref == 0);
 }
-
 

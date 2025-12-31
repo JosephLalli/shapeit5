@@ -317,7 +317,7 @@ void haplotype_segment_single::INIT_HOM() {
             case SSClass::HOM:
                 ss_load_cond_codes(ss, ss_idx);
                 {
-                    const float error_ratio = M.error_ratio[curr_abs_locus];
+                    const float error_ratio = M.ed / M.ee;
                     __m256 _sum = _mm256_set1_ps(0.0f);
                     for (int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
                         float emission = (c0 == ss_cond_codes[k]) ? 1.0f : error_ratio;
@@ -339,7 +339,7 @@ void haplotype_segment_single::INIT_HOM() {
     __m256 _sum = _mm256_set1_ps(0.0f);
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
         bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256 _prob = _mm256_set1_ps((ag==ah)?1.0f:M.error_ratio[curr_abs_locus]);
+        __m256 _prob = _mm256_set1_ps((ag==ah)?1.0f:M.ed / M.ee);
         _sum = _mm256_add_ps(_sum, _prob);
         _mm256_store_ps(&prob[i], _prob);
     }
@@ -384,7 +384,7 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
                 __m256 _tFreq = _mm256_load_ps(&probSumH[0]);
                 _tFreq = _mm256_mul_ps(_tFreq, _factor);
                 __m256 _nt = _mm256_set1_ps(nt / probSumT);
-                const float error_ratio = M.error_ratio[curr_abs_locus];
+                const float error_ratio = M.ed / M.ee;
                 __m256 _mismatch = _mm256_set1_ps(error_ratio);
 
 
@@ -417,13 +417,13 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
         __m256 _tFreq = _mm256_load_ps(&probSumH[0]);
         _tFreq = _mm256_mul_ps(_tFreq, _factor);
         __m256 _nt = _mm256_set1_ps(nt / probSumT);
-        __m256 _mismatch = _mm256_set1_ps(M.error_ratio[curr_abs_locus]);
+        __m256 _mismatch = _mm256_set1_ps(M.ed / M.ee);
 
         for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
             bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
             __m256 _prob = _mm256_load_ps(&prob[i]);
             _prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-            float emission = (ag != ah) ? M.error_ratio[curr_abs_locus] : 1.0f;
+            float emission = (ag != ah) ? M.ed / M.ee : 1.0f;
             if (ag!=ah) _prob = _mm256_mul_ps(_prob, _mismatch);
             _sum = _mm256_add_ps(_sum, _prob);
             _mm256_store_ps(&prob[i], _prob);
@@ -463,7 +463,7 @@ void haplotype_segment_single::COLLAPSE_HOM() {
                 ss_load_cond_codes(ss, ss_idx);
 
                 // Precompute emissions
-                precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0f, M.error_ratio[curr_abs_locus], ss_emissions);
+                precomputeSuperSiteEmissions_FloatScalar(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0f, M.ed / M.ee, ss_emissions);
 
                 // Collapse from probSumK with optional outer-product seeding
                 __m256 _sum = _mm256_set1_ps(0.0f);
@@ -506,7 +506,7 @@ void haplotype_segment_single::COLLAPSE_HOM() {
     __m256 _tFreq = use_outer ? _mm256_set1_ps(0.0f) : _mm256_set1_ps(yt / n_cond_haps);
     __m256 _nt = use_outer ? _mm256_set1_ps(0.0f) : _mm256_set1_ps(nt / probSumT);
 
-    __m256 _mismatch = _mm256_set1_ps(M.error_ratio[curr_abs_locus]);
+    __m256 _mismatch = _mm256_set1_ps(M.ed / M.ee);
     for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
         bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
         __m256 _prob;
@@ -568,7 +568,7 @@ void haplotype_segment_single::INIT_AMB() {
                     }
                 }
                 __m256 match_f = _mm256_set1_ps(1.0f);
-                __m256 mis_f   = _mm256_set1_ps(M.error_ratio[curr_abs_locus]);
+                __m256 mis_f   = _mm256_set1_ps(M.ed / M.ee);
                 alignas(32) int expv[HAP_NUMBER];
                 for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
                 __m256i exp_vec = _mm256_load_si256((__m256i*)expv);
@@ -597,8 +597,8 @@ void haplotype_segment_single::INIT_AMB() {
 
     // Biallelic INIT_AMB: simple AVX2 loop (original algorithm)
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.error_ratio[curr_abs_locus]:1.0f;
-        g1[h] = HAP_GET(amb_code,h)?1.0f:M.error_ratio[curr_abs_locus];
+        g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0f;
+        g1[h] = HAP_GET(amb_code,h)?1.0f:M.ed / M.ee;
     }
     __m256 _sum = _mm256_set1_ps(0.0f);
     __m256 _emit[2]; _emit[0] = _mm256_loadu_ps(&g0[0]); _emit[1] = _mm256_loadu_ps(&g1[0]);
@@ -657,7 +657,7 @@ void haplotype_segment_single::RUN_AMB() {
                 for (int h = 0; h < HAP_NUMBER; ++h) expv[h] = (int)expected_class[h];
                 __m256i exp_vec = _mm256_load_si256((__m256i*)expv);
                 __m256 match_f = _mm256_set1_ps(1.0f);
-                __m256 mis_f   = _mm256_set1_ps(M.error_ratio[curr_abs_locus]);
+                __m256 mis_f   = _mm256_set1_ps(M.ed / M.ee);
 
                 // Update probabilities with transitions and per-lane emissions
                 __m256 _sum = _mm256_set1_ps(0.0f);
@@ -689,8 +689,8 @@ void haplotype_segment_single::RUN_AMB() {
     // Biallelic path
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.error_ratio[curr_abs_locus]:1.0f;
-        g1[h] = HAP_GET(amb_code,h)?1.0f:M.error_ratio[curr_abs_locus];
+        g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0f;
+        g1[h] = HAP_GET(amb_code,h)?1.0f:M.ed / M.ee;
     }
     __m256 _sum = _mm256_set1_ps(0.0f);
     __m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
@@ -715,8 +715,8 @@ inline
 void haplotype_segment_single::RUN_AMB() {
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.error_ratio[curr_abs_locus]:1.0f;
-        g1[h] = HAP_GET(amb_code,h)?1.0f:M.error_ratio[curr_abs_locus];
+        g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0f;
+        g1[h] = HAP_GET(amb_code,h)?1.0f:M.ed / M.ee;
     }
     __m256d _sum0 = _mm256_set1_pd(0.0f);
     __m256d _sum1 = _mm256_set1_pd(0.0f);
@@ -788,7 +788,7 @@ void haplotype_segment_single::COLLAPSE_AMB() {
                 }
                 // Precompute emission vectors based on mode (BUG FIX #5: unified code path)
                 __m256 match_f = _mm256_set1_ps(1.0f);
-                __m256 mis_f   = _mm256_set1_ps(M.error_ratio[curr_abs_locus]);
+                __m256 mis_f   = _mm256_set1_ps(M.ed / M.ee);
                 __m256i exp_vec;
                 
                 // Strict 4-bit class equality semantics
@@ -834,8 +834,8 @@ void haplotype_segment_single::COLLAPSE_AMB() {
     // Biallelic path
     unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
     for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.error_ratio[curr_abs_locus]:1.0f;
-        g1[h] = HAP_GET(amb_code,h)?1.0f:M.error_ratio[curr_abs_locus];
+        g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0f;
+        g1[h] = HAP_GET(amb_code,h)?1.0f:M.ed / M.ee;
     }
     __m256 _sum = _mm256_set1_ps(0.0f);
     __m256 col_mix;
