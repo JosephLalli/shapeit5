@@ -23,6 +23,7 @@
 #ifndef _GENOTYPE_H
 #define _GENOTYPE_H
 
+#include <cstddef>
 #include <cstdint>
 
 #include <utils/otools.h>
@@ -148,6 +149,8 @@ public:
 	const std::vector<SuperSite>* super_sites;
 	const std::vector<int>* locus_to_super_idx;
 	const std::vector<int>* super_site_var_index;
+	const uint8_t* supersite_panel_codes;
+	size_t supersite_panel_codes_size;
 	const std::vector<float>* SC;  // CurrentSuperClassPosteriors from compute_job
 	const std::vector<bool>* anchor_has_missing;
 	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets
@@ -173,6 +176,7 @@ public:
 	                          const std::vector<float>* _SC,
 	                          const std::vector<bool>* _anchor_has_missing,
 	                          const std::vector<uint32_t>* _supersite_sc_offset = nullptr);
+		void setSupersitePanelCodes(const uint8_t* _panel_codes, size_t _panel_codes_size);
 	void snapshotSupersitePhasedGts(const std::vector<SuperSite>& super_sites,
 	                                const std::vector<int>& super_site_var_index);
 	// Capture immutable c0/c1 snapshot for emissions

@@ -92,6 +92,8 @@ int main() {
     G.Lengths.assign(1, (unsigned short)V.size());
     G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 1ull);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
 
     std::cout << "STEP 6: creating window" << std::endl;
     window W;
@@ -104,8 +106,7 @@ int main() {
     std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
     std::cout << "STEP 7: constructing HS" << std::endl;
 
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
 
     // Run forward locus by locus to compare states
     std::cout << "STEP 8: running forward()" << std::endl;
@@ -119,8 +120,7 @@ int main() {
         Wloc.start_ambiguous = 0; Wloc.stop_ambiguous = -1;
         Wloc.start_missing = 0; Wloc.stop_missing = -1;
         Wloc.start_transition = 0; Wloc.stop_transition = -1;
-        haplotype_segment_single HSx(&G, H.H_opt_hap, idxH, Wloc, M,
-            &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+        haplotype_segment_single HSx(&G, H.H_opt_hap, idxH, Wloc, M);
         HSx.forward();
         out_prob = HSx.prob; out_sumH = HSx.probSumH; out_sumT = HSx.probSumT;
     };

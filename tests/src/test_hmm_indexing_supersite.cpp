@@ -154,6 +154,8 @@ void test_locus_segment_alignment() {
     vector<int> super_site_var_index;
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes, 
                     locus_to_super_idx, super_site_var_index);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
     
     // Setup window
     window W;
@@ -193,10 +195,7 @@ void test_locus_segment_alignment() {
     vector<unsigned int> idxH(n_haps);
     for (int i = 0; i < n_haps; ++i) idxH[i] = i;
     
-    haplotype_segment_single HS(&G, Hvar, idxH, W, M,
-                                &super_sites, nullptr, &locus_to_super_idx,
-                                packed_codes.data(), packed_codes.size(), 
-                                &super_site_var_index);
+    haplotype_segment_single HS(&G, Hvar, idxH, W, M);
     
     // Verify alignment
     test_assert(HS.locus_first == W.start_locus, 
@@ -249,6 +248,8 @@ void test_alpha_arrays() {
     vector<int> super_site_var_index;
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes, 
                     locus_to_super_idx, super_site_var_index);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
     
     window W;
     W.start_segment = 0;
@@ -281,10 +282,7 @@ void test_alpha_arrays() {
     vector<unsigned int> idxH(n_haps);
     for (int i = 0; i < n_haps; ++i) idxH[i] = i;
     
-    haplotype_segment_single HS(&G, Hvar, idxH, W, M,
-                                &super_sites, nullptr, &locus_to_super_idx,
-                                packed_codes.data(), packed_codes.size(), 
-                                &super_site_var_index);
+    haplotype_segment_single HS(&G, Hvar, idxH, W, M);
     
     HS.forward();
     
@@ -367,6 +365,8 @@ void test_cursor_progression() {
     vector<int> super_site_var_index;
     buildSuperSites(V, H, super_sites, is_super_site, packed_codes, 
                     locus_to_super_idx, super_site_var_index);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
     
     window W;
     W.start_segment = 0;
@@ -399,10 +399,7 @@ void test_cursor_progression() {
     vector<unsigned int> idxH(n_haps);
     for (int i = 0; i < n_haps; ++i) idxH[i] = i;
     
-    haplotype_segment_single HS(&G, Hvar, idxH, W, M,
-                                &super_sites, nullptr, &locus_to_super_idx,
-                                packed_codes.data(), packed_codes.size(), 
-                                &super_site_var_index);
+    haplotype_segment_single HS(&G, Hvar, idxH, W, M);
     
     // After constructor, curr_abs_locus should be at locus_first
     test_assert(HS.curr_abs_locus == HS.locus_first, 

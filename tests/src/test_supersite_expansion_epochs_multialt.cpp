@@ -370,6 +370,8 @@ static MiniContext build_multiallelic_context(unsigned int n_ref_samples, int re
                             &ctx.ss_context.locus_to_super_idx,
                             &ctx.ss_context.super_site_var_index,
                             nullptr, nullptr, nullptr);
+    g0->setSupersitePanelCodes(ctx.ss_context.packed_codes.data(),
+                               ctx.ss_context.packed_codes.size());
     g0->snapshotSupersiteObservedGts(ctx.ss_context.super_sites,
                                      ctx.ss_context.super_site_var_index);
     g0->build();
@@ -487,6 +489,8 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
                                &ctx.ss_context.locus_to_super_idx,
                                &ctx.ss_context.super_site_var_index,
                                nullptr, nullptr, nullptr);
+    g_pre->setSupersitePanelCodes(ctx.ss_context.packed_codes.data(),
+                                  ctx.ss_context.packed_codes.size());
     g_pre->snapshotSupersitePhasedGts(ctx.ss_context.super_sites,
                                     ctx.ss_context.super_site_var_index);
 
@@ -510,23 +514,11 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
     genotype* sample = ctx.Gset.vecG[0];
     int outcome = 0;
     for (int w = 0; w < job.size(); ++w) {
-        haplotype_segment_single HS(sample, ctx.H.H_opt_hap, job.Kstates[w], job.Windows.W[w], ctx.M,
-                                    &ctx.ss_context.super_sites,
-                                    &ctx.ss_context.is_super_site,
-                                    &ctx.ss_context.locus_to_super_idx,
-                                    ctx.ss_context.packed_codes.data(),
-                                    ctx.ss_context.packed_codes.size(),
-                                    &ctx.ss_context.super_site_var_index);
+        haplotype_segment_single HS(sample, ctx.H.H_opt_hap, job.Kstates[w], job.Windows.W[w], ctx.M);
         HS.forward();
         outcome = HS.backward(job.T, job.M, &job.SC, &job.anchor_has_missing, &job.supersite_sc_offset);
         if (outcome != 0) {
-            haplotype_segment_double HD(sample, ctx.H.H_opt_hap, job.Kstates[w], job.Windows.W[w], ctx.M,
-                                        &ctx.ss_context.super_sites,
-                                        &ctx.ss_context.is_super_site,
-                                        &ctx.ss_context.locus_to_super_idx,
-                                        ctx.ss_context.packed_codes.data(),
-                                        ctx.ss_context.packed_codes.size(),
-                                        &ctx.ss_context.super_site_var_index);
+            haplotype_segment_double HD(sample, ctx.H.H_opt_hap, job.Kstates[w], job.Windows.W[w], ctx.M);
             HD.forward();
             outcome = HD.backward(job.T, job.M, &job.SC, &job.anchor_has_missing, &job.supersite_sc_offset);
             res.window_prob_sum.push_back(HD.probSumT);
@@ -546,6 +538,8 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
                            &job.SC,
                            &job.anchor_has_missing,
                            &job.supersite_sc_offset);
+    g->setSupersitePanelCodes(ctx.ss_context.packed_codes.data(),
+                              ctx.ss_context.packed_codes.size());
 
     switch (stage.type) {
         case StageType::Burn:

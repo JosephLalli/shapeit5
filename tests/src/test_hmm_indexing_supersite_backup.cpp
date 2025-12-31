@@ -182,6 +182,8 @@ bool test_single_multiallelic_per_segment() {
     vector<uint8_t> allele_codes = {0, 1, 2, 3};
     vector<uint8_t> packed_codes;
     setup_panel_codes(packed_codes, allele_codes);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
     
     // Mark variant 0 as HET (ALT2|ALT3 → c0=2, c1=3)
     VAR_SET_HET(MOD2(0), G.Variants[DIV2(0)]);
@@ -251,9 +253,7 @@ bool test_single_multiallelic_per_segment() {
     for (int i = 0; i < n_cond_haps; ++i) idxH[i] = i;
     
     // Create HMM segment with supersite support
-    haplotype_segment_single HS(&G, H, idxH, W, M,
-                                &super_sites, nullptr, &locus_to_super_idx,
-                                packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS(&G, H, idxH, W, M);
     
     // Run forward pass
     HS.forward();
@@ -479,6 +479,7 @@ bool test_segment_transition_multiallelic() {
     }
     
     G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
     G.build();
     
     cout << "  Genotype built: " << G.n_segments << " segments" << endl;
@@ -518,9 +519,7 @@ bool test_segment_transition_multiallelic() {
     vector<unsigned int> idxH(n_cond_haps);
     for (int i = 0; i < n_cond_haps; ++i) idxH[i] = i;
     
-    haplotype_segment_single HS(&G, H, idxH, W, M,
-                                &super_sites, nullptr, &locus_to_super_idx,
-                                packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS(&G, H, idxH, W, M);
     
     // Run forward and backward
     HS.forward();

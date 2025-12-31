@@ -71,6 +71,8 @@ int main() {
     G.Diplotypes.assign(1, 1ull);
     VAR_SET_HOM(0, G.Variants[0]);
     VAR_SET_HOM(1, G.Variants[0]);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
 
     window W;
     W.start_locus = 0; W.stop_locus = 1; // anchor + sibling; sibling should be no-op
@@ -82,8 +84,7 @@ int main() {
     std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
 
     // Float path
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
     HS.forward();
     // Pre-size transition probabilities as required by SET_FIRST_TRANS/SET_OTHER_TRANS
     std::vector<double> T_f(G.countTransitions(), 0.0);
@@ -92,8 +93,7 @@ int main() {
     (void)rc_f;
 
     // Double path
-    haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M);
     HD.forward();
     std::vector<double> T_d(G.countTransitions(), 0.0);
     std::vector<float> Mprob_d;

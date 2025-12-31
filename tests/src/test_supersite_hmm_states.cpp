@@ -125,6 +125,7 @@ int main() {
 
     // Provide supersite context to the genotype so getSuperSiteContext/cursors work
     G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
     G.snapshotSupersiteObservedGts(super_sites, super_site_var_index);
 
     // Pre-compute transition capacity for the two segments
@@ -158,10 +159,8 @@ int main() {
 
     std::vector<unsigned int> idxH = {0u, 1u};
 
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
-    haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
+    haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M);
 
     HS.forward();
     HD.forward();

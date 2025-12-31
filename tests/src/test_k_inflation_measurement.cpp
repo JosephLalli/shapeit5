@@ -198,15 +198,8 @@ public:
                               std::vector<unsigned int>& idxH,
                               window& W, 
                               hmm_parameters& M,
-                              const std::vector<SuperSite>* super_sites,
-                              const std::vector<bool>* is_super_site,
-                              const std::vector<int>* locus_to_super_idx,
-                              const uint8_t* panel_codes,
-                              size_t panel_codes_size,
-                              const std::vector<int>* super_site_var_index,
                               KMeasurement* k_measurement)
-        : haplotype_segment_double(G, H_opt_hap, idxH, W, M, super_sites, is_super_site,
-                                   locus_to_super_idx, panel_codes, panel_codes_size, super_site_var_index)
+        : haplotype_segment_double(G, H_opt_hap, idxH, W, M)
         , measurement(k_measurement)
         , idxH_ref(idxH) {
         

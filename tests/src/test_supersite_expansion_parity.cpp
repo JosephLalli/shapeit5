@@ -285,17 +285,17 @@ static FBResult run_forward_backward(genotype& G,
                                      const window& W,
                                      const std::vector<unsigned int>& idxH,
                                      const SuperSiteContext* ctx) {
-    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
-    const std::vector<bool>* is_super_site = ctx ? &ctx->is_super_site : nullptr;
-    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
-    const std::vector<int>* super_site_var_index = ctx ? &ctx->super_site_var_index : nullptr;
-    const uint8_t* panel_codes = (ctx && !ctx->packed_codes.empty()) ? ctx->packed_codes.data() : nullptr;
-    const size_t panel_codes_size = ctx ? ctx->packed_codes.size() : 0;
+    if (ctx) {
+        G.setSuperSiteContext(&ctx->super_sites, &ctx->locus_to_super_idx,
+                              &ctx->super_site_var_index, nullptr, nullptr, nullptr);
+        G.setSupersitePanelCodes(ctx->packed_codes.data(), ctx->packed_codes.size());
+    } else {
+        G.setSuperSiteContext(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        G.setSupersitePanelCodes(nullptr, 0);
+    }
 
     haplotype_segment_double HS(&G, H.H_opt_hap, const_cast<std::vector<unsigned int>&>(idxH),
-                                const_cast<window&>(W), M,
-                                super_sites, is_super_site, locus_to_super_idx,
-                                panel_codes, panel_codes_size, super_site_var_index);
+                                const_cast<window&>(W), M);
 
     HS.forward();
 
@@ -319,17 +319,17 @@ static FBResult run_forward_only(genotype& G,
                                  const window& W,
                                  const std::vector<unsigned int>& idxH,
                                  const SuperSiteContext* ctx) {
-    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
-    const std::vector<bool>* is_super_site = ctx ? &ctx->is_super_site : nullptr;
-    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
-    const std::vector<int>* super_site_var_index = ctx ? &ctx->super_site_var_index : nullptr;
-    const uint8_t* panel_codes = (ctx && !ctx->packed_codes.empty()) ? ctx->packed_codes.data() : nullptr;
-    const size_t panel_codes_size = ctx ? ctx->packed_codes.size() : 0;
+    if (ctx) {
+        G.setSuperSiteContext(&ctx->super_sites, &ctx->locus_to_super_idx,
+                              &ctx->super_site_var_index, nullptr, nullptr, nullptr);
+        G.setSupersitePanelCodes(ctx->packed_codes.data(), ctx->packed_codes.size());
+    } else {
+        G.setSuperSiteContext(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        G.setSupersitePanelCodes(nullptr, 0);
+    }
 
     haplotype_segment_double HS(&G, H.H_opt_hap, const_cast<std::vector<unsigned int>&>(idxH),
-                                const_cast<window&>(W), M,
-                                super_sites, is_super_site, locus_to_super_idx,
-                                panel_codes, panel_codes_size, super_site_var_index);
+                                const_cast<window&>(W), M);
     HS.forward();
 
     FBResult res;
@@ -346,17 +346,17 @@ static FBResult run_forward_backward_single(genotype& G,
                                            const window& W,
                                            const std::vector<unsigned int>& idxH,
                                            const SuperSiteContext* ctx) {
-    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
-    const std::vector<bool>* is_super_site = ctx ? &ctx->is_super_site : nullptr;
-    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
-    const std::vector<int>* super_site_var_index = ctx ? &ctx->super_site_var_index : nullptr;
-    const uint8_t* panel_codes = (ctx && !ctx->packed_codes.empty()) ? ctx->packed_codes.data() : nullptr;
-    const size_t panel_codes_size = ctx ? ctx->packed_codes.size() : 0;
+    if (ctx) {
+        G.setSuperSiteContext(&ctx->super_sites, &ctx->locus_to_super_idx,
+                              &ctx->super_site_var_index, nullptr, nullptr, nullptr);
+        G.setSupersitePanelCodes(ctx->packed_codes.data(), ctx->packed_codes.size());
+    } else {
+        G.setSuperSiteContext(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        G.setSupersitePanelCodes(nullptr, 0);
+    }
 
     haplotype_segment_single HS(&G, H.H_opt_hap, const_cast<std::vector<unsigned int>&>(idxH),
-                                const_cast<window&>(W), M,
-                                super_sites, is_super_site, locus_to_super_idx,
-                                panel_codes, panel_codes_size, super_site_var_index);
+                                const_cast<window&>(W), M);
 
     HS.forward();
 
@@ -380,17 +380,17 @@ static FBResult run_forward_only_single(genotype& G,
                                         const window& W,
                                         const std::vector<unsigned int>& idxH,
                                         const SuperSiteContext* ctx) {
-    const std::vector<SuperSite>* super_sites = ctx ? &ctx->super_sites : nullptr;
-    const std::vector<bool>* is_super_site = ctx ? &ctx->is_super_site : nullptr;
-    const std::vector<int>* locus_to_super_idx = ctx ? &ctx->locus_to_super_idx : nullptr;
-    const std::vector<int>* super_site_var_index = ctx ? &ctx->super_site_var_index : nullptr;
-    const uint8_t* panel_codes = (ctx && !ctx->packed_codes.empty()) ? ctx->packed_codes.data() : nullptr;
-    const size_t panel_codes_size = ctx ? ctx->packed_codes.size() : 0;
+    if (ctx) {
+        G.setSuperSiteContext(&ctx->super_sites, &ctx->locus_to_super_idx,
+                              &ctx->super_site_var_index, nullptr, nullptr, nullptr);
+        G.setSupersitePanelCodes(ctx->packed_codes.data(), ctx->packed_codes.size());
+    } else {
+        G.setSuperSiteContext(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        G.setSupersitePanelCodes(nullptr, 0);
+    }
 
     haplotype_segment_single HS(&G, H.H_opt_hap, const_cast<std::vector<unsigned int>&>(idxH),
-                                const_cast<window&>(W), M,
-                                super_sites, is_super_site, locus_to_super_idx,
-                                panel_codes, panel_codes_size, super_site_var_index);
+                                const_cast<window&>(W), M);
     HS.forward();
 
     FBResult res;

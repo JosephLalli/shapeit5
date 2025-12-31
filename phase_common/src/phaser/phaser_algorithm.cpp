@@ -56,14 +56,7 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 
 		if (G.vecG[id_job]->double_precision) {
 			//Run using double precision as underflow happened previously
-			haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M,
-				enable_supersites ? &super_sites : nullptr,
-				enable_supersites ? &is_super_site : nullptr,
-				enable_supersites ? &locus_to_super_idx : nullptr,
-				enable_supersites ? packed_allele_codes.data() : nullptr,
-				enable_supersites ? packed_allele_codes.size() : 0,
-				enable_supersites ? &super_site_var_index : nullptr,
-				nullptr);
+			haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M);
 			HS.forward();
 			outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M,
 			                      enable_supersites ? &threadData[id_worker].SC : nullptr,
@@ -71,30 +64,16 @@ void phaser::phaseWindow(int id_worker, int id_job) {
 			                      enable_supersites ? &threadData[id_worker].supersite_sc_offset : nullptr);
 		} else {
 			//Try single precision as this is faster
-			haplotype_segment_single HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M,
-				enable_supersites ? &super_sites : nullptr,
-				enable_supersites ? &is_super_site : nullptr,
-				enable_supersites ? &locus_to_super_idx : nullptr,
-				enable_supersites ? packed_allele_codes.data() : nullptr,
-				enable_supersites ? packed_allele_codes.size() : 0,
-				enable_supersites ? &super_site_var_index : nullptr);
+			haplotype_segment_single HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M);
 			HS.forward();
 			outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M,
 			                      enable_supersites ? &threadData[id_worker].SC : nullptr,
 			                      enable_supersites ? &threadData[id_worker].anchor_has_missing : nullptr,
 			                      enable_supersites ? &threadData[id_worker].supersite_sc_offset : nullptr);
-			const auto* shared_ss_panel_matrix = enable_supersites ? HS.get_ss_panel_matrix() : nullptr;
 
 			//Underflow happening with single precision, rerun using double precision
 			if (outcome != 0) {
-				haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M,
-					enable_supersites ? &super_sites : nullptr,
-					enable_supersites ? &is_super_site : nullptr,
-					enable_supersites ? &locus_to_super_idx : nullptr,
-					enable_supersites ? packed_allele_codes.data() : nullptr,
-					enable_supersites ? packed_allele_codes.size() : 0,
-					enable_supersites ? &super_site_var_index : nullptr,
-					shared_ss_panel_matrix);
+				haplotype_segment_double HS(G.vecG[id_job], H.H_opt_hap, threadData[id_worker].Kstates[w], threadData[id_worker].Windows.W[w], M);
 				HS.forward();
 				outcome = HS.backward(threadData[id_worker].T, threadData[id_worker].M,
 				                      enable_supersites ? &threadData[id_worker].SC : nullptr,
@@ -233,6 +212,7 @@ void phaser::rebuildSupersiteMetadata(const std::string& context) {
 
 	for (unsigned int i = 0; i < G.n_ind; ++i) {
 		G.vecG[i]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+		G.vecG[i]->setSupersitePanelCodes(packed_allele_codes.data(), packed_allele_codes.size());
 		G.vecG[i]->snapshotSupersitePhasedGts(super_sites, super_site_var_index);
 	}
 }

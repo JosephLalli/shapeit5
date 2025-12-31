@@ -422,6 +422,7 @@ int main() {
                             &ctx_ss.locus_to_super_idx,
                             &ctx_ss.super_site_var_index,
                             nullptr, nullptr, nullptr);
+    G_ss.setSupersitePanelCodes(ctx_ss.packed_codes.data(), ctx_ss.packed_codes.size());
     G_ss.snapshotSupersiteObservedGts(ctx_ss.super_sites, ctx_ss.super_site_var_index);
     G_ss.build();
 
@@ -471,17 +472,10 @@ int main() {
     std::cout << "\nBuilding HMM segments..." << std::endl;
 
     haplotype_segment_single HS_bial(&G_bial, H_bial.H_opt_hap, job_bial.Kstates[0],
-                                     job_bial.Windows.W[0], M_bial,
-                                     nullptr, nullptr, nullptr, nullptr, 0, nullptr);
+                                     job_bial.Windows.W[0], M_bial);
 
     haplotype_segment_single HS_ss(&G_ss, H_ss.H_opt_hap, job_ss.Kstates[0],
-                                  job_ss.Windows.W[0], M_ss,
-                                  &ctx_ss.super_sites,
-                                  &ctx_ss.is_super_site,
-                                  &ctx_ss.locus_to_super_idx,
-                                  ctx_ss.packed_codes.data(),
-                                  ctx_ss.packed_codes.size(),
-                                  &ctx_ss.super_site_var_index);
+                                  job_ss.Windows.W[0], M_ss);
 
     // Run forward pass to populate prob[]
     std::cout << "Running forward pass..." << std::endl;

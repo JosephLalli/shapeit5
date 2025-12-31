@@ -29,28 +29,21 @@
 
 using namespace std;
 
-haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M,
-    const std::vector<SuperSite>* _super_sites,
-    const std::vector<bool>* _is_super_site,
-    const std::vector<int>* _locus_to_super_idx,
-	const uint8_t* _panel_codes,
-	size_t _panel_codes_size,
-	const std::vector<int>* _super_site_var_index,
-	const std::vector<aligned_vector32<uint8_t>>* _shared_ss_panel_matrix) :
-	G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site),
-	locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), panel_codes_size(_panel_codes_size), super_site_var_index(_super_site_var_index), cond_idx(&idxH),
+haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M) :
+	G(_G), M(_M),
+	super_sites(_G ? _G->super_sites : nullptr),
+	locus_to_super_idx(_G ? _G->locus_to_super_idx : nullptr),
+	panel_codes(_G ? _G->supersite_panel_codes : nullptr),
+	super_site_var_index(_G ? _G->super_site_var_index : nullptr),
+	cond_idx(&idxH),
     supersite_sc_offset(nullptr),
-    ss_panel_matrix_ptr(_shared_ss_panel_matrix),
-    supersites_enabled_flag(_super_sites && _locus_to_super_idx && _super_site_var_index && (_panel_codes || _shared_ss_panel_matrix)) {
-	// Tests may skip explicit supersite setup; attach context and snapshot immutable
-	// supersite observed genotypes here to keep emissions well-defined.
-	if (G && supersites_enabled_flag) {
-		if (!G->super_sites || !G->locus_to_super_idx || !G->super_site_var_index) {
-			G->setSuperSiteContext(super_sites, locus_to_super_idx, super_site_var_index, nullptr, nullptr, nullptr);
-		}
-		if (G->ss_observed_gts.empty()) {
-			G->snapshotSupersiteObservedGts(*super_sites, *super_site_var_index);
-		}
+    supersites_enabled_flag(_G && _G->super_sites && _G->locus_to_super_idx && _G->super_site_var_index && _G->supersite_panel_codes) {
+	if (!supersites_enabled_flag) {
+		super_sites = nullptr;
+		locus_to_super_idx = nullptr;
+		super_site_var_index = nullptr;
+	} else if (G && G->ss_observed_gts.empty()) {
+		G->snapshotSupersiteObservedGts(*super_sites, *super_site_var_index);
 	}
 	segment_first = W.start_segment;
 	segment_last = W.stop_segment;
@@ -88,18 +81,15 @@ haplotype_segment_double::haplotype_segment_double(genotype * _G, bitmatrix & H,
 		ss_emissions = aligned_vector32<double>(n_cond_haps, 1.0);
 		ss_emissions_h1 = aligned_vector32<double>(n_cond_haps, 1.0);
 
-		if (!ss_panel_matrix_ptr || ss_panel_matrix_ptr->empty()) {
-			if (panel_codes) {
-				ss_panel_matrix.resize(super_sites->size());
-				for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
-					const SuperSite& ss = (*super_sites)[ss_idx];
-					ss_panel_matrix[ss_idx].resize(n_cond_haps);
-					for (unsigned int k = 0; k < n_cond_haps; ++k) {
-						unsigned int gh = (*cond_idx)[k];
-						ss_panel_matrix[ss_idx][k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-					}
+		if (panel_codes) {
+			ss_panel_matrix.resize(super_sites->size());
+			for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
+				const SuperSite& ss = (*super_sites)[ss_idx];
+				ss_panel_matrix[ss_idx].resize(n_cond_haps);
+				for (unsigned int k = 0; k < n_cond_haps; ++k) {
+					unsigned int gh = (*cond_idx)[k];
+					ss_panel_matrix[ss_idx][k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
 				}
-				ss_panel_matrix_ptr = &ss_panel_matrix;
 			}
 		}
 	}

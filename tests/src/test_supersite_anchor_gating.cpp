@@ -97,6 +97,8 @@ int main() {
     setup_genotype_simple(G, /*n_variants*/V.size());
     VAR_SET_HOM(MOD2(0), G.Variants[DIV2(0)]);
     VAR_SET_HOM(MOD2(1), G.Variants[DIV2(1)]);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
 
     std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
 
@@ -108,10 +110,7 @@ int main() {
     W_anchor.start_missing = 0; W_anchor.stop_missing = -1;
     W_anchor.start_transition = 0; W_anchor.stop_transition = -1;
 
-    haplotype_segment_single HS_anchor(
-        &G, H.H_opt_hap, idxH, W_anchor, M,
-        &super_sites, &is_super_site, &locus_to_super_idx,
-        packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS_anchor(&G, H.H_opt_hap, idxH, W_anchor, M);
     HS_anchor.forward();
 
     // Capture state after anchor-only
@@ -127,10 +126,7 @@ int main() {
     W_both.start_missing = 0; W_both.stop_missing = -1;
     W_both.start_transition = 0; W_both.stop_transition = -1;
 
-    haplotype_segment_single HS_both(
-        &G, H.H_opt_hap, idxH, W_both, M,
-        &super_sites, &is_super_site, &locus_to_super_idx,
-        packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS_both(&G, H.H_opt_hap, idxH, W_both, M);
     HS_both.forward();
 
     // Assert sibling is a true no-op (identical state as anchor-only forward)

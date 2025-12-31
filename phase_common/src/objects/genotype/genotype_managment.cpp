@@ -48,6 +48,8 @@ genotype::genotype(unsigned int _index) {
 	super_sites = nullptr;
 	locus_to_super_idx = nullptr;
 	super_site_var_index = nullptr;
+	supersite_panel_codes = nullptr;
+	supersite_panel_codes_size = 0;
 	SC = nullptr;
 	anchor_has_missing = nullptr;
 	supersite_sc_offset = nullptr;
@@ -70,6 +72,8 @@ void genotype::free() {
 	vector < uint8_t > ().swap(ss_observed_gts);
 	vector < float > ().swap(ProbSuperClass);
 	sc_storage_events = 0;
+	supersite_panel_codes = nullptr;
+	supersite_panel_codes_size = 0;
 }
 
 void genotype::seedRng(unsigned int base_seed) {
@@ -603,12 +607,26 @@ super_site_var_index = _super_site_var_index;
 SC = _SC;
 anchor_has_missing = _anchor_has_missing;
 supersite_sc_offset = _supersite_sc_offset;
+	if (!super_sites) {
+		supersite_panel_codes = nullptr;
+		supersite_panel_codes_size = 0;
+	}
 	if (super_sites) {
 		const size_t required = super_sites->size() * 2u;
 		if (ss_phased_gts.size() != required) {
 			ss_phased_gts.assign(required, SUPERSITE_CODE_MISSING);
 		}
 	}
+}
+
+void genotype::setSupersitePanelCodes(const uint8_t* _panel_codes, size_t _panel_codes_size) {
+	if (_panel_codes_size == 0) {
+		supersite_panel_codes = nullptr;
+		supersite_panel_codes_size = 0;
+		return;
+	}
+	supersite_panel_codes = _panel_codes;
+	supersite_panel_codes_size = _panel_codes_size;
 }
 
 void genotype::projectSupersites() {

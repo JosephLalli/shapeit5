@@ -43,6 +43,7 @@ inline uint8_t lane_expected_class(const SiteView& sv, int lane) {
 			return sv.lane_class[lane];
 	}
 }
+
 }
 
 // Sibling bookkeeping: update trace, maintain cursor/index sanity, no DP math
@@ -67,26 +68,21 @@ void haplotype_segment_single::COLLAPSE_SIB(const SiteView& site_view) {
 
 
 
-haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M,
-    const std::vector<SuperSite>* _super_sites,
-    const std::vector<bool>* _is_super_site,
-    const std::vector<int>* _locus_to_super_idx,
-	const uint8_t* _panel_codes,
-	size_t _panel_codes_size,
-	const std::vector<int>* _super_site_var_index) :
-	G(_G), M(_M), super_sites(_super_sites), is_super_site(_is_super_site),
-	locus_to_super_idx(_locus_to_super_idx), panel_codes(_panel_codes), panel_codes_size(_panel_codes_size), super_site_var_index(_super_site_var_index), cond_idx(&idxH),
+haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H, vector < unsigned int > & idxH, window & W, hmm_parameters & _M) :
+	G(_G), M(_M),
+	super_sites(_G ? _G->super_sites : nullptr),
+	locus_to_super_idx(_G ? _G->locus_to_super_idx : nullptr),
+	panel_codes(_G ? _G->supersite_panel_codes : nullptr),
+	super_site_var_index(_G ? _G->super_site_var_index : nullptr),
+	cond_idx(&idxH),
     supersite_sc_offset(nullptr),
-    supersites_enabled_flag(_super_sites && _locus_to_super_idx && _super_site_var_index && _panel_codes) {
-	// Tests may forget to attach supersite context; do it defensively so emissions
-	// always see immutable base classes (c0/c1) even without explicit setup.
-	if (G && supersites_enabled_flag) {
-		if (!G->super_sites || !G->locus_to_super_idx || !G->super_site_var_index) {
-			G->setSuperSiteContext(super_sites, locus_to_super_idx, super_site_var_index, nullptr, nullptr, nullptr);
-		}
-		if (G->ss_observed_gts.empty()) {
-			G->snapshotSupersiteObservedGts(*super_sites, *super_site_var_index);
-		}
+    supersites_enabled_flag(_G && _G->super_sites && _G->locus_to_super_idx && _G->super_site_var_index && _G->supersite_panel_codes) {
+	if (!supersites_enabled_flag) {
+		super_sites = nullptr;
+		locus_to_super_idx = nullptr;
+		super_site_var_index = nullptr;
+	} else if (G && G->ss_observed_gts.empty()) {
+		G->snapshotSupersiteObservedGts(*super_sites, *super_site_var_index);
 	}
 	segment_first = W.start_segment;
 	segment_last = W.stop_segment;
@@ -134,7 +130,7 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 
         // Populate static panel code matrix (like Hvar for biallelic)
         // Take a snapshot of current cond_idx to avoid dynamic dependency
-        if (super_sites && cond_idx) {
+        if (cond_idx) {
             ss_panel_matrix.resize(super_sites->size());
 
             for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
@@ -146,9 +142,8 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
                     unsigned int gh = (*cond_idx)[k];  // Snapshot: read cond_idx ONCE here
                     ss_panel_matrix[ss_idx][k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
                 }
-
+            }
         }
-    }
     }
 
 }

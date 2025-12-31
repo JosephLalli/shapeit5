@@ -114,9 +114,9 @@ int main() {
     std::vector<uint32_t> supersite_sc_offset(1, 1);  // Thread-local offset vector for test (+1 guard)
 
     // Run forward/backward
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx,
-           packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
     // Allocate forward buffers and then override minimal required state
     HS.forward();
 

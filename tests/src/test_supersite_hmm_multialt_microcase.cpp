@@ -389,12 +389,10 @@ static bool run_hmm_validation(TestContext& ctx,
                            &job.SC,
                            &job.anchor_has_missing,
                            &job.supersite_sc_offset);
+    g->setSupersitePanelCodes(ctx.packed_codes.data(), ctx.packed_codes.size());
 
     // Run forward pass
-    haplotype_segment_single HS(g, ctx.H.H_opt_hap, job.Kstates[0], job.Windows.W[0], ctx.M,
-                                &ctx.super_sites, &ctx.is_super_site, &ctx.locus_to_super_idx,
-                                ctx.packed_codes.data(), ctx.packed_codes.size(),
-                                &ctx.super_site_var_index);
+    haplotype_segment_single HS(g, ctx.H.H_opt_hap, job.Kstates[0], job.Windows.W[0], ctx.M);
     HS.forward();
 
     std::cout << "Forward pass completed. probSumT=" << HS.probSumT << std::endl;

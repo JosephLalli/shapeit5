@@ -128,6 +128,7 @@ void phaser::read_files_and_initialise() {
 			// Set supersite context for all genotypes BEFORE building segments
 			for (unsigned int i = 0; i < G.n_ind; i++) {
 				G.vecG[i]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+				G.vecG[i]->setSupersitePanelCodes(packed_allele_codes.data(), packed_allele_codes.size());
 			}
 			
 			// Update anchor variant encoding to reflect supersite genotype status

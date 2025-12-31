@@ -109,6 +109,8 @@ void run_float_double_parity_test(int thread_id, int iterations) {
             G.Diplotypes.assign(1, 1ull);
             VAR_SET_HET(0, G.Variants[0]); // het at anchor
             VAR_SET_HOM(1, G.Variants[0]); // REF at sibling
+            G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+            G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
 
             // Window
             window W;
@@ -121,13 +123,9 @@ void run_float_double_parity_test(int thread_id, int iterations) {
             std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
 
             // Run float and double HMM
-            haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-                &super_sites, &is_super_site, &locus_to_super_idx, 
-                packed_codes.data(), packed_codes.size(), &super_site_var_index);
+            haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
             
-            haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M,
-                &super_sites, &is_super_site, &locus_to_super_idx, 
-                packed_codes.data(), packed_codes.size(), &super_site_var_index);
+            haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M);
 
             HS.forward();
             HD.forward();
@@ -208,6 +206,8 @@ void run_backward_parity_test(int thread_id, int iterations) {
             G.Diplotypes.assign(1, 1ull);
             VAR_SET_HOM(0, G.Variants[0]);
             VAR_SET_HOM(1, G.Variants[0]);
+            G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+            G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
 
             window W;
             W.start_locus = 0; W.stop_locus = 1;
@@ -219,18 +219,14 @@ void run_backward_parity_test(int thread_id, int iterations) {
             std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
 
             // Float path
-            haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-                &super_sites, &is_super_site, &locus_to_super_idx, 
-                packed_codes.data(), packed_codes.size(), &super_site_var_index);
+            haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
             HS.forward();
             std::vector<double> T_f(G.countTransitions(), 0.0);
             std::vector<float> Mprob_f;
             HS.backward(T_f, Mprob_f, nullptr, nullptr);
 
             // Double path
-            haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M,
-                &super_sites, &is_super_site, &locus_to_super_idx, 
-                packed_codes.data(), packed_codes.size(), &super_site_var_index);
+            haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M);
             HD.forward();
             std::vector<double> T_d(G.countTransitions(), 0.0);
             std::vector<float> Mprob_d;

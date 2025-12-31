@@ -174,7 +174,7 @@ void test_all_biallelic() {
     std::vector<unsigned int> idxH = {0, 1};
     
     // Run forward pass
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, nullptr, nullptr, nullptr, nullptr, 0, nullptr);
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
     
     std::cout << "Forward pass:" << std::endl;
     HS.forward();
@@ -279,6 +279,8 @@ void test_one_multiallelic() {
     // Second split: homozygous REF (0|0)
     VAR_SET_HOM(MOD2(1), G.Variants[DIV2(1)]);
     
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
     // Build to initialize Diplotypes, Ambiguous, etc.
     G.build();
     
@@ -306,11 +308,7 @@ void test_one_multiallelic() {
     std::vector<unsigned int> idxH = {0, 1, 2, 3};
     
     // Run forward pass with supersite support
-    haplotype_segment_single HS(
-        &G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx,
-        packed_codes.data(), packed_codes.size(), &super_site_var_index
-    );
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
     
     std::cout << "Forward pass with supersite support:" << std::endl;
     HS.forward();
@@ -434,7 +432,7 @@ void test_missing_biallelic() {
     std::vector<unsigned int> idxH = {0, 1};
     
     // Run forward pass
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, nullptr, nullptr, nullptr, nullptr, 0, nullptr);
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
     
     std::cout << "Forward pass:" << std::endl;
     HS.forward();
@@ -528,6 +526,8 @@ void test_missing_multiallelic() {
     VAR_SET_MIS(MOD2(0), G.Variants[DIV2(0)]);
     VAR_SET_MIS(MOD2(1), G.Variants[DIV2(1)]);
     
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
     // Build to initialize Diplotypes, Ambiguous, etc.
     G.build();
     
@@ -555,11 +555,7 @@ void test_missing_multiallelic() {
     std::vector<unsigned int> idxH = {0, 1, 2, 3};
     
     // Run forward pass
-    haplotype_segment_single HS(
-        &G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx,
-        packed_codes.data(), packed_codes.size(), &super_site_var_index
-    );
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
     
     std::cout << "Forward pass with missing multiallelic data:" << std::endl;
     HS.forward();

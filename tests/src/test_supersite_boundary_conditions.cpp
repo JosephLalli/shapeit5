@@ -86,6 +86,8 @@ int main() {
     setup_genotype(G, V.size());
     VAR_SET_HOM(0, G.Variants[0]);
     VAR_SET_HOM(1, G.Variants[0]);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
 
     // 1) INIT boundary: window starts on sibling only
     window W_init;
@@ -95,8 +97,7 @@ int main() {
     W_init.start_missing = 0; W_init.stop_missing = -1;
     W_init.start_transition = 0; W_init.stop_transition = -1;
 
-    haplotype_segment_single HS_init(&G, H.H_opt_hap, idxH, W_init, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS_init(&G, H.H_opt_hap, idxH, W_init, M);
     HS_init.forward();
     // Expect neutral (uniform) init to prevent underflow
     assert(std::fabs(HS_init.probSumT - 1.0f) < 1e-6f);
@@ -109,8 +110,7 @@ int main() {
     W_anchor.start_missing = 0; W_anchor.stop_missing = -1;
     W_anchor.start_transition = 0; W_anchor.stop_transition = -1;
 
-    haplotype_segment_single HS_anchor(&G, H.H_opt_hap, idxH, W_anchor, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS_anchor(&G, H.H_opt_hap, idxH, W_anchor, M);
     HS_anchor.forward();
 
     window W_both;
@@ -120,8 +120,7 @@ int main() {
     W_both.start_missing = 0; W_both.stop_missing = -1;
     W_both.start_transition = 0; W_both.stop_transition = -1;
 
-    haplotype_segment_single HS_both(&G, H.H_opt_hap, idxH, W_both, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS_both(&G, H.H_opt_hap, idxH, W_both, M);
     HS_both.forward();
 
     // Sibling at end is a no-op → identical state

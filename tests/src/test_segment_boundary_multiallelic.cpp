@@ -255,6 +255,7 @@ bool test_single_multiallelic_per_segment() {
     Hwrap.H_opt_var.transpose(Hwrap.H_opt_hap);
     // Mirror supersite context
     Gset.vecG[0]->setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    Gset.vecG[0]->setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
     Gset.vecG[0]->snapshotSupersiteObservedGts(super_sites, super_site_var_index);
 
     compute_job job(V, Gset, Hwrap, /*max_trans*/128, /*max_missing*/64,
@@ -265,9 +266,7 @@ bool test_single_multiallelic_per_segment() {
     window W = job.Windows.W[0];
     W.stop_locus = W.start_locus;  // anchor only
     W.stop_segment = W.start_segment;
-    haplotype_segment_single HS(Gset.vecG[0], Hwrap.H_opt_hap, job.Kstates[0], W, M,
-                                &super_sites, nullptr, &locus_to_super_idx,
-                                packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS(Gset.vecG[0], Hwrap.H_opt_hap, job.Kstates[0], W, M);
 
     HS.forward();
     
@@ -531,9 +530,9 @@ bool test_segment_transition_multiallelic() {
     vector<unsigned int> idxH(n_cond_haps);
     for (int i = 0; i < n_cond_haps; ++i) idxH[i] = i;
     
-    haplotype_segment_single HS(&G, H, idxH, W, M,
-                                &super_sites, nullptr, &locus_to_super_idx,
-                                packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
+    haplotype_segment_single HS(&G, H, idxH, W, M);
     
     // Run forward and backward
     HS.forward();

@@ -66,6 +66,8 @@ int main() {
     G.Diplotypes.assign(1, 1ull);
     VAR_SET_HET(0, G.Variants[0]); // amb at anchor
     VAR_SET_HOM(1, G.Variants[0]); // REF at sibling
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
 
     window W;
     W.start_locus = 0; W.stop_locus = 1; // include sibling; gating should no-op it
@@ -76,10 +78,8 @@ int main() {
 
     std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
 
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
-    haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
+    haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M);
 
     HS.forward();
     HD.forward();

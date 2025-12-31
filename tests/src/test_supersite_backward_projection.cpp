@@ -99,8 +99,9 @@ int main() {
     W.start_transition = 0; W.stop_transition = -1;
 
     std::vector<unsigned int> idxH = {0u,1u,2u,3u};
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
 
     // Run forward to allocate buffers
     HS.forward();

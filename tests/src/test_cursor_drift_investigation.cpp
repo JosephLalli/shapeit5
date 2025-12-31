@@ -200,15 +200,8 @@ public:
                                   std::vector<unsigned int>& idxH,
                                   window& W, 
                                   hmm_parameters& M,
-                                  const std::vector<SuperSite>* super_sites,
-                                  const std::vector<bool>* is_super_site,
-                                  const std::vector<int>* locus_to_super_idx,
-                                  const uint8_t* panel_codes,
-                                  size_t panel_codes_size,
-                                  const std::vector<int>* super_site_var_index,
                                   CursorInvestigation* inv)
-        : haplotype_segment_double(G, H_opt_hap, idxH, W, M, super_sites, is_super_site,
-                                   locus_to_super_idx, panel_codes, panel_codes_size, super_site_var_index)
+        : haplotype_segment_double(G, H_opt_hap, idxH, W, M)
         , investigation(inv) {}
 
 private:
@@ -436,12 +429,10 @@ int main() {
     std::cout << "\nRunning cursor drift investigation..." << std::endl;
     
     CursorInvestigation investigation;
+    G.setSuperSiteContext(&ctx.super_sites, &ctx.locus_to_super_idx, &ctx.super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(ctx.packed_codes.data(), ctx.packed_codes.size());
     TrackedHaplotypeSegmentDouble HS(&G, H.H_opt_hap, const_cast<std::vector<unsigned int>&>(idxH),
-                                     W, M, &ctx.super_sites, &ctx.is_super_site, 
-                                     &ctx.locus_to_super_idx, 
-                                     ctx.packed_codes.empty() ? nullptr : ctx.packed_codes.data(),
-                                     ctx.packed_codes.size(), &ctx.super_site_var_index,
-                                     &investigation);
+                                     W, M, &investigation);
 
     // Run forward pass
     HS.forward();

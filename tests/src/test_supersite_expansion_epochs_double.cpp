@@ -401,6 +401,8 @@ static MiniContext build_context(bool supersite, unsigned int n_ref_samples) {
                                 &ctx.ss_context.locus_to_super_idx,
                                 &ctx.ss_context.super_site_var_index,
                                 nullptr, nullptr, nullptr);
+        g0->setSupersitePanelCodes(ctx.ss_context.packed_codes.data(),
+                                   ctx.ss_context.packed_codes.size());
         g0->snapshotSupersiteObservedGts(ctx.ss_context.super_sites,
                                          ctx.ss_context.super_site_var_index);
         // Rebuild after setting supersite context to populate supersite_flags
@@ -467,6 +469,8 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
                                    &ctx.ss_context.locus_to_super_idx,
                                    &ctx.ss_context.super_site_var_index,
                                    nullptr, nullptr, nullptr);
+        g_pre->setSupersitePanelCodes(ctx.ss_context.packed_codes.data(),
+                                      ctx.ss_context.packed_codes.size());
         g_pre->snapshotSupersitePhasedGts(ctx.ss_context.super_sites,
                                         ctx.ss_context.super_site_var_index);
     }
@@ -492,13 +496,7 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
 
     // DOUBLE PRECISION ONLY - Always use haplotype_segment_double
     for (int w = 0; w < job.size(); ++w) {
-        haplotype_segment_double HD(sample, ctx.H.H_opt_hap, job.Kstates[w], job.Windows.W[w], ctx.M,
-                                    ctx.enable_supersites ? &ctx.ss_context.super_sites : nullptr,
-                                    ctx.enable_supersites ? &ctx.ss_context.is_super_site : nullptr,
-                                    ctx.enable_supersites ? &ctx.ss_context.locus_to_super_idx : nullptr,
-                                    ctx.enable_supersites ? ctx.ss_context.packed_codes.data() : nullptr,
-                                    ctx.enable_supersites ? ctx.ss_context.packed_codes.size() : 0,
-                                    ctx.enable_supersites ? &ctx.ss_context.super_site_var_index : nullptr);
+        haplotype_segment_double HD(sample, ctx.H.H_opt_hap, job.Kstates[w], job.Windows.W[w], ctx.M);
         HD.forward();
         outcome = HD.backward(job.T, job.M,
                               ctx.enable_supersites ? &job.SC : nullptr,
@@ -520,8 +518,11 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
                                &job.SC,
                                &job.anchor_has_missing,
                                &job.supersite_sc_offset);
+        g->setSupersitePanelCodes(ctx.ss_context.packed_codes.data(),
+                                  ctx.ss_context.packed_codes.size());
     } else {
         g->setSuperSiteContext(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+        g->setSupersitePanelCodes(nullptr, 0);
     }
 
     switch (stage.type) {

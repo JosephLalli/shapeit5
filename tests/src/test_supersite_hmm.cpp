@@ -118,19 +118,9 @@ int main() {
 
     // Single-precision path
     std::cout << "  Running single-precision forward" << std::endl;
-    haplotype_segment_single HS(
-        &G,
-        H.H_opt_hap,
-        idxH,
-        W,
-        M,
-        &super_sites,
-        &is_super_site,
-        &locus_to_super_idx,
-    packed_codes.data(),
-    packed_codes.size(),
-    &super_site_var_index
-    );
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
 
     HS.forward();
     std::cout << "    single forward complete" << std::endl;
@@ -142,19 +132,7 @@ int main() {
 
     // Double-precision path
     std::cout << "  Running double-precision forward" << std::endl;
-    haplotype_segment_double HD(
-        &G,
-        H.H_opt_hap,
-        idxH,
-        W,
-        M,
-        &super_sites,
-        &is_super_site,
-        &locus_to_super_idx,
-    packed_codes.data(),
-    packed_codes.size(),
-    &super_site_var_index
-    );
+    haplotype_segment_double HD(&G, H.H_opt_hap, idxH, W, M);
 
     HD.forward();
     std::cout << "    double forward complete" << std::endl;

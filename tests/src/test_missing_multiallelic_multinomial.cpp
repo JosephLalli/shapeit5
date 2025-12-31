@@ -112,7 +112,7 @@ int main() {
     G.n_variants = V.size();
     G.n_segments = 1;
     G.n_ambiguous = 0;
-    G.n_missing = 3;  // One per split (but treated as one supersite)
+    G.n_missing = 3;  // One per split (supersite-aware build will collapse to anchor)
     G.n_transitions = 0;
     G.n_stored_transitionProbs = 0;
     G.n_storage_events = 0;
@@ -123,7 +123,6 @@ int main() {
     G.Lengths.assign(1, V.size());
     G.Lengths_bio = G.Lengths;
     G.Diplotypes.assign(1, 0);
-    G.ProbMissing.assign(G.n_missing, 0.0f);
     
     // Set all three splits to missing
     VAR_SET_MIS(MOD2(0), G.Variants[DIV2(0)]);
@@ -131,6 +130,12 @@ int main() {
     VAR_SET_MIS(MOD2(2), G.Variants[DIV2(2)]);
     
     std::cout << "  Sample genotype created with missing supersite" << std::endl;
+
+    // Supersite-aware build requires context up front to compute flags and missing counts.
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
+    G.build(); // Sets supersite flags like all_missing and diplotypes for transitions
+    G.ProbMissing.assign(G.n_missing, 0.0f);
     
     // Test 3: Verify getSampleSuperSiteAlleleCode returns MISSING
     uint8_t code_hap0 = getSampleSuperSiteAlleleCode(&G, ss, super_site_var_index, 0);
@@ -163,18 +168,14 @@ int main() {
     for (int i=0; i<3*2; ++i) cond_idx.push_back(i);
 
     // Instantiate HMM object
-    haplotype_segment_single hs(&G, H.H_opt_hap, cond_idx, W, M,
-                                &super_sites, &is_super_site, &locus_to_super_idx,
-                                packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single hs(&G, H.H_opt_hap, cond_idx, W, M);
 
     // Run forward pass
     hs.forward();
 
     // Setup for backward pass
-    // Build genotype to finalize segments/diplotypes and set supersite flags
     std::vector<float> SC(ss.n_classes * HAP_NUMBER, 0.0f);
     std::vector<bool> anchor_has_missing(super_sites.size(), false);
-    G.build(); // Sets the supersite flags like all_missing and diplotypes for transitions
 
     // Allocate buffers after build() so sizes reflect finalized genotype
     std::vector<double> transition_probabilities(G.countTransitions(), 0.0);
@@ -188,6 +189,7 @@ int main() {
     // Set genotype context for imputation (provide dummy offsets for SC buffer)
     std::vector<uint32_t> supersite_sc_offset(super_sites.size(), 0u);
     G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, &SC, &anchor_has_missing, &supersite_sc_offset);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
 
     // Run backward pass to calculate imputation posteriors (SC)
     hs.backward(transition_probabilities, missing_probabilities, &SC, &anchor_has_missing);
@@ -199,10 +201,10 @@ int main() {
     G.make(DipSampled, missing_probabilities);
     std::cout << "  Imputation via make() called" << std::endl;
 
-    // Test 6: Verify imputation results
-    // Get imputed allele classes
-    uint8_t imputed_c0 = getSampleSuperSiteAlleleCode(&G, ss, super_site_var_index, 0);
-    uint8_t imputed_c1 = getSampleSuperSiteAlleleCode(&G, ss, super_site_var_index, 1);
+    // Test 6: Verify imputation results using sampled supersite classes
+    uint8_t imputed_c0 = SUPERSITE_CODE_MISSING;
+    uint8_t imputed_c1 = SUPERSITE_CODE_MISSING;
+    G.getSupersitePhasedGt(0, imputed_c0, imputed_c1);
 
     std::cout << "  Imputed classes: c0=" << (int)imputed_c0 << ", c1=" << (int)imputed_c1 << std::endl;
 

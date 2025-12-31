@@ -104,6 +104,8 @@ int main() {
     setup_two_segment_genotype(G, /*n_variants=*/2, /*seg0=*/1, /*seg1=*/1);
     VAR_SET_HOM(0, G.Variants[0]);
     VAR_SET_HOM(1, G.Variants[0]);
+    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
 
     // Window covering both segments and both loci
     window W;
@@ -113,8 +115,7 @@ int main() {
     W.start_missing = 0; W.stop_missing = -1;
     W.start_transition = 0; W.stop_transition = 0; // single transition slot
 
-    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
 
     // Forward pass to populate Alpha/AlphaSum/AlphaSumSum
     HS.forward();
@@ -139,8 +140,7 @@ int main() {
     }
 
     // Now retry with double precision (simulating what phaser_algorithm does)
-    haplotype_segment_double HS_double(&G, H.H_opt_hap, idxH, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_double HS_double(&G, H.H_opt_hap, idxH, W, M);
     HS_double.forward();
     HS_double.AlphaSumSum[0] = 0.0;  // Force same zero condition
     int outcome_double = HS_double.backward(trans_probs, miss_probs);

@@ -208,7 +208,7 @@ bool test_forward_backward_with_empty_segment() {
         W.stop_transition = 100;  // Sufficient for test
 
         // Try single precision first
-        haplotype_segment_single HS(&G, H, idxH, W, M, nullptr, nullptr, nullptr, nullptr, 0, nullptr);
+        haplotype_segment_single HS(&G, H, idxH, W, M);
         HS.forward();
 
         std::vector<double> trans_probs(200, 0.0);
@@ -220,7 +220,7 @@ bool test_forward_backward_with_empty_segment() {
             std::cout << "  ❌ FAIL: Haploid underflow (single precision)" << std::endl;
 
             // Try double precision
-            haplotype_segment_double HD(&G, H, idxH, W, M, nullptr, nullptr, nullptr, nullptr, 0, nullptr);
+            haplotype_segment_double HD(&G, H, idxH, W, M);
             HD.forward();
             outcome = HD.backward(trans_probs, miss_probs, nullptr, nullptr, nullptr);
 

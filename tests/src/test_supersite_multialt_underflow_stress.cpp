@@ -310,13 +310,12 @@ int main() {
 
     G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index,
                           &SC, &anchor_has_missing, &supersite_sc_offset);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
 
     // Test 1: Single-precision forward/backward
     TEST_START("single_precision_stress", "Forward/backward with extreme low yt");
 
-    haplotype_segment_single HS(&G, H.H_opt_hap, cond_idx, W, M,
-        &super_sites, &is_super_site, &locus_to_super_idx,
-        packed_codes.data(), packed_codes.size(), &super_site_var_index);
+    haplotype_segment_single HS(&G, H.H_opt_hap, cond_idx, W, M);
 
     HS.forward();
 
@@ -357,9 +356,7 @@ int main() {
         // Test 2: Double-precision fallback
         TEST_START("double_precision_fallback", "Retry with double precision");
 
-        haplotype_segment_double HS_double(&G, H.H_opt_hap, cond_idx, W, M,
-            &super_sites, &is_super_site, &locus_to_super_idx,
-            packed_codes.data(), packed_codes.size(), &super_site_var_index);
+        haplotype_segment_double HS_double(&G, H.H_opt_hap, cond_idx, W, M);
 
         HS_double.forward();
         int outcome_double = HS_double.backward(transition_probs, missing_probs, &SC, &anchor_has_missing);

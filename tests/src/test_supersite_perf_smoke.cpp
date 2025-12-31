@@ -83,6 +83,7 @@ int main() {
         }
     }
     G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr);
+    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
     G.build();
 
     window W;
@@ -96,16 +97,18 @@ int main() {
     // Measure supersite-enabled
     auto t1 = clock::now();
     for (int r = 0; r < 10; ++r) {
-        haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, &super_sites, &is_super_site, &locus_to_super_idx, packed_codes.data(), packed_codes.size(), &super_site_var_index);
+        haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
         HS.forward();
     }
     auto t2 = clock::now();
     auto ms_ss = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 
     // Measure biallelic-only (no supersite pointers)
+    G.setSuperSiteContext(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    G.setSupersitePanelCodes(nullptr, 0);
     t1 = clock::now();
     for (int r = 0; r < 10; ++r) {
-        haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M, nullptr, nullptr, nullptr, nullptr, 0, nullptr);
+        haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
         HS.forward();
     }
     t2 = clock::now();
