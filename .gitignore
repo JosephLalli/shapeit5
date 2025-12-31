@@ -18,7 +18,7 @@ tests/coverage
 test/logs/*
 tests/logs/*
 tests/out/*
-./*bcf
+/*.bcf
 **tsv
 **tsv.gz
 
@@ -39,3 +39,11 @@ test/tmp/*
 1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.biallelic.*
 .AGENT_markdowns
 1KGP.CHM13v2.0.chr22.snp_indel.biallelic.samesites_as_filtered.bcf
+.AGENTS_markdown/haplotype_segment_single_mainbranch.h
+.AGENTS_markdown/haplotype_segment_single_mainbranch.cpp
+.AGENTS_markdown/
+
+# Local scripts
+test/scripts/cluster_trs.py
+test/scripts/extract_snp_indel_switch_errors.py
+test/scripts/lib/detect_alt_violations.py
