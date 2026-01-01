@@ -122,10 +122,10 @@ private:
 	void INIT_AMB();
 	void INIT_MIS();
 	// Sibling-specific no-op DP helpers (bookkeeping only)
-	void INIT_SIB(const LocusView& view);
-	void RUN_SIB(const LocusView& view);
-	void COLLAPSE_SIB(const LocusView& view);
-	void handle_sibling_bookkeeping(const LocusView& view);
+	void INIT_SIB(const SiteView& view);
+	void RUN_SIB(const SiteView& view);
+	void COLLAPSE_SIB(const SiteView& view);
+	void handle_sibling_bookkeeping(const SiteView& view);
 	bool RUN_HOM(char);
 	void RUN_AMB();
 	void RUN_MIS();
@@ -795,22 +795,22 @@ void haplotype_segment_double::INIT_MIS() {
 }
 
 inline
-void haplotype_segment_double::handle_sibling_bookkeeping(const LocusView& view) {
+void haplotype_segment_double::handle_sibling_bookkeeping(const SiteView& view) {
 	(void)view;
 }
 
 inline
-void haplotype_segment_double::INIT_SIB(const LocusView& view) {
+void haplotype_segment_double::INIT_SIB(const SiteView& view) {
 	INIT_MIS();
 }
 
 inline
-void haplotype_segment_double::RUN_SIB(const LocusView& view) {
+void haplotype_segment_double::RUN_SIB(const SiteView& view) {
 	handle_sibling_bookkeeping(view);
 }
 
 inline
-void haplotype_segment_double::COLLAPSE_SIB(const LocusView& view) {
+void haplotype_segment_double::COLLAPSE_SIB(const SiteView& view) {
 	handle_sibling_bookkeeping(view);
 }
 

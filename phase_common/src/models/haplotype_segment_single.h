@@ -103,8 +103,8 @@ private:
 		float match[HAP_NUMBER];
 		float neither;
 	};
-	LaneWeights compute_lane_match_weights(const LocusView& view) const;
-	void build_lane_priors_first(const LocusView& view, double lane_probs[HAP_NUMBER]) const;
+	LaneWeights compute_lane_match_weights(const SiteView& view) const;
+	void build_lane_priors_first(const SiteView& view, double lane_probs[HAP_NUMBER]) const;
 
 		//SUPER-SITE SUPPORT
 		const std::vector<SuperSite>* super_sites;
@@ -132,10 +132,10 @@ private:
 	void INIT_AMB();
 	void INIT_MIS();
 	// Sibling-specific no-op DP helpers (bookkeeping only)
-	void INIT_SIB(const LocusView& view);
-	void RUN_SIB(const LocusView& view);
-	void COLLAPSE_SIB(const LocusView& view);
-	void handle_sibling_bookkeeping(const LocusView& view);
+	void INIT_SIB(const SiteView& view);
+	void RUN_SIB(const SiteView& view);
+	void COLLAPSE_SIB(const SiteView& view);
+	void handle_sibling_bookkeeping(const SiteView& view);
 	bool RUN_HOM(char);
 	void RUN_AMB();
 	void RUN_MIS();
