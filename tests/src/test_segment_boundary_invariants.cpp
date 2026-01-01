@@ -28,7 +28,7 @@
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 
 
-#include "test_reporting.h"
+#include "test_common.h"
 // Expose private members for testing
 #define private public
 #define protected public

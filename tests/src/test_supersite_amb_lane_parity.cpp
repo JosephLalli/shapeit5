@@ -50,7 +50,7 @@
 #include <cstdlib>
 
 #include "../../common/src/utils/otools.h"
-#include "test_reporting.h"
+#include "test_common.h"
 
 #define private public
 #define protected public

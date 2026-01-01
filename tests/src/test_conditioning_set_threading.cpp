@@ -16,10 +16,9 @@
 #include <thread>
 #include <chrono>
 
-#include "test_framework.h"
+#include "test_common.h"
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
 
 #define private public
 #define protected public
@@ -28,8 +27,6 @@
 #include "../../phase_common/src/containers/genotype_set.h"
 #undef private
 #undef protected
-
-using namespace test_framework;
 
 // Mock conditioning set for testing PBWT threading
 class MockConditioningSet {
@@ -138,231 +135,226 @@ public:
 
 // Test basic PBWT selection thread safety
 void test_pbwt_selection_thread_safety() {
-    TEST_RUN("pbwt_selection_thread_safety", []() {
-        MockConditioningSet conditioning_set;
-        
-        // Test with different thread counts
-        for (int thread_count : {2, 4, 6}) {
-            conditioning_set.reset();
-            conditioning_set.max_sites = 80;
-            conditioning_set.setup_test_data();
-            
-            TEST_THREADED("pbwt_selection_threads_" + std::to_string(thread_count), 
-                         thread_count, 
-                         [&](int thread_id) {
-                             conditioning_set.simulate_selecter_thread(thread_id);
-                         });
-            
-            TEST_ASSERT(conditioning_set.verify_consistency(), 
-                       "PBWT selection consistency with " + std::to_string(thread_count) + " threads");
-        }
-    });
+    MockConditioningSet conditioning_set;
+
+    // Test with different thread counts
+    for (int thread_count : {2, 4, 6}) {
+        conditioning_set.reset();
+        conditioning_set.max_sites = 80;
+        conditioning_set.setup_test_data();
+
+        TEST_THREADED("pbwt_selection_threads_" + std::to_string(thread_count),
+                     thread_count,
+                     [&](int thread_id) {
+                         conditioning_set.simulate_selecter_thread(thread_id);
+                     });
+
+        TEST_CHECK(conditioning_set.verify_consistency(),
+                   "pbwt_selection_consistency_threads_" + std::to_string(thread_count),
+                   "PBWT selection consistency with " + std::to_string(thread_count) + " threads");
+    }
 }
 
 // Test worker ID assignment uniqueness
 void test_worker_id_assignment() {
-    TEST_RUN("worker_id_assignment", []() {
-        MockConditioningSet conditioning_set;
-        std::atomic<int> worker_assignments[8] = {};
-        
-        TEST_THREADED("worker_id_uniqueness", 8, [&](int thread_id) {
-            pthread_mutex_lock(&conditioning_set.mutex_workers);
-            int assigned_worker_id = conditioning_set.i_worker++;
-            pthread_mutex_unlock(&conditioning_set.mutex_workers);
-            
-            if (assigned_worker_id < 8) {
-                worker_assignments[assigned_worker_id].fetch_add(1);
-            }
-        });
-        
-        // Verify each worker ID assigned exactly once
-        for (int i = 0; i < 8; i++) {
-            TEST_ASSERT(worker_assignments[i].load() == 1, 
-                       "worker ID " + std::to_string(i) + " assigned once");
+    MockConditioningSet conditioning_set;
+    std::atomic<int> worker_assignments[8] = {};
+
+    TEST_THREADED("worker_id_uniqueness", 8, [&](int thread_id) {
+        pthread_mutex_lock(&conditioning_set.mutex_workers);
+        int assigned_worker_id = conditioning_set.i_worker++;
+        pthread_mutex_unlock(&conditioning_set.mutex_workers);
+
+        if (assigned_worker_id < 8) {
+            worker_assignments[assigned_worker_id].fetch_add(1);
         }
     });
+
+    // Verify each worker ID assigned exactly once
+    for (int i = 0; i < 8; i++) {
+        TEST_CHECK(worker_assignments[i].load() == 1,
+                   "worker_id_unique_" + std::to_string(i),
+                   "worker ID " + std::to_string(i) + " assigned once");
+    }
 }
 
 // Test job distribution fairness
 void test_job_distribution() {
-    TEST_RUN("job_distribution", []() {
-        MockConditioningSet conditioning_set;
-        conditioning_set.max_sites = 100;
-        conditioning_set.setup_test_data();
-        
-        std::atomic<int> jobs_per_thread[4] = {};
-        
-        TEST_THREADED("job_distribution_fairness", 4, [&](int thread_id) {
-            int local_jobs = 0;
-            
-            while (true) {
-                pthread_mutex_lock(&conditioning_set.mutex_workers);
-                int job_id = conditioning_set.i_job++;
-                pthread_mutex_unlock(&conditioning_set.mutex_workers);
-                
-                if (job_id >= conditioning_set.max_sites) break;
-                
-                local_jobs++;
-                conditioning_set.simulate_pbwt_select(job_id);
-                usleep(10);
-            }
-            
-            jobs_per_thread[thread_id].store(local_jobs);
-        });
-        
-        // Verify reasonable job distribution (no thread should be starved)
-        int total_jobs = 0;
-        for (int i = 0; i < 4; i++) {
-            int thread_jobs = jobs_per_thread[i].load();
-            total_jobs += thread_jobs;
-            TEST_ASSERT(thread_jobs > 0, "thread " + std::to_string(i) + " got some jobs");
+    MockConditioningSet conditioning_set;
+    conditioning_set.max_sites = 100;
+    conditioning_set.setup_test_data();
+
+    std::atomic<int> jobs_per_thread[4] = {};
+
+    TEST_THREADED("job_distribution_fairness", 4, [&](int thread_id) {
+        int local_jobs = 0;
+
+        while (true) {
+            pthread_mutex_lock(&conditioning_set.mutex_workers);
+            int job_id = conditioning_set.i_job++;
+            pthread_mutex_unlock(&conditioning_set.mutex_workers);
+
+            if (job_id >= conditioning_set.max_sites) break;
+
+            local_jobs++;
+            conditioning_set.simulate_pbwt_select(job_id);
+            usleep(10);
         }
-        
-        TEST_ASSERT(total_jobs == conditioning_set.max_sites, "all jobs distributed");
+
+        jobs_per_thread[thread_id].store(local_jobs);
     });
+
+    // Verify reasonable job distribution (no thread should be starved)
+    int total_jobs = 0;
+    for (int i = 0; i < 4; i++) {
+        int thread_jobs = jobs_per_thread[i].load();
+        total_jobs += thread_jobs;
+        TEST_CHECK(thread_jobs > 0,
+                   "job_distribution_thread_" + std::to_string(i),
+                   "thread " + std::to_string(i) + " got some jobs");
+    }
+
+    TEST_CHECK(total_jobs == conditioning_set.max_sites,
+               "job_distribution_total",
+               "all jobs distributed");
 }
 
 // Test progress tracking thread safety
 void test_progress_tracking() {
-    TEST_RUN("progress_tracking", []() {
-        MockConditioningSet conditioning_set;
-        conditioning_set.max_sites = 60;
-        conditioning_set.setup_test_data();
-        
-        TEST_THREADED("progress_updates", 3, [&](int thread_id) {
-            for (int i = 0; i < 20; i++) {
-                pthread_mutex_lock(&conditioning_set.mutex_workers);
-                conditioning_set.d_job++;
-                conditioning_set.progress_updates.fetch_add(1);
-                pthread_mutex_unlock(&conditioning_set.mutex_workers);
-                
-                usleep(5);
-            }
-        });
-        
-        TEST_ASSERT(conditioning_set.d_job == 60, "progress counter correct");
-        TEST_ASSERT(conditioning_set.progress_updates.load() == 60, "progress updates correct");
+    MockConditioningSet conditioning_set;
+    conditioning_set.max_sites = 60;
+    conditioning_set.setup_test_data();
+
+    TEST_THREADED("progress_updates", 3, [&](int thread_id) {
+        for (int i = 0; i < 20; i++) {
+            pthread_mutex_lock(&conditioning_set.mutex_workers);
+            conditioning_set.d_job++;
+            conditioning_set.progress_updates.fetch_add(1);
+            pthread_mutex_unlock(&conditioning_set.mutex_workers);
+
+            usleep(5);
+        }
     });
+
+    TEST_CHECK(conditioning_set.d_job == 60, "progress_counter_correct", "progress counter correct");
+    TEST_CHECK(conditioning_set.progress_updates.load() == 60,
+               "progress_updates_correct",
+               "progress updates correct");
 }
 
 // Test concurrent PBWT state access
 void test_pbwt_state_access() {
-    TEST_RUN("pbwt_state_access", []() {
-        MockConditioningSet conditioning_set;
-        conditioning_set.max_sites = 50;
-        conditioning_set.setup_test_data();
-        
-        std::atomic<int> state_conflicts{0};
-        
-        TEST_THREADED("pbwt_concurrent_access", 4, [&](int thread_id) {
-            for (int i = thread_id; i < conditioning_set.max_sites; i += 4) {
-                // Try to process site i
-                bool expected = false;
-                bool was_processed = conditioning_set.pbwt_processed[i];
-                
-                if (was_processed) {
-                    state_conflicts.fetch_add(1);
-                } else {
-                    conditioning_set.pbwt_processed[i] = true;
-                    conditioning_set.selection_count.fetch_add(1);
-                }
-                
-                usleep(20);
+    MockConditioningSet conditioning_set;
+    conditioning_set.max_sites = 50;
+    conditioning_set.setup_test_data();
+
+    std::atomic<int> state_conflicts{0};
+
+    TEST_THREADED("pbwt_concurrent_access", 4, [&](int thread_id) {
+        for (int i = thread_id; i < conditioning_set.max_sites; i += 4) {
+            // Try to process site i
+            bool expected = false;
+            bool was_processed = conditioning_set.pbwt_processed[i];
+
+            if (was_processed) {
+                state_conflicts.fetch_add(1);
+            } else {
+                conditioning_set.pbwt_processed[i] = true;
+                conditioning_set.selection_count.fetch_add(1);
             }
-        });
-        
-        // With proper partitioning, there should be no conflicts
-        TEST_ASSERT(state_conflicts.load() == 0, "no PBWT state conflicts");
-        
-        // Count processed sites
-        int processed_count = 0;
-        for (bool processed : conditioning_set.pbwt_processed) {
-            if (processed) processed_count++;
+
+            usleep(20);
         }
-        
-        TEST_ASSERT(processed_count == conditioning_set.max_sites, "all sites processed");
     });
+
+    // With proper partitioning, there should be no conflicts
+    TEST_CHECK(state_conflicts.load() == 0, "pbwt_no_state_conflicts", "no PBWT state conflicts");
+
+    // Count processed sites
+    int processed_count = 0;
+    for (bool processed : conditioning_set.pbwt_processed) {
+        if (processed) processed_count++;
+    }
+
+    TEST_CHECK(processed_count == conditioning_set.max_sites, "pbwt_all_sites_processed", "all sites processed");
 }
 
 // Test stress conditions with high contention
 void test_high_contention_stress() {
-    TEST_RUN("high_contention_stress", []() {
-        MockConditioningSet conditioning_set;
-        conditioning_set.max_sites = 200;
-        conditioning_set.setup_test_data();
-        
-        TEST_STRESS("pbwt_high_contention", 5, 8, [&](int thread_id) {
-            // Simulate heavy mutex contention
-            for (int i = 0; i < 25; i++) {
+    MockConditioningSet conditioning_set;
+    conditioning_set.max_sites = 200;
+    conditioning_set.setup_test_data();
+
+    TEST_STRESS("pbwt_high_contention", 5, 8, [&](int thread_id) {
+        // Simulate heavy mutex contention
+        for (int i = 0; i < 25; i++) {
+            pthread_mutex_lock(&conditioning_set.mutex_workers);
+            int job_id = conditioning_set.i_job++;
+            pthread_mutex_unlock(&conditioning_set.mutex_workers);
+
+            if (job_id < conditioning_set.max_sites) {
+                conditioning_set.simulate_pbwt_select(job_id);
+
                 pthread_mutex_lock(&conditioning_set.mutex_workers);
-                int job_id = conditioning_set.i_job++;
+                conditioning_set.d_job++;
                 pthread_mutex_unlock(&conditioning_set.mutex_workers);
-                
-                if (job_id < conditioning_set.max_sites) {
-                    conditioning_set.simulate_pbwt_select(job_id);
-                    
-                    pthread_mutex_lock(&conditioning_set.mutex_workers);
-                    conditioning_set.d_job++;
-                    pthread_mutex_unlock(&conditioning_set.mutex_workers);
-                }
-                
-                // Minimal work to increase contention
-                usleep(1);
             }
-        });
-        
-        // Verify final state consistency
-        TEST_ASSERT(conditioning_set.selection_count.load() >= conditioning_set.max_sites,
-                   "selection count after stress test");
+
+            // Minimal work to increase contention
+            usleep(1);
+        }
     });
+
+    // Verify final state consistency
+    TEST_CHECK(conditioning_set.selection_count.load() >= conditioning_set.max_sites,
+               "pbwt_selection_count_post_stress",
+               "selection count after stress test");
 }
 
 // Test deadlock detection in PBWT operations
 void test_pbwt_deadlock_detection() {
-    TEST_RUN("pbwt_deadlock_detection", []() {
-        MockConditioningSet conditioning_set;
-        conditioning_set.max_sites = 30;
-        conditioning_set.setup_test_data();
-        
-        TEST_DEADLOCK_DETECTION("pbwt_deadlock_test", 10, 4, [&](int thread_id) {
-            for (int i = 0; i < 8; i++) {
-                pthread_mutex_lock(&conditioning_set.mutex_workers);
-                int job_id = conditioning_set.i_job++;
-                pthread_mutex_unlock(&conditioning_set.mutex_workers);
-                
-                if (job_id < conditioning_set.max_sites) {
-                    conditioning_set.simulate_pbwt_select(job_id);
-                }
-                
-                usleep(100);
+    MockConditioningSet conditioning_set;
+    conditioning_set.max_sites = 30;
+    conditioning_set.setup_test_data();
+
+    TEST_DEADLOCK_DETECTION("pbwt_deadlock_test", 10, 4, [&](int thread_id) {
+        for (int i = 0; i < 8; i++) {
+            pthread_mutex_lock(&conditioning_set.mutex_workers);
+            int job_id = conditioning_set.i_job++;
+            pthread_mutex_unlock(&conditioning_set.mutex_workers);
+
+            if (job_id < conditioning_set.max_sites) {
+                conditioning_set.simulate_pbwt_select(job_id);
             }
-        });
+
+            usleep(100);
+        }
     });
 }
 
 // Test behavior without mutex (should show race conditions)
 void test_no_mutex_races() {
-    TEST_RUN("no_mutex_races", []() {
-        MockConditioningSet conditioning_set;
-        conditioning_set.enable_mutex = false;
-        conditioning_set.max_sites = 100;
-        conditioning_set.setup_test_data();
-        
-        std::vector<std::thread> threads;
-        for (int i = 0; i < 4; i++) {
-            threads.emplace_back([&conditioning_set, i]() {
-                conditioning_set.simulate_selecter_thread(i);
-            });
-        }
-        
-        for (auto& t : threads) {
-            t.join();
-        }
-        
-        // Without mutex protection, we expect potential issues
-        bool has_issues = !conditioning_set.verify_consistency();
-        std::cout << "No-mutex PBWT test: " << (has_issues ? "detected race conditions" : "no issues detected") << std::endl;
-    });
+    TEST_START("no_mutex_races");
+    MockConditioningSet conditioning_set;
+    conditioning_set.enable_mutex = false;
+    conditioning_set.max_sites = 100;
+    conditioning_set.setup_test_data();
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 4; i++) {
+        threads.emplace_back([&conditioning_set, i]() {
+            conditioning_set.simulate_selecter_thread(i);
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // Without mutex protection, we expect potential issues
+    bool has_issues = !conditioning_set.verify_consistency();
+    std::cout << "No-mutex PBWT test: " << (has_issues ? "detected race conditions" : "no issues detected") << std::endl;
+    TEST_PASS("no_mutex_races");
 }
 
 // Main test runner
@@ -380,5 +372,5 @@ int main() {
     test_no_mutex_races();
     
     TEST_SUMMARY();
-    return TEST_EXIT();
+    return TestReporting::exit_code();
 }

@@ -13,7 +13,7 @@
 #include "../../phase_common/src/objects/variant.h"
 
 
-#include "test_reporting.h"
+#include "test_common.h"
 // Helper to create SuperSite structure
 static SuperSite make_supersite(unsigned int site_id, unsigned char chr, int bp, 
                                 unsigned char n_alts, uint32_t panel_offset,

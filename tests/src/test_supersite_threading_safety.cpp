@@ -18,10 +18,9 @@
 #include <chrono>
 #include <memory>
 
-#include "test_framework.h"
+#include "test_common.h"
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
 
 #define private public
 #define protected public
@@ -32,8 +31,6 @@
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 #undef private
 #undef protected
-
-using namespace test_framework;
 
 // Mock SuperSite threading environment
 class MockSuperSiteThreading {
@@ -249,185 +246,175 @@ public:
 
 // Test SuperSite context setting thread safety
 void test_supersite_context_thread_safety() {
-    TEST_RUN("supersite_context_thread_safety", []() {
-        MockSuperSiteThreading mock;
-        
-        TEST_THREADED("context_setting", 4, [&](int thread_id) {
-            mock.simulate_set_supersite_context(thread_id);
-        });
-        
-        TEST_ASSERT(mock.verify_consistency(), "SuperSite context setting consistency");
+    MockSuperSiteThreading mock;
+
+    TEST_THREADED("context_setting", 4, [&](int thread_id) {
+        mock.simulate_set_supersite_context(thread_id);
     });
+
+    TEST_CHECK(mock.verify_consistency(),
+               "supersite_context_consistency",
+               "SuperSite context setting consistency");
 }
 
 // Test SC buffer concurrent access
 void test_sc_buffer_concurrent_access() {
-    TEST_RUN("sc_buffer_concurrent_access", []() {
-        MockSuperSiteThreading mock;
-        
-        TEST_THREADED("sc_buffer_access", 4, [&](int thread_id) {
-            mock.simulate_sc_buffer_access(thread_id);
-        });
-        
-        // Verify access counts
-        int total_accesses = 0;
-        for (const auto& tdata_ptr : mock.thread_data) {
-            total_accesses += tdata_ptr->access_count.load();
-        }
-        
-        TEST_ASSERT(total_accesses == 4 * 20 * mock.num_supersites, "SC buffer access count");
+    MockSuperSiteThreading mock;
+
+    TEST_THREADED("sc_buffer_access", 4, [&](int thread_id) {
+        mock.simulate_sc_buffer_access(thread_id);
     });
+
+    // Verify access counts
+    int total_accesses = 0;
+    for (const auto& tdata_ptr : mock.thread_data) {
+        total_accesses += tdata_ptr->access_count.load();
+    }
+
+    TEST_CHECK(total_accesses == 4 * 20 * mock.num_supersites,
+               "sc_buffer_access_count",
+               "SC buffer access count");
 }
 
 // Test anchor flag thread safety
 void test_anchor_flag_thread_safety() {
-    TEST_RUN("anchor_flag_thread_safety", []() {
-        MockSuperSiteThreading mock;
-        
-        TEST_THREADED("anchor_flag_access", 3, [&](int thread_id) {
-            mock.simulate_anchor_flag_access(thread_id);
-        });
-        
-        // Verify that flags were modified
-        bool flags_modified = false;
-        for (const auto& tdata_ptr : mock.thread_data) {
-            for (bool flag : tdata_ptr->anchor_has_missing) {
-                if (flag) {
-                    flags_modified = true;
-                    break;
-                }
-            }
-            if (flags_modified) break;
-        }
-        
-        TEST_ASSERT(flags_modified, "anchor flags were modified");
+    MockSuperSiteThreading mock;
+
+    TEST_THREADED("anchor_flag_access", 3, [&](int thread_id) {
+        mock.simulate_anchor_flag_access(thread_id);
     });
+
+    // Verify that flags were modified
+    bool flags_modified = false;
+    for (const auto& tdata_ptr : mock.thread_data) {
+        for (bool flag : tdata_ptr->anchor_has_missing) {
+            if (flag) {
+                flags_modified = true;
+                break;
+            }
+        }
+        if (flags_modified) break;
+    }
+
+    TEST_CHECK(flags_modified, "anchor_flags_modified", "anchor flags were modified");
 }
 
 // Test SC offset consistency
 void test_sc_offset_consistency() {
-    TEST_RUN("sc_offset_consistency", []() {
-        MockSuperSiteThreading mock;
-        
-        TEST_THREADED("sc_offset_updates", 4, [&](int thread_id) {
-            for (int ss = 0; ss < mock.num_supersites; ss++) {
-                pthread_mutex_lock(&mock.supersite_mutex);
-                
-                // Set consistent offset
-                mock.thread_data[thread_id]->supersite_sc_offset[ss] = ss * mock.num_haplotypes * 4;
-                
-                // Verify offset is within bounds
-                uint32_t offset = mock.thread_data[thread_id]->supersite_sc_offset[ss];
-                uint32_t max_offset = mock.num_supersites * mock.num_haplotypes * 4;
-                
-                TEST_THREADED_ASSERT(offset <= max_offset, 
-                    "SC offset within bounds for thread " + std::to_string(thread_id) + " ss " + std::to_string(ss));
-                
-                pthread_mutex_unlock(&mock.supersite_mutex);
-                
-                usleep(5);
-            }
-        });
+    MockSuperSiteThreading mock;
+
+    TEST_THREADED("sc_offset_updates", 4, [&](int thread_id) {
+        for (int ss = 0; ss < mock.num_supersites; ss++) {
+            pthread_mutex_lock(&mock.supersite_mutex);
+
+            // Set consistent offset
+            mock.thread_data[thread_id]->supersite_sc_offset[ss] = ss * mock.num_haplotypes * 4;
+
+            // Verify offset is within bounds
+            uint32_t offset = mock.thread_data[thread_id]->supersite_sc_offset[ss];
+            uint32_t max_offset = mock.num_supersites * mock.num_haplotypes * 4;
+
+            TEST_THREADED_ASSERT(offset <= max_offset,
+                "SC offset within bounds for thread " + std::to_string(thread_id) + " ss " + std::to_string(ss));
+
+            pthread_mutex_unlock(&mock.supersite_mutex);
+
+            usleep(5);
+        }
     });
 }
 
 // Test stress conditions with many SuperSites
 void test_supersite_stress() {
-    TEST_RUN("supersite_stress", []() {
-        MockSuperSiteThreading mock;
-        mock.num_supersites = 50; // More SuperSites for stress
-        mock.num_threads = 6;     // Match the stress-thread count
-        mock.setup_test_data();
-        
-        TEST_STRESS("supersite_high_load", 3, 6, [&](int thread_id) {
-            // Combine multiple operations
-            mock.simulate_set_supersite_context(thread_id);
-            mock.simulate_sc_buffer_access(thread_id);
-        });
-        
-        TEST_ASSERT(mock.context_sets.load() >= mock.num_threads * 3, "stress test context sets");
+    MockSuperSiteThreading mock;
+    mock.num_supersites = 50; // More SuperSites for stress
+    mock.num_threads = 6;     // Match the stress-thread count
+    mock.setup_test_data();
+
+    TEST_STRESS("supersite_high_load", 3, 6, [&](int thread_id) {
+        // Combine multiple operations
+        mock.simulate_set_supersite_context(thread_id);
+        mock.simulate_sc_buffer_access(thread_id);
     });
+
+    TEST_CHECK(mock.context_sets.load() >= mock.num_threads * 3,
+               "supersite_stress_context_sets",
+               "stress test context sets");
 }
 
 // Test memory consistency across threads
 void test_memory_consistency() {
-    TEST_RUN("memory_consistency", []() {
-        MockSuperSiteThreading mock;
-        
-        // Initialize with known pattern
-        for (int t = 0; t < mock.num_threads; t++) {
-            for (int i = 0; i < mock.thread_data[t]->SC.size(); i++) {
-                mock.thread_data[t]->SC[i] = t * 100.0f + i;
-            }
+    MockSuperSiteThreading mock;
+
+    // Initialize with known pattern
+    for (int t = 0; t < mock.num_threads; t++) {
+        for (int i = 0; i < mock.thread_data[t]->SC.size(); i++) {
+            mock.thread_data[t]->SC[i] = t * 100.0f + i;
         }
-        
-        TEST_THREADED("memory_verification", 4, [&](int thread_id) {
-            // Verify memory consistency
-            for (int i = 0; i < mock.thread_data[thread_id]->SC.size(); i++) {
-                float expected = thread_id * 100.0f + i;
-                float actual = mock.thread_data[thread_id]->SC[i];
-                
-                TEST_THREADED_ASSERT(std::abs(actual - expected) < 1e-6, 
-                    "memory consistency at index " + std::to_string(i));
-            }
-        });
+    }
+
+    TEST_THREADED("memory_verification", 4, [&](int thread_id) {
+        // Verify memory consistency
+        for (int i = 0; i < mock.thread_data[thread_id]->SC.size(); i++) {
+            float expected = thread_id * 100.0f + i;
+            float actual = mock.thread_data[thread_id]->SC[i];
+
+            TEST_THREADED_ASSERT(std::abs(actual - expected) < 1e-6,
+                "memory consistency at index " + std::to_string(i));
+        }
     });
 }
 
 // Test deadlock detection in SuperSite operations
 void test_supersite_deadlock_detection() {
-    TEST_RUN("supersite_deadlock_detection", []() {
-        MockSuperSiteThreading mock;
-        mock.num_supersites = 20; // Smaller for faster test
-        mock.setup_test_data();
-        
-        TEST_DEADLOCK_DETECTION("supersite_deadlock_test", 8, 4, [&](int thread_id) {
-            // Mix of operations that could potentially deadlock
-            for (int i = 0; i < 5; i++) {
-                mock.simulate_set_supersite_context(thread_id);
-                mock.simulate_sc_buffer_access(thread_id);
-                usleep(50);
-            }
-        });
+    MockSuperSiteThreading mock;
+    mock.num_supersites = 20; // Smaller for faster test
+    mock.setup_test_data();
+
+    TEST_DEADLOCK_DETECTION("supersite_deadlock_test", 8, 4, [&](int thread_id) {
+        // Mix of operations that could potentially deadlock
+        for (int i = 0; i < 5; i++) {
+            mock.simulate_set_supersite_context(thread_id);
+            mock.simulate_sc_buffer_access(thread_id);
+            usleep(50);
+        }
     });
 }
 
 // Test race condition detection
 void test_supersite_race_detection() {
-    TEST_RUN("supersite_race_detection", []() {
-        MockSuperSiteThreading mock;
-        
-        TEST_RACE_DETECTION("supersite_race",
-            [&]() { 
-                mock.reset(); 
-            },
-            [&]() { 
-                return mock.global_updates.load() >= 0; // Basic consistency check
-            });
-    });
+    MockSuperSiteThreading mock;
+
+    TEST_RACE_DETECTION("supersite_race",
+        [&]() {
+            mock.reset();
+        },
+        [&]() {
+            return mock.global_updates.load() >= 0; // Basic consistency check
+        });
 }
 
 // Test without mutex (should demonstrate issues)
 void test_no_mutex_supersite() {
-    TEST_RUN("no_mutex_supersite", []() {
-        MockSuperSiteThreading mock;
-        mock.enable_mutex = false;
-        
-        std::vector<std::thread> threads;
-        for (int i = 0; i < 4; i++) {
-            threads.emplace_back([&mock, i]() {
-                mock.simulate_set_supersite_context(i);
-            });
-        }
-        
-        for (auto& t : threads) {
-            t.join();
-        }
-        
-        // Check for potential issues without mutex
-        bool has_issues = !mock.verify_consistency();
-        std::cout << "No-mutex SuperSite test: " << (has_issues ? "detected potential race conditions" : "no issues detected") << std::endl;
-    });
+    TEST_START("no_mutex_supersite");
+    MockSuperSiteThreading mock;
+    mock.enable_mutex = false;
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 4; i++) {
+        threads.emplace_back([&mock, i]() {
+            mock.simulate_set_supersite_context(i);
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // Check for potential issues without mutex
+    bool has_issues = !mock.verify_consistency();
+    std::cout << "No-mutex SuperSite test: " << (has_issues ? "detected potential race conditions" : "no issues detected") << std::endl;
+    TEST_PASS("no_mutex_supersite");
 }
 
 // Main test runner
@@ -446,5 +433,5 @@ int main() {
     test_no_mutex_supersite();
     
     TEST_SUMMARY();
-    return TEST_EXIT();
+    return TestReporting::exit_code();
 }

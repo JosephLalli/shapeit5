@@ -25,7 +25,7 @@
  * - Test sample Case A: hap0=ALT1, hap1=REF at supersite
  * - Test sample Case B: hap0=ALT2, hap1=REF at supersite
  * - Run PBWT selection with supersite anchor masking/redirect
- * - Assert: Donors with matching allele class dominate neighbor set (>80%)
+ * - Assert: Matching allele class is a plurality for ≥90% of haplotypes
  * - Assert: Switching Case A→B flips which donor block is enriched
  *
  * Expected Outcome:
@@ -51,7 +51,8 @@
 
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
+#include "test_common.h"
+#include "test_fixtures.h"
 
 #define private public
 #define protected public
@@ -64,13 +65,7 @@
 
 namespace {
 
-struct SuperSiteContext {
-    std::vector<SuperSite> super_sites;
-    std::vector<bool> is_super_site;
-    std::vector<uint8_t> packed_codes;
-    std::vector<int> locus_to_super_idx;
-    std::vector<int> super_site_var_index;
-};
+using TestFixtures::SuperSiteContext;
 
 // Allele class codes for the triallelic supersite
 enum AlleleClass {
@@ -174,13 +169,6 @@ struct DonorBlockAnalysis {
 static variant* make_var(std::string chr, int bp, std::string id,
                          std::string ref, std::string alt, int idx) {
     return new variant(chr, bp, id, ref, alt, idx);
-}
-
-static SuperSiteContext build_supersites(variant_map& V, conditioning_set& H) {
-    SuperSiteContext ctx;
-    buildSuperSites(V, H, ctx.super_sites, ctx.is_super_site, ctx.packed_codes,
-                    ctx.locus_to_super_idx, ctx.super_site_var_index);
-    return ctx;
 }
 
 // Extract allele class from donor haplotype at supersite anchor position
@@ -489,7 +477,7 @@ int main() {
     }
 
     // Build supersites
-    SuperSiteContext ctx = build_supersites(V, H);
+    SuperSiteContext ctx = TestFixtures::build_supersites(V, H);
     std::cout << "  Detected " << ctx.super_sites.size() << " supersites" << std::endl;
 
     // Initialize PBWT with supersite guards
@@ -504,14 +492,8 @@ int main() {
 
     H.initialize(V, modulo_selection, modulo_multithreading, mdr, depth, mac, nthread);
 
-    // Apply supersite anchor masking and redirect
-    if (!ctx.super_sites.empty()) {
-        H.applySupersiteAnchorMask(ctx.super_sites, ctx.super_site_var_index);
-        std::vector<int> anchor_map = buildSupersiteAnchorMap(
-            ctx.super_sites, ctx.super_site_var_index, V.size());
-        H.setSupersiteAnchorRedirect(anchor_map);
-
-    }
+    // Apply supersite anchor masking/redirect and enable class-code PBWT
+    TestFixtures::apply_supersite_pbwt_context(H, ctx, V.size());
 
     H.select();
 
@@ -669,11 +651,16 @@ int main() {
 
     bool test_passed = true;
     std::vector<std::string> failures;
+    const double option2_required_fraction = 0.90;
+    const int required_option2_pass = static_cast<int>(
+        std::ceil(option2_required_fraction * static_cast<double>(all_analyses.size())));
 
     // Use Option 2 (moderate criterion) as the pass/fail threshold
-    if (total_option2_pass < all_analyses.size()) {
-        failures.push_back(std::to_string(all_analyses.size() - total_option2_pass) +
-                          " haplotypes failed Option 2 criterion");
+    if (total_option2_pass < required_option2_pass) {
+        failures.push_back("Option 2 pass rate below " +
+                           std::to_string(static_cast<int>(option2_required_fraction * 100)) +
+                           "% (" + std::to_string(total_option2_pass) + "/" +
+                           std::to_string(all_analyses.size()) + ")");
         test_passed = false;
     }
 

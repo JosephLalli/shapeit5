@@ -7,7 +7,7 @@
 #include <vector>
 #include <string>
 
-#include "test_reporting.h"
+#include "test_common.h"
 #include "../../common/src/utils/otools.h"
 #include "../../phase_common/src/objects/super_site_builder.h"
 #include "../../phase_common/src/containers/variant_map.h"

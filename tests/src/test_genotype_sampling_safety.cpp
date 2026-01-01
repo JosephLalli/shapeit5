@@ -5,7 +5,7 @@
 #include <limits>
 #include "utils/otools.h"
 #include "objects/genotype/genotype_header.h"
-#include "test_reporting.h"
+#include "test_common.h"
 
 // Declare the global tools required by the SHAPEIT5 codebase
 random_number_generator rng;

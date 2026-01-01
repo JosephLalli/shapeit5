@@ -12,7 +12,7 @@
 #include "../../phase_common/src/models/super_site_emissions.h"
 
 
-#include "test_reporting.h"
+#include "test_common.h"
 int main() {
     TEST_INIT("test_supersite_emissions_real");
     std::cout << "Testing REAL supersite emission computation..." << std::endl;

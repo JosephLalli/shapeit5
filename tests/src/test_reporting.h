@@ -182,6 +182,11 @@ inline void print_summary() {
     }
 }
 
+// Return non-zero when any test failed
+inline int exit_code() {
+    return test_state.failed_tests.empty() ? 0 : 1;
+}
+
 // Helper to check condition and report
 inline bool check(bool condition, const std::string& test_name, const std::string& failure_msg = "") {
     if (condition) {

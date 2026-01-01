@@ -20,9 +20,8 @@
 #include <iomanip>
 
 #include "../../common/src/utils/otools.h"
-#include "test_framework.h"
+#include "test_common.h"
 
-#include "test_reporting.h"
 
 #define private public
 #define protected public
@@ -90,23 +89,24 @@ int main() {
     std::cout << "See HMM_CALCULATION_GUIDE.md for step-by-step calculation instructions." << std::endl;
     std::cout << std::endl;
     
-    TEST_RUN("all_biallelic", []() {
-        test_all_biallelic();
-    });
+    TEST_START("all_biallelic");
+    test_all_biallelic();
+    TEST_PASS("all_biallelic");
     
-    TEST_RUN("one_multiallelic", []() {
-        test_one_multiallelic();
-    });
+    TEST_START("one_multiallelic");
+    test_one_multiallelic();
+    TEST_PASS("one_multiallelic");
     
-    TEST_RUN("missing_biallelic", []() {
-        test_missing_biallelic();
-    });
+    TEST_START("missing_biallelic");
+    test_missing_biallelic();
+    TEST_PASS("missing_biallelic");
     
-    TEST_RUN("missing_multiallelic", []() {
-        test_missing_multiallelic();
-    });
+    TEST_START("missing_multiallelic");
+    test_missing_multiallelic();
+    TEST_PASS("missing_multiallelic");
     
-    return TEST_EXIT();
+    TEST_SUMMARY();
+    return TestReporting::exit_code();
 }
 
 void test_all_biallelic() {

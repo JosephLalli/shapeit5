@@ -184,6 +184,28 @@ LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/t
 
 ---
 
+## Test Taxonomy
+
+### Scope (Blackbox vs Whitebox)
+- **Blackbox**: Uses public APIs/CLI and asserts observable behavior only. This is the default standard.
+- **Whitebox**: Reads or depends on internal implementation details (e.g. `#define private public`).
+
+Whitebox tests are opt-in in `tests/run_tests.sh`:
+
+```bash
+RUN_WHITEBOX=1 tests/run_tests.sh
+```
+
+The whitebox inventory lives in `tests/whitebox_tests.txt`.
+
+### Categories
+- `unit`: focused logic tests with synthetic data
+- `integration`: multi-module behavior or end-to-end workflows
+- `concurrency`: threading or shared-state safety
+- `smoke`/`perf`: fast sanity and timing checks
+
+---
+
 ## Phase 3 Multivariant Imputation Summary
 
 ### Problem

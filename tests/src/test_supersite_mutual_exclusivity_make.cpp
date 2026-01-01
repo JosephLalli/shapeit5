@@ -19,7 +19,7 @@
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 
 
-#include "test_reporting.h"
+#include "test_common.h"
 static variant* make_var(std::string chr, int bp, std::string id, std::string ref, std::string alt, int idx) {
     return new variant(chr, bp, id, ref, alt, idx);
 }

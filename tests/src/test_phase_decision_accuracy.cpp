@@ -26,7 +26,7 @@
 #include "../../common/src/utils/otools.h"
 
 
-#include "test_reporting.h"
+#include "test_common.h"
 namespace {
 
 // Represent phased haplotype as sequence of alleles

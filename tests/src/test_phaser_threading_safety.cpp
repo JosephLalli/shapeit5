@@ -16,10 +16,9 @@
 #include <thread>
 #include <chrono>
 
-#include "test_framework.h"
+#include "test_common.h"
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
 
 #define private public
 #define protected public
@@ -30,8 +29,6 @@
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 #undef private
 #undef protected
-
-using namespace test_framework;
 
 // Mock phaser class for testing threading behavior
 class MockPhaser {
@@ -125,163 +122,156 @@ public:
 
 // Test basic mutex protection for job counters
 void test_job_counter_thread_safety() {
-    TEST_RUN("job_counter_thread_safety", []() {
-        MockPhaser phaser;
-        
-        // Test with different thread counts
-        for (int thread_count : {2, 4, 8}) {
-            phaser.reset();
-            phaser.max_jobs = 100;
-            
-            TEST_THREADED("job_counter_threads_" + std::to_string(thread_count), 
-                         thread_count, 
-                         [&](int thread_id) {
-                             phaser.simulate_worker_thread(thread_id);
-                         });
-            
-            TEST_ASSERT(phaser.verify_consistency(), 
-                       "job counter consistency with " + std::to_string(thread_count) + " threads");
-        }
-    });
+    MockPhaser phaser;
+
+    // Test with different thread counts
+    for (int thread_count : {2, 4, 8}) {
+        phaser.reset();
+        phaser.max_jobs = 100;
+
+        TEST_THREADED("job_counter_threads_" + std::to_string(thread_count),
+                     thread_count,
+                     [&](int thread_id) {
+                         phaser.simulate_worker_thread(thread_id);
+                     });
+
+        TEST_CHECK(phaser.verify_consistency(),
+                   "job_counter_consistency_threads_" + std::to_string(thread_count),
+                   "job counter consistency with " + std::to_string(thread_count) + " threads");
+    }
 }
 
 // Test statistics aggregation thread safety
 void test_statistics_thread_safety() {
-    TEST_RUN("statistics_thread_safety", []() {
-        MockPhaser phaser;
-        phaser.max_jobs = 200;
-        
-        TEST_STRESS("statistics_stress_test", 10, 4, [&](int thread_id) {
-            for (int i = 0; i < 50; i++) {
-                phaser.simulate_statistics_update(i + thread_id * 50);
-            }
-        });
-        
-        TEST_ASSERT(phaser.stat_updates.load() == 10 * 4 * 50, 
-                   "statistics update count");
+    MockPhaser phaser;
+    phaser.max_jobs = 200;
+
+    TEST_STRESS("statistics_stress_test", 10, 4, [&](int thread_id) {
+        for (int i = 0; i < 50; i++) {
+            phaser.simulate_statistics_update(i + thread_id * 50);
+        }
     });
+
+    TEST_CHECK(phaser.stat_updates.load() == 10 * 4 * 50,
+               "statistics_update_count",
+               "statistics update count");
 }
 
 // Test race condition detection in job assignment
 void test_job_assignment_race_detection() {
-    TEST_RUN("job_assignment_race_detection", []() {
-        MockPhaser phaser;
-        
-        TEST_RACE_DETECTION("job_assignment_race",
-            [&]() { 
-                phaser.reset();
-                phaser.max_jobs = 50;
-            },
-            [&]() { 
-                return phaser.i_jobs <= phaser.max_jobs; 
-            });
-    });
+    MockPhaser phaser;
+
+    TEST_RACE_DETECTION("job_assignment_race",
+        [&]() {
+            phaser.reset();
+            phaser.max_jobs = 50;
+        },
+        [&]() {
+            return phaser.i_jobs <= phaser.max_jobs;
+        });
 }
 
 // Test deadlock detection in mutex usage
 void test_deadlock_detection() {
-    TEST_RUN("deadlock_detection", []() {
-        MockPhaser phaser;
-        phaser.max_jobs = 20; // Small job count for quick test
-        
-        TEST_DEADLOCK_DETECTION("mutex_deadlock_test", 5, 4, [&](int thread_id) {
-            phaser.simulate_worker_thread(thread_id);
-        });
+    MockPhaser phaser;
+    phaser.max_jobs = 20; // Small job count for quick test
+
+    TEST_DEADLOCK_DETECTION("mutex_deadlock_test", 5, 4, [&](int thread_id) {
+        phaser.simulate_worker_thread(thread_id);
     });
 }
 
 // Test behavior without mutex protection (should fail or show inconsistency)
 void test_no_mutex_behavior() {
-    TEST_RUN("no_mutex_behavior", []() {
-        MockPhaser phaser;
-        phaser.enable_mutex = false; // Disable mutex protection
-        phaser.max_jobs = 100;
-        
-        // This test expects potential inconsistency without mutex
-        bool found_inconsistency = false;
-        
-        for (int trial = 0; trial < 5; trial++) {
-            phaser.reset();
-            
-            std::vector<std::thread> threads;
-            for (int i = 0; i < 4; i++) {
-                threads.emplace_back([&phaser, i]() {
-                    phaser.simulate_worker_thread(i);
-                });
-            }
-            
-            for (auto& t : threads) {
-                t.join();
-            }
-            
-            // Without mutex, we might see race conditions
-            if (!phaser.verify_consistency()) {
-                found_inconsistency = true;
-                break;
-            }
+    TEST_START("no_mutex_behavior");
+    MockPhaser phaser;
+    phaser.enable_mutex = false; // Disable mutex protection
+    phaser.max_jobs = 100;
+
+    // This test expects potential inconsistency without mutex
+    bool found_inconsistency = false;
+
+    for (int trial = 0; trial < 5; trial++) {
+        phaser.reset();
+
+        std::vector<std::thread> threads;
+        for (int i = 0; i < 4; i++) {
+            threads.emplace_back([&phaser, i]() {
+                phaser.simulate_worker_thread(i);
+            });
         }
-        
-        // Note: This test demonstrates that mutex is necessary
-        // If no inconsistency found, that's also OK (race conditions are not guaranteed)
-        std::cout << "No-mutex test: " << (found_inconsistency ? "detected race conditions" : "no issues detected") << std::endl;
-    });
+
+        for (auto& t : threads) {
+            t.join();
+        }
+
+        // Without mutex, we might see race conditions
+        if (!phaser.verify_consistency()) {
+            found_inconsistency = true;
+            break;
+        }
+    }
+
+    // Note: This test demonstrates that mutex is necessary
+    // If no inconsistency found, that's also OK (race conditions are not guaranteed)
+    std::cout << "No-mutex test: " << (found_inconsistency ? "detected race conditions" : "no issues detected") << std::endl;
+    TEST_PASS("no_mutex_behavior");
 }
 
 // Test worker ID uniqueness
 void test_worker_id_uniqueness() {
-    TEST_RUN("worker_id_uniqueness", []() {
-        MockPhaser phaser;
-        std::atomic<int> worker_ids[8] = {}; // Track assigned worker IDs
-        
-        TEST_THREADED("worker_id_assignment", 8, [&](int thread_id) {
-            // Simulate getting worker ID
-            pthread_mutex_lock(&phaser.mutex_workers);
-            int assigned_id = phaser.i_workers++;
-            pthread_mutex_unlock(&phaser.mutex_workers);
-            
-            // Mark this worker ID as used
-            worker_ids[assigned_id].fetch_add(1);
-        });
-        
-        // Verify each worker ID was assigned exactly once
-        for (int i = 0; i < 8; i++) {
-            TEST_ASSERT(worker_ids[i].load() == 1, 
-                       "worker ID " + std::to_string(i) + " assigned exactly once");
-        }
+    MockPhaser phaser;
+    std::atomic<int> worker_ids[8] = {}; // Track assigned worker IDs
+
+    TEST_THREADED("worker_id_assignment", 8, [&](int thread_id) {
+        // Simulate getting worker ID
+        pthread_mutex_lock(&phaser.mutex_workers);
+        int assigned_id = phaser.i_workers++;
+        pthread_mutex_unlock(&phaser.mutex_workers);
+
+        // Mark this worker ID as used
+        worker_ids[assigned_id].fetch_add(1);
     });
+
+    // Verify each worker ID was assigned exactly once
+    for (int i = 0; i < 8; i++) {
+        TEST_CHECK(worker_ids[i].load() == 1,
+                   "worker_id_unique_" + std::to_string(i),
+                   "worker ID " + std::to_string(i) + " assigned exactly once");
+    }
 }
 
 // Test concurrent access to shared data structures
 void test_shared_data_access() {
-    TEST_RUN("shared_data_access", []() {
-        MockPhaser phaser;
-        std::atomic<int> access_count{0};
-        
-        TEST_THREADED("shared_data_concurrent_access", 6, [&](int thread_id) {
-            for (int i = 0; i < 20; i++) {
-                pthread_mutex_lock(&phaser.mutex_workers);
-                
-                // Simulate accessing shared data
-                access_count.fetch_add(1);
-                phaser.shared_data[i] += thread_id;
-                
-                pthread_mutex_unlock(&phaser.mutex_workers);
-                
-                usleep(10); // Small delay to increase contention
-            }
-        });
-        
-        TEST_ASSERT(access_count.load() == 6 * 20, "total access count");
-        
-        // Verify data consistency
-        double expected_sum = (0 + 1 + 2 + 3 + 4 + 5) * 20; // sum of thread_ids * iterations
-        double actual_sum = 0;
+    MockPhaser phaser;
+    std::atomic<int> access_count{0};
+
+    TEST_THREADED("shared_data_concurrent_access", 6, [&](int thread_id) {
         for (int i = 0; i < 20; i++) {
-            actual_sum += phaser.shared_data[i];
+            pthread_mutex_lock(&phaser.mutex_workers);
+
+            // Simulate accessing shared data
+            access_count.fetch_add(1);
+            phaser.shared_data[i] += thread_id;
+
+            pthread_mutex_unlock(&phaser.mutex_workers);
+
+            usleep(10); // Small delay to increase contention
         }
-        
-        TEST_ASSERT(std::abs(actual_sum - expected_sum) < 1e-6, "shared data consistency");
     });
+
+    TEST_CHECK(access_count.load() == 6 * 20, "shared_data_access_count", "total access count");
+
+    // Verify data consistency
+    double expected_sum = (0 + 1 + 2 + 3 + 4 + 5) * 20; // sum of thread_ids * iterations
+    double actual_sum = 0;
+    for (int i = 0; i < 20; i++) {
+        actual_sum += phaser.shared_data[i];
+    }
+
+    TEST_CHECK(std::abs(actual_sum - expected_sum) < 1e-6,
+               "shared_data_consistency",
+               "shared data consistency");
 }
 
 // Main test runner
@@ -298,5 +288,5 @@ int main() {
     test_shared_data_access();
     
     TEST_SUMMARY();
-    return TEST_EXIT();
+    return TestReporting::exit_code();
 }

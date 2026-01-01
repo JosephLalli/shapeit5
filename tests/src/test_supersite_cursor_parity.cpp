@@ -9,7 +9,7 @@
 #include <limits.h> // For PATH_MAX
 
 
-#include "test_reporting.h"
+#include "test_common.h"
 int main() {
     TEST_INIT("test_supersite_cursor_parity");
     const char* home = getenv("HOME");

@@ -31,7 +31,8 @@
 
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
+#include "test_common.h"
+#include "test_fixtures.h"
 
 #define private public
 #define protected public
@@ -63,13 +64,7 @@ struct Scenario {
     std::string name_suffix;
 };
 
-struct SuperSiteContext {
-    std::vector<SuperSite> super_sites;
-    std::vector<bool> is_super_site;
-    std::vector<uint8_t> packed_codes;
-    std::vector<int> locus_to_super_idx;
-    std::vector<int> super_site_var_index;
-};
+using TestFixtures::SuperSiteContext;
 
 enum PhaseCode : int { REF_REF = 0, ALT_ALT = 1, ALT_REF = 2, REF_ALT = 3, MISSING = 4 };
 
@@ -148,13 +143,6 @@ static hmm_parameters make_hmm_params_from_variant_map(variant_map& V, unsigned 
     compute_t_from_cm(M);
     M.rare_allele = std::vector<char>(V.size(), -1);
     return M;
-}
-
-static SuperSiteContext build_supersites(variant_map& V, conditioning_set& H) {
-    SuperSiteContext ctx;
-    buildSuperSites(V, H, ctx.super_sites, ctx.is_super_site, ctx.packed_codes,
-                    ctx.locus_to_super_idx, ctx.super_site_var_index);
-    return ctx;
 }
 
 static void apply_supersite_pbwt_guards(conditioning_set& H,
@@ -398,7 +386,7 @@ static MiniContext build_context(bool supersite, unsigned int n_ref_samples, int
     const int nthread = 1;
     ctx.H.initialize(ctx.V, modulo_selection, modulo_multithreading, mdr, depth, mac, nthread);
 
-    ctx.ss_context = ctx.enable_supersites ? build_supersites(ctx.V, ctx.H) : SuperSiteContext{};
+    ctx.ss_context = ctx.enable_supersites ? TestFixtures::build_supersites(ctx.V, ctx.H, true) : SuperSiteContext{};
     if (ctx.enable_supersites) {
         apply_supersite_pbwt_guards(ctx.H, ctx.ss_context, ctx.V.size());
         // Initialize immutable base classes (c0/c1) once at build time
@@ -471,7 +459,7 @@ static IterationResult run_iteration(MiniContext& ctx, StageDef stage, unsigned 
         }
     }
     if (ctx.enable_supersites) {
-        ctx.ss_context = build_supersites(ctx.V, ctx.H);
+        ctx.ss_context = TestFixtures::build_supersites(ctx.V, ctx.H, true);
         ctx.M.markSuperSiteSiblings(ctx.ss_context.super_sites, ctx.ss_context.locus_to_super_idx);
         apply_supersite_pbwt_guards(ctx.H, ctx.ss_context, ctx.V.size());
 

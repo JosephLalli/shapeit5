@@ -17,7 +17,7 @@
 
 
 
-#include "test_reporting.h"
+#include "test_common.h"
 using namespace std;
 
 // Minimal helper to build a SuperSite spanning two split variants at positions 0 and 1

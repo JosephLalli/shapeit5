@@ -27,7 +27,7 @@
 
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
+#include "test_common.h"
 
 #define private public
 #define protected public
@@ -496,7 +496,7 @@ int main() {
     set_phase(G5, 4, ALT_ALT); // v2500: 1|1
     G5.build();
 
-    std::cout << "  Built 5-variant dataset with 1 supersite" << std::endl;
+    std::cout << "  Built 5-variant reference dataset" << std::endl;
 
     // =====================================================================
     // Test 2: Expanded 10-variant dataset with 5 supersites
@@ -606,15 +606,24 @@ int main() {
     // =====================================================================
     SuperSiteContext ctx5 = build_supersites(V5, H5);
     SuperSiteContext ctx10 = build_supersites(V10, H10);
+    // Disable rare-code shortcut for parity: treat all supersite anchors as regular sites.
+    for (auto& ss : ctx10.super_sites) {
+        ss.rare_code_mask = 0;
+    }
 
     // Attach supersite context and snapshot immutable base classes (c0/c1) to
     // mirror production initialization, which emissions now rely on.
+    // Rebuild after context so supersite flags/Lengths_bio/Ambiguous reflect sibling semantics.
     G5.setSuperSiteContext(&ctx5.super_sites, &ctx5.locus_to_super_idx,
                             &ctx5.super_site_var_index, nullptr, nullptr, nullptr);
+    G5.setSupersitePanelCodes(ctx5.packed_codes.data(), ctx5.packed_codes.size());
     G5.snapshotSupersiteObservedGts(ctx5.super_sites, ctx5.super_site_var_index);
+    G5.build();
     G10.setSuperSiteContext(&ctx10.super_sites, &ctx10.locus_to_super_idx,
                              &ctx10.super_site_var_index, nullptr, nullptr, nullptr);
+    G10.setSupersitePanelCodes(ctx10.packed_codes.data(), ctx10.packed_codes.size());
     G10.snapshotSupersiteObservedGts(ctx10.super_sites, ctx10.super_site_var_index);
+    G10.build();
     
     std::cout << "  5-variant dataset: " << ctx5.super_sites.size() << " supersites detected" << std::endl;
     std::cout << "  10-variant dataset: " << ctx10.super_sites.size() << " supersites detected" << std::endl;

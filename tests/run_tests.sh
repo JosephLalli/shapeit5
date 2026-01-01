@@ -132,10 +132,19 @@ trap cleanup_on_exit EXIT
 # Configuration
 TESTDIR="$(dirname $(realpath "${BASH_SOURCE[0]}"))"
 TEST_BIN_DIR="$TESTDIR/bin"
+TEST_SRC_DIR="$TESTDIR/src"
 LOG_DIR="$TESTDIR/test_logs"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 COMMIT_HASH=$(git rev-parse --short HEAD)
 COMMIT_MSG=$(git log --oneline -1 --pretty=format:"%s")
+
+# Ensure runtime libraries are discoverable (matches tests/makefile expectations)
+DEFAULT_LD_LIBRARY_PATH="${HOME}/.linuxbrew/lib:/usr/local/lib"
+if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
+    export LD_LIBRARY_PATH="${DEFAULT_LD_LIBRARY_PATH}:${LD_LIBRARY_PATH}"
+else
+    export LD_LIBRARY_PATH="${DEFAULT_LD_LIBRARY_PATH}"
+fi
 
 # Create log directory if it doesn't exist
 mkdir -p "$LOG_DIR"
@@ -156,6 +165,30 @@ declare -a test_status_list
 declare -a test_duration_list
 declare -a test_details_list
 declare -a test_category_list
+declare -a test_scope_list
+
+# Whitebox test list (opt-in)
+WHITEBOX_LIST="$TESTDIR/whitebox_tests.txt"
+declare -A whitebox_tests
+if [[ -f "$WHITEBOX_LIST" ]]; then
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        whitebox_tests["$line"]=1
+    done < "$WHITEBOX_LIST"
+fi
+RUN_WHITEBOX="${RUN_WHITEBOX:-0}"
+skipped_whitebox=()
+skipped_missing_source=()
+
+is_whitebox() {
+    local name="$1"
+    [[ -n "${whitebox_tests[$name]+x}" ]]
+}
+
+has_source_for_binary() {
+    local name="$1"
+    [[ -f "$TEST_SRC_DIR/${name}.cpp" ]]
+}
 
 # Function to parse test output and extract individual test results
 parse_test_output() {
@@ -300,11 +333,16 @@ parse_test_output() {
     elif [[ "$binary_name" == *"threading"* ]]; then
         category="concurrency"
     fi
+    local scope="blackbox"
+    if is_whitebox "$binary_name"; then
+        scope="whitebox"
+    fi
 
     # Store test details for summary table
     test_binaries_list+=("$binary_name")
     test_duration_list+=("$duration")
     test_category_list+=("$category")
+    test_scope_list+=("$scope")
 
     # Determine overall status and details for this binary
     local status="PASS"
@@ -471,6 +509,15 @@ failed_binaries=0
 failed_binary_names=()
 
 for test_binary in "${test_binaries[@]}"; do
+    test_name="$(basename "$test_binary")"
+    if ! has_source_for_binary "$test_name"; then
+        skipped_missing_source+=("$test_name")
+        continue
+    fi
+    if is_whitebox "$test_name" && [ "$RUN_WHITEBOX" != "1" ]; then
+        skipped_whitebox+=("$test_name")
+        continue
+    fi
     if run_test "$test_binary"; then
         ((passed_binaries++))
     else
@@ -486,6 +533,12 @@ echo "Test Summary:" | tee -a "$CURRENT_LOG"
 echo "  Total binaries: $total_binaries" | tee -a "$CURRENT_LOG"
 echo "  Passed binaries: $passed_binaries" | tee -a "$CURRENT_LOG"
 echo "  Failed binaries: $failed_binaries" | tee -a "$CURRENT_LOG"
+if [ ${#skipped_whitebox[@]} -gt 0 ]; then
+    echo "  Skipped whitebox binaries: ${#skipped_whitebox[@]}" | tee -a "$CURRENT_LOG"
+fi
+if [ ${#skipped_missing_source[@]} -gt 0 ]; then
+    echo "  Skipped missing-source binaries: ${#skipped_missing_source[@]}" | tee -a "$CURRENT_LOG"
+fi
 echo "" | tee -a "$CURRENT_LOG"
 echo "  Total individual tests: $total_individual_tests" | tee -a "$CURRENT_LOG"
 echo "  Passed individual tests: $passed_individual_tests" | tee -a "$CURRENT_LOG"
@@ -505,9 +558,9 @@ echo "========================================" | tee -a "$CURRENT_LOG"
 # Print formatted summary table
 echo "" | tee -a "$CURRENT_LOG"
 echo "Detailed Test Results:" | tee -a "$CURRENT_LOG"
-echo "┌────────────────────────────────────────┬─────────────┬──────────┬──────────┬───────────────────────────┐" | tee -a "$CURRENT_LOG"
-echo "│ Test Binary                            │ Category    │ Status   │ Duration │ Details                   │" | tee -a "$CURRENT_LOG"
-echo "├────────────────────────────────────────┼─────────────┼──────────┼──────────┼───────────────────────────┤" | tee -a "$CURRENT_LOG"
+echo "┌────────────────────────────────────────┬─────────────┬──────────┬──────────┬──────────┬───────────────────────────┐" | tee -a "$CURRENT_LOG"
+echo "│ Test Binary                            │ Category    │ Scope    │ Status   │ Duration │ Details                   │" | tee -a "$CURRENT_LOG"
+echo "├────────────────────────────────────────┼─────────────┼──────────┼──────────┼──────────┼───────────────────────────┤" | tee -a "$CURRENT_LOG"
 
 for i in "${!test_binaries_list[@]}"; do
     name="${test_binaries_list[$i]}"
@@ -515,6 +568,7 @@ for i in "${!test_binaries_list[@]}"; do
     duration="${test_duration_list[$i]}"
     details="${test_details_list[$i]}"
     category="${test_category_list[$i]}"
+    scope="${test_scope_list[$i]}"
 
     # Truncate name if too long
     if [ ${#name} -gt 38 ]; then
@@ -524,6 +578,10 @@ for i in "${!test_binaries_list[@]}"; do
     # Truncate category if too long
     if [ ${#category} -gt 11 ]; then
         category="${category:0:8}..."
+    fi
+    # Truncate scope if too long
+    if [ ${#scope} -gt 8 ]; then
+        scope="${scope:0:5}..."
     fi
 
     # Truncate details if too long
@@ -540,11 +598,11 @@ for i in "${!test_binaries_list[@]}"; do
     fi
 
     # Format row (duration as "0.123s" fits in 8 chars)
-    printf "│ %-38s │ %-11s │ %-8s │ %7ss │ %-25s │\n" \
-        "$name" "$category" "$status_display" "$duration" "$details" | tee -a "$CURRENT_LOG"
+    printf "│ %-38s │ %-11s │ %-8s │ %-8s │ %7ss │ %-25s │\n" \
+        "$name" "$category" "$scope" "$status_display" "$duration" "$details" | tee -a "$CURRENT_LOG"
 done
 
-echo "└────────────────────────────────────────┴─────────────┴──────────┴──────────┴───────────────────────────┘" | tee -a "$CURRENT_LOG"
+echo "└────────────────────────────────────────┴─────────────┴──────────┴──────────┴──────────┴───────────────────────────┘" | tee -a "$CURRENT_LOG"
 
 # Category breakdown
 echo "" | tee -a "$CURRENT_LOG"
@@ -562,6 +620,25 @@ for cat in unit integration smoke concurrency; do
     done
     if [ $cat_total -gt 0 ]; then
         echo "  $(printf '%-12s' "$cat:"): $cat_passed/$cat_total passed" | tee -a "$CURRENT_LOG"
+    fi
+done
+
+# Scope breakdown
+echo "" | tee -a "$CURRENT_LOG"
+echo "By Scope:" | tee -a "$CURRENT_LOG"
+for scope_name in blackbox whitebox; do
+    scope_total=0
+    scope_passed=0
+    for i in "${!test_scope_list[@]}"; do
+        if [ "${test_scope_list[$i]}" = "$scope_name" ]; then
+            ((scope_total++))
+            if [ "${test_status_list[$i]}" = "PASS" ]; then
+                ((scope_passed++))
+            fi
+        fi
+    done
+    if [ $scope_total -gt 0 ]; then
+        echo "  $(printf '%-12s' "$scope_name:"): $scope_passed/$scope_total passed" | tee -a "$CURRENT_LOG"
     fi
 done
 

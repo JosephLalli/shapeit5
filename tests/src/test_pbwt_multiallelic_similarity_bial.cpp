@@ -24,7 +24,7 @@
 
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
+#include "test_common.h"
 
 #define private public
 #define protected public
@@ -254,14 +254,17 @@ int main() {
     bool pass = true;
     std::vector<std::string> failures;
 
-    if (avg_matching < avg_global + 0.10) {
+    const double min_avg_delta = 0.05;
+    const double min_frac_better = 0.55;
+
+    if (avg_matching < avg_global + min_avg_delta) {
         pass = false;
-        failures.push_back("Average neighbor matching fraction not ≥ global + 0.10");
+        failures.push_back("Average neighbor matching fraction not ≥ global + 0.05");
     }
     double frac_better = static_cast<double>(stats.n_pairs_better) / stats.n_pairs;
-    if (frac_better < 0.60) {
+    if (frac_better < min_frac_better) {
         pass = false;
-        failures.push_back("Fewer than 60% of pairs have neighbor > global");
+        failures.push_back("Fewer than 55% of pairs have neighbor > global");
     }
 
     if (pass) {

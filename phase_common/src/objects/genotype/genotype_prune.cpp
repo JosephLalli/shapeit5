@@ -37,8 +37,11 @@ public:
 		// This is needed because supersite processes anchor+siblings (multiple FP ops per locus)
 		// while biallelic processes single variants (one FP op per locus), causing ULP-level
 		// differences in transition probabilities that can affect sort order.
-		// Deterministic sort is enabled by default; disable with SHAPEIT5_NONDETERMINISTIC_SORT=1.
-		static bool use_epsilon = (std::getenv("SHAPEIT5_NONDETERMINISTIC_SORT") == nullptr);
+		// Deterministic sort is disabled by default; enable with SHAPEIT5_DETERMINISTIC_SORT=1.
+		static const bool use_epsilon = []() {
+			const char* env = std::getenv("SHAPEIT5_DETERMINISTIC_SORT");
+			return (env != nullptr && env[0] != '\0' && env[0] != '0');
+		}();
 		// NOTE: epsilon is treated as an *absolute* tolerance here so that tiny
 		// differences at any scale are considered ties and resolved by the
 		// transition index. This is intentionally conservative: it prefers

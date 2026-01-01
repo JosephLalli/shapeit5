@@ -25,10 +25,9 @@
 #include <chrono>
 #include <mutex>
 
-#include "test_framework.h"
+#include "test_common.h"
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
 
 #define private public
 #define protected public
@@ -40,8 +39,6 @@
 #include "../../phase_common/src/objects/super_site_builder.h"
 #include "../../phase_common/src/containers/variant_map.h"
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
-
-using namespace test_framework;
 
 // Thread-safe test counters
 static std::atomic<int> test_iterations{0};
@@ -288,160 +285,160 @@ void run_mixed_parity_test(int thread_id, int iterations) {
  ******************************************************************************/
 
 void test_concurrent_float_double_parity() {
-    TEST_RUN("concurrent_float_double_parity", []() {
-        test_iterations = 0;
-        test_failures = 0;
-        
-        const int num_threads = 4;
-        const int iterations_per_thread = 10;
-        
-        std::vector<std::thread> threads;
-        auto start = std::chrono::high_resolution_clock::now();
-        
-        for (int i = 0; i < num_threads; ++i) {
-            threads.emplace_back(run_float_double_parity_test, i, iterations_per_thread);
-        }
-        
-        for (auto& t : threads) {
-            t.join();
-        }
-        
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        
-        std::cout << "  Completed " << test_iterations.load() << " iterations in " 
-                  << duration.count() << "ms" << std::endl;
-        std::cout << "  Failures: " << test_failures.load() << std::endl;
-        
-        TEST_ASSERT(test_failures.load() == 0, 
-                   "No failures in concurrent float/double parity tests");
-    });
+    TEST_START("concurrent_float_double_parity");
+    test_iterations = 0;
+    test_failures = 0;
+
+    const int num_threads = 4;
+    const int iterations_per_thread = 10;
+
+    std::vector<std::thread> threads;
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back(run_float_double_parity_test, i, iterations_per_thread);
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "  Completed " << test_iterations.load() << " iterations in "
+              << duration.count() << "ms" << std::endl;
+    std::cout << "  Failures: " << test_failures.load() << std::endl;
+
+    TEST_CHECK(test_failures.load() == 0,
+               "concurrent_float_double_parity",
+               "No failures in concurrent float/double parity tests");
 }
 
 void test_concurrent_backward_parity() {
-    TEST_RUN("concurrent_backward_parity", []() {
-        test_iterations = 0;
-        test_failures = 0;
-        
-        const int num_threads = 4;
-        const int iterations_per_thread = 10;
-        
-        std::vector<std::thread> threads;
-        auto start = std::chrono::high_resolution_clock::now();
-        
-        for (int i = 0; i < num_threads; ++i) {
-            threads.emplace_back(run_backward_parity_test, i, iterations_per_thread);
-        }
-        
-        for (auto& t : threads) {
-            t.join();
-        }
-        
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        
-        std::cout << "  Completed " << test_iterations.load() << " iterations in " 
-                  << duration.count() << "ms" << std::endl;
-        std::cout << "  Failures: " << test_failures.load() << std::endl;
-        
-        TEST_ASSERT(test_failures.load() == 0, 
-                   "No failures in concurrent backward parity tests");
-    });
+    TEST_START("concurrent_backward_parity");
+    test_iterations = 0;
+    test_failures = 0;
+
+    const int num_threads = 4;
+    const int iterations_per_thread = 10;
+
+    std::vector<std::thread> threads;
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back(run_backward_parity_test, i, iterations_per_thread);
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "  Completed " << test_iterations.load() << " iterations in "
+              << duration.count() << "ms" << std::endl;
+    std::cout << "  Failures: " << test_failures.load() << std::endl;
+
+    TEST_CHECK(test_failures.load() == 0,
+               "concurrent_backward_parity",
+               "No failures in concurrent backward parity tests");
 }
 
 void test_mixed_concurrent_parity() {
-    TEST_RUN("mixed_concurrent_parity", []() {
-        test_iterations = 0;
-        test_failures = 0;
-        
-        const int num_threads = 6;
-        const int iterations_per_thread = 8;
-        
-        std::vector<std::thread> threads;
-        auto start = std::chrono::high_resolution_clock::now();
-        
-        for (int i = 0; i < num_threads; ++i) {
-            threads.emplace_back(run_mixed_parity_test, i, iterations_per_thread);
-        }
-        
-        for (auto& t : threads) {
-            t.join();
-        }
-        
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        
-        std::cout << "  Completed " << test_iterations.load() << " test iterations in " 
-                  << duration.count() << "ms" << std::endl;
-        std::cout << "  Failures: " << test_failures.load() << std::endl;
-        
-        TEST_ASSERT(test_failures.load() == 0, 
-                   "No failures in mixed concurrent parity tests");
-    });
+    TEST_START("mixed_concurrent_parity");
+    test_iterations = 0;
+    test_failures = 0;
+
+    const int num_threads = 6;
+    const int iterations_per_thread = 8;
+
+    std::vector<std::thread> threads;
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back(run_mixed_parity_test, i, iterations_per_thread);
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "  Completed " << test_iterations.load() << " test iterations in "
+              << duration.count() << "ms" << std::endl;
+    std::cout << "  Failures: " << test_failures.load() << std::endl;
+
+    TEST_CHECK(test_failures.load() == 0,
+               "mixed_concurrent_parity",
+               "No failures in mixed concurrent parity tests");
 }
 
 void test_stress_concurrent_parity() {
-    TEST_RUN("stress_concurrent_parity", []() {
-        test_iterations = 0;
-        test_failures = 0;
-        
-        const int num_threads = 8;
-        const int iterations_per_thread = 20;
-        
-        std::vector<std::thread> threads;
-        auto start = std::chrono::high_resolution_clock::now();
-        
-        for (int i = 0; i < num_threads; ++i) {
-            threads.emplace_back(run_mixed_parity_test, i, iterations_per_thread);
-        }
-        
-        for (auto& t : threads) {
-            t.join();
-        }
-        
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        
-        std::cout << "  Stress test: " << test_iterations.load() << " iterations in " 
-                  << duration.count() << "ms" << std::endl;
-        std::cout << "  Throughput: " << (test_iterations.load() * 1000.0 / duration.count()) 
-                  << " tests/sec" << std::endl;
-        std::cout << "  Failures: " << test_failures.load() << std::endl;
-        
-        TEST_ASSERT(test_failures.load() == 0, 
-                   "No failures in stress test with many threads");
-    });
+    TEST_START("stress_concurrent_parity");
+    test_iterations = 0;
+    test_failures = 0;
+
+    const int num_threads = 8;
+    const int iterations_per_thread = 20;
+
+    std::vector<std::thread> threads;
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back(run_mixed_parity_test, i, iterations_per_thread);
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "  Stress test: " << test_iterations.load() << " iterations in "
+              << duration.count() << "ms" << std::endl;
+    std::cout << "  Throughput: " << (test_iterations.load() * 1000.0 / duration.count())
+              << " tests/sec" << std::endl;
+    std::cout << "  Failures: " << test_failures.load() << std::endl;
+
+    TEST_CHECK(test_failures.load() == 0,
+               "stress_concurrent_parity",
+               "No failures in stress test with many threads");
 }
 
 void test_data_race_detection() {
-    TEST_RUN("data_race_detection", []() {
-        // This test runs the same test data from multiple threads simultaneously
-        // to detect any potential data races in shared structures
-        test_iterations = 0;
-        test_failures = 0;
-        
-        const int num_threads = 4;
-        const int iterations_per_thread = 15;
-        
-        std::vector<std::thread> threads;
-        
-        // All threads run the same test pattern to maximize chance of race detection
-        for (int i = 0; i < num_threads; ++i) {
-            threads.emplace_back([i, iterations_per_thread]() {
-                run_float_double_parity_test(i, iterations_per_thread);
-            });
-        }
-        
-        for (auto& t : threads) {
-            t.join();
-        }
-        
-        std::cout << "  Data race detection: " << test_iterations.load() << " iterations" << std::endl;
-        std::cout << "  Failures: " << test_failures.load() << std::endl;
-        
-        TEST_ASSERT(test_failures.load() == 0, 
-                   "No data races detected in concurrent execution");
-    });
+    TEST_START("data_race_detection");
+    // This test runs the same test data from multiple threads simultaneously
+    // to detect any potential data races in shared structures
+    test_iterations = 0;
+    test_failures = 0;
+
+    const int num_threads = 4;
+    const int iterations_per_thread = 15;
+
+    std::vector<std::thread> threads;
+
+    // All threads run the same test pattern to maximize chance of race detection
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back([i, iterations_per_thread]() {
+            run_float_double_parity_test(i, iterations_per_thread);
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    std::cout << "  Data race detection: " << test_iterations.load() << " iterations" << std::endl;
+    std::cout << "  Failures: " << test_failures.load() << std::endl;
+
+    TEST_CHECK(test_failures.load() == 0,
+               "data_race_detection",
+               "No data races detected in concurrent execution");
 }
 
 /*******************************************************************************
@@ -460,5 +457,5 @@ int main() {
     test_data_race_detection();
     
     TEST_SUMMARY();
-    return TEST_EXIT();
+    return TestReporting::exit_code();
 }

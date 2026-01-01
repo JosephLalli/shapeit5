@@ -4,14 +4,12 @@
  * integration failure path observed as:
  *   "ERROR: Haploid underflow impossible to recover for [<sample>]"
  *
- * We construct a tiny supersite (anchor + sibling), a two‑segment window,
- * run forward(), then forcibly zero AlphaSumSum at the previous segment
- * boundary before calling backward(). The correct behavior is to avoid
- * underflow (gracefully handle zero totals), but current code returns -1.
- *
- * This test therefore expects outcome == 0, and will FAIL today, exposing
- * the bug. Once the fix is implemented (guarding TRANS_HAP against a zero
- * AlphaSumSum prev block), this test should pass.
+ * We construct a tiny supersite (anchor + sibling), force a two‑segment
+ * genotype with a real boundary on a non-sibling locus, run forward(),
+ * then forcibly zero AlphaSumSum at the previous segment before calling
+ * backward(). The expected behavior is:
+ *   - single precision signals underflow (-1) to trigger retry
+ *   - double precision recovers via uniform fallback (0)
  */
 
 #include <cassert>
@@ -21,7 +19,8 @@
 
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
+#include "test_common.h"
+#include "test_fixtures.h"
 
 #define private public
 #define protected public
@@ -41,30 +40,6 @@ static variant* vmake(std::string chr, int bp, std::string id, std::string ref, 
     return new variant(chr, bp, id, ref, alt, idx);
 }
 
-// Minimal two‑segment genotype scaffolding (manual; avoids full G.build())
-static void setup_two_segment_genotype(genotype& G, unsigned int n_variants, unsigned short len_seg0, unsigned short len_seg1) {
-    assert(len_seg0 + len_seg1 == n_variants);
-    G.n_segments = 2;
-    G.n_variants = n_variants;
-    G.n_ambiguous = 0;
-    G.n_missing = 0;
-    G.n_transitions = 1; // single transition block (1×1 diplotype)
-    G.n_stored_transitionProbs = 0;
-    G.n_storage_events = 0;
-    G.double_precision = false;
-    G.haploid = false;
-    G.Variants.assign((n_variants + 1)/2, 0);
-    G.Ambiguous.clear();
-    // One diplotype per segment (value 1 = only the d==0 bit set)
-    G.Diplotypes.assign(2, 1ull);
-    G.Lengths.assign(2, 0);
-    G.Lengths[0] = len_seg0;
-    G.Lengths[1] = len_seg1;
-    G.Lengths_bio = G.Lengths;
-    G.ProbMask.clear();
-    G.ProbStored.clear();
-}
-
 int main() {
     TEST_INIT("test_supersite_transition_underflow");
     std::cout << "Testing supersite transition underflow regression..." << std::endl;
@@ -73,47 +48,52 @@ int main() {
     variant_map V;
     V.push(vmake("1", 1000, "SS_A_C", "A", "C", 0)); // anchor @ locus 0
     V.push(vmake("1", 1000, "SS_A_G", "A", "G", 1)); // sibling @ locus 1
+    V.push(vmake("1", 2000, "v2", "A", "T", 2));
+    V.push(vmake("1", 2100, "v3", "A", "T", 3));
+    V.push(vmake("1", 2200, "v4", "A", "T", 4));
+    V.push(vmake("1", 2300, "v5", "A", "T", 5));
 
-    // Small panel (4 haplotypes) with mixed alleles
+    // Small panel (1 main, 1 ref = 4 haplotypes) with mixed alleles
     conditioning_set H;
-    H.allocate(0, 2, V.size());
+    H.allocate(1, 1, V.size());
     H.H_opt_var.set(0, 1, 1); H.H_opt_hap.set(1, 0, 1);
     H.H_opt_var.set(1, 2, 1); H.H_opt_hap.set(2, 1, 1);
 
-    std::vector<SuperSite> super_sites;
-    std::vector<bool> is_super_site;
-    std::vector<uint8_t> packed_codes;
-    std::vector<int> locus_to_super_idx;
-    std::vector<int> super_site_var_index;
-    buildSuperSites(V, H, super_sites, is_super_site, packed_codes,
-                    locus_to_super_idx, super_site_var_index);
-    assert(super_sites.size() == 1);
+    TestFixtures::SuperSiteContext ss_ctx = TestFixtures::build_supersites(V, H);
+    assert(ss_ctx.super_sites.size() == 1);
 
     hmm_parameters M;
     // Keep default ed/ee but set simple constant transitions
     M.t = std::vector<float>(V.size() ? V.size() - 1 : 0, 0.05f);
     M.nt = std::vector<float>(M.t.size(), 0.95f);
     M.rare_allele = std::vector<char>(V.size(), -1);
-    M.markSuperSiteSiblings(super_sites, locus_to_super_idx);
+    M.markSuperSiteSiblings(ss_ctx.super_sites, ss_ctx.locus_to_super_idx);
 
     // Conditioning indices: all panel haplotypes
     std::vector<unsigned int> idxH = {0u, 1u, 2u, 3u};
 
-    // Sample genotype: simple homozygous REF across both records
+    // Sample genotype: homozygous REF at supersite, 4 biallelic hets to force 2 segments
     genotype G(0);
-    setup_two_segment_genotype(G, /*n_variants=*/2, /*seg0=*/1, /*seg1=*/1);
-    VAR_SET_HOM(0, G.Variants[0]);
-    VAR_SET_HOM(1, G.Variants[0]);
-    G.setSuperSiteContext(&super_sites, &locus_to_super_idx, &super_site_var_index, nullptr, nullptr, nullptr);
-    G.setSupersitePanelCodes(packed_codes.data(), packed_codes.size());
+    G.n_variants = static_cast<unsigned int>(V.size());
+    G.Variants.assign((G.n_variants + 1) / 2, 0);
+    VAR_SET_HOM(MOD2(0), G.Variants[DIV2(0)]);
+    VAR_SET_HOM(MOD2(1), G.Variants[DIV2(1)]);
+    for (int v = 2; v < 6; ++v) {
+        VAR_SET_HET(MOD2(v), G.Variants[DIV2(v)]);
+        VAR_SET_HAP1(MOD2(v), G.Variants[DIV2(v)]);
+    }
+    TestFixtures::attach_supersite_context(G, ss_ctx);
+    G.build();
+    G.n_transitions = static_cast<unsigned int>(G.countTransitions());
+    G.snapshotSupersiteObservedGts(ss_ctx.super_sites, ss_ctx.super_site_var_index);
 
     // Window covering both segments and both loci
     window W;
-    W.start_locus = 0; W.stop_locus = 1;
-    W.start_segment = 0; W.stop_segment = 1;
-    W.start_ambiguous = 0; W.stop_ambiguous = -1;
-    W.start_missing = 0; W.stop_missing = -1;
-    W.start_transition = 0; W.stop_transition = 0; // single transition slot
+    W.start_locus = 0; W.stop_locus = static_cast<int>(G.n_variants) - 1;
+    W.start_segment = 0; W.stop_segment = static_cast<int>(G.n_segments) - 1;
+    W.start_ambiguous = 0; W.stop_ambiguous = static_cast<int>(G.n_ambiguous) - 1;
+    W.start_missing = 0; W.stop_missing = static_cast<int>(G.n_missing) - 1;
+    W.start_transition = 0; W.stop_transition = static_cast<int>(G.n_transitions) - 1;
 
     haplotype_segment_single HS(&G, H.H_opt_hap, idxH, W, M);
 
@@ -121,15 +101,15 @@ int main() {
     HS.forward();
 
     // Force the previous segment total mass to zero to mirror the integration failure
-    // (observed when windows split on supersite boundaries). This should be handled
-    // gracefully (by guarding TRANS_HAP), but currently causes a -1 underflow.
+    // (observed when windows split on supersite boundaries). Single precision should
+    // signal underflow (-1) to trigger a double-precision retry.
     assert(HS.AlphaSumSum.size() >= 1);
     HS.AlphaSumSum[0] = 0.0f;
 
     // Backward pass with single precision will signal underflow (outcome = -1) 
     // due to zero AlphaSumSum, which is correct - it should trigger double-precision retry in production.
     // In this isolated test, we verify the underflow is detected and can be recovered with double precision.
-    std::vector<double> trans_probs(/*size=*/1, 0.0);
+    std::vector<double> trans_probs(G.n_transitions, 0.0);
     std::vector<float> miss_probs;
     int outcome_single = HS.backward(trans_probs, miss_probs);
 

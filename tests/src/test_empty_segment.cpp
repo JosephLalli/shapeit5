@@ -5,7 +5,7 @@
 #include <objects/genotype/genotype_header.h>
 
 
-#include "test_reporting.h"
+#include "test_common.h"
 int main() {
     TEST_INIT("test_empty_segment");
     genotype G(0);

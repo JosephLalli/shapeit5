@@ -1,4 +1,4 @@
-#include "test_framework.h"
+#include "test_common.h"
 #include <objects/genotype/genotype_header.h>
 #include <cstdio>
 #include <iostream>

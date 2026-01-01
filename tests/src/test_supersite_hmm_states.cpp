@@ -8,7 +8,7 @@
 
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
+#include "test_common.h"
 
 #define private public
 #define protected public
@@ -97,14 +97,14 @@ int main() {
     genotype G(0);
     init_genotype(G, n_variants, {3, 3}, /*n_ambiguous*/2, /*n_missing*/2);
 
-    // Supersite A (indices 0,1): homozygous ALT
-    VAR_SET_HOM(MOD2(0), G.Variants[DIV2(0)]);
+    // Supersite A (indices 0,1): heterozygous ALT1|REF (valid single ALT class)
+    VAR_SET_HET(MOD2(0), G.Variants[DIV2(0)]);
     VAR_SET_HAP0(MOD2(0), G.Variants[DIV2(0)]);
-    VAR_SET_HAP1(MOD2(0), G.Variants[DIV2(0)]);
+    VAR_CLR_HAP1(MOD2(0), G.Variants[DIV2(0)]);
 
     VAR_SET_HOM(MOD2(1), G.Variants[DIV2(1)]);
-    VAR_SET_HAP0(MOD2(1), G.Variants[DIV2(1)]);
-    VAR_SET_HAP1(MOD2(1), G.Variants[DIV2(1)]);
+    VAR_CLR_HAP0(MOD2(1), G.Variants[DIV2(1)]);
+    VAR_CLR_HAP1(MOD2(1), G.Variants[DIV2(1)]);
 
     // Supersite B (indices 2,3): ambiguous - hap0 carries ALT1, hap1 carries ALT2
     VAR_SET_HET(MOD2(2), G.Variants[DIV2(2)]);

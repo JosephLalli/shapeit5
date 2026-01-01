@@ -32,7 +32,7 @@
 #include <string>
 #include <vector>
 
-#include "test_reporting.h"
+#include "test_common.h"
 #include "../../common/src/utils/otools.h"
 
 #define private public

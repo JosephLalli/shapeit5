@@ -19,10 +19,9 @@
 #include <algorithm>
 #include <random>
 
-#include "test_framework.h"
+#include "test_common.h"
 #include "../../common/src/utils/otools.h"
 
-#include "test_reporting.h"
 
 #define private public
 #define protected public
@@ -31,8 +30,6 @@
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 #undef private
 #undef protected
-
-using namespace test_framework;
 
 // Mock IBD2 threading environment
 class MockIBD2Threading {
@@ -273,209 +270,195 @@ public:
 
 // Test basic IBD2 push operations thread safety
 void test_ibd2_push_thread_safety() {
-    TEST_RUN("ibd2_push_thread_safety", []() {
-        MockIBD2Threading mock;
-        
-        TEST_THREADED("ibd2_push_operations", 4, [&](int thread_id) {
-            mock.simulate_push_ibd2(thread_id);
-        });
-        
-        TEST_ASSERT(mock.verify_consistency(), "IBD2 push operations consistency");
-        TEST_ASSERT(mock.push_operations.load() == 40, "correct number of push operations"); // 4 threads * 10 ops
+    MockIBD2Threading mock;
+
+    TEST_THREADED("ibd2_push_operations", 4, [&](int thread_id) {
+        mock.simulate_push_ibd2(thread_id);
     });
+
+    TEST_CHECK(mock.verify_consistency(), "ibd2_push_consistency", "IBD2 push operations consistency");
+    TEST_CHECK(mock.push_operations.load() == 40,
+               "ibd2_push_operation_count",
+               "correct number of push operations"); // 4 threads * 10 ops
 }
 
 // Test IBD2 collapse operations thread safety
 void test_ibd2_collapse_thread_safety() {
-    TEST_RUN("ibd2_collapse_thread_safety", []() {
-        MockIBD2Threading mock;
-        
-        // First populate with some tracks
-        for (int t = 0; t < 4; t++) {
-            mock.simulate_push_ibd2(t);
-        }
-        
-        mock.reset();
-        mock.collapse_operations = 0;
-        
-        // Now test collapse operations
-        TEST_THREADED("ibd2_collapse_operations", 3, [&](int thread_id) {
-            mock.simulate_collapse_operations(thread_id);
-        });
-        
-        TEST_ASSERT(mock.collapse_operations.load() >= 0, "collapse operations executed");
+    MockIBD2Threading mock;
+
+    // First populate with some tracks
+    for (int t = 0; t < 4; t++) {
+        mock.simulate_push_ibd2(t);
+    }
+
+    mock.reset();
+    mock.collapse_operations = 0;
+
+    // Now test collapse operations
+    TEST_THREADED("ibd2_collapse_operations", 3, [&](int thread_id) {
+        mock.simulate_collapse_operations(thread_id);
     });
+
+    TEST_CHECK(mock.collapse_operations.load() >= 0,
+               "ibd2_collapse_operations_executed",
+               "collapse operations executed");
 }
 
 // Test concurrent IBD2 queries
 void test_ibd2_query_thread_safety() {
-    TEST_RUN("ibd2_query_thread_safety", []() {
-        MockIBD2Threading mock;
-        
-        // Populate with some IBD2 data
-        for (int t = 0; t < 2; t++) {
-            mock.simulate_push_ibd2(t);
-        }
-        
-        TEST_THREADED("ibd2_query_operations", 4, [&](int thread_id) {
-            mock.simulate_ibd2_queries(thread_id);
-        });
-        
-        // No crashes means success for read operations
-        TEST_ASSERT(true, "IBD2 query operations completed");
+    MockIBD2Threading mock;
+
+    // Populate with some IBD2 data
+    for (int t = 0; t < 2; t++) {
+        mock.simulate_push_ibd2(t);
+    }
+
+    TEST_THREADED("ibd2_query_operations", 4, [&](int thread_id) {
+        mock.simulate_ibd2_queries(thread_id);
     });
+
+    // No crashes means success for read operations
+    TEST_CHECK(true, "ibd2_query_completed", "IBD2 query operations completed");
 }
 
 // Test track overlap detection thread safety
 void test_track_overlap_safety() {
-    TEST_RUN("track_overlap_safety", []() {
-        MockIBD2Threading mock;
-        
-        TEST_THREADED("track_overlap_detection", 4, [&](int thread_id) {
-            mock.simulate_track_overlap(thread_id);
-        });
-        
-        TEST_ASSERT(mock.track_conflicts.load() >= 0, "track overlap operations completed");
+    MockIBD2Threading mock;
+
+    TEST_THREADED("track_overlap_detection", 4, [&](int thread_id) {
+        mock.simulate_track_overlap(thread_id);
     });
+
+    TEST_CHECK(mock.track_conflicts.load() >= 0,
+               "track_overlap_completed",
+               "track overlap operations completed");
 }
 
 // Test concurrent track merging
 void test_track_merging_safety() {
-    TEST_RUN("track_merging_safety", []() {
-        MockIBD2Threading mock;
-        
-        TEST_THREADED("track_merging", 4, [&](int thread_id) {
-            mock.simulate_track_merging(thread_id);
-        });
-        
-        TEST_ASSERT(mock.verify_consistency(), "track merging basic consistency");
+    MockIBD2Threading mock;
+
+    TEST_THREADED("track_merging", 4, [&](int thread_id) {
+        mock.simulate_track_merging(thread_id);
     });
+
+    TEST_CHECK(mock.verify_consistency(), "track_merging_consistency", "track merging basic consistency");
 }
 
 // Test mixed operations stress test
 void test_ibd2_mixed_operations() {
-    TEST_RUN("ibd2_mixed_operations", []() {
-        MockIBD2Threading mock;
-        
-        TEST_THREADED("mixed_ibd2_operations", 6, [&](int thread_id) {
-            switch (thread_id % 3) {
-                case 0:
-                    mock.simulate_push_ibd2(thread_id);
-                    break;
-                case 1:
-                    mock.simulate_ibd2_queries(thread_id);
-                    break;
-                case 2:
-                    mock.simulate_collapse_operations(thread_id);
-                    break;
-            }
-        });
-        
-        TEST_ASSERT(mock.push_operations.load() > 0, "push operations in mixed test");
+    MockIBD2Threading mock;
+
+    TEST_THREADED("mixed_ibd2_operations", 6, [&](int thread_id) {
+        switch (thread_id % 3) {
+            case 0:
+                mock.simulate_push_ibd2(thread_id);
+                break;
+            case 1:
+                mock.simulate_ibd2_queries(thread_id);
+                break;
+            case 2:
+                mock.simulate_collapse_operations(thread_id);
+                break;
+        }
     });
+
+    TEST_CHECK(mock.push_operations.load() > 0, "mixed_push_operations", "push operations in mixed test");
 }
 
 // Test IBD2 stress conditions
 void test_ibd2_stress() {
-    TEST_RUN("ibd2_stress", []() {
-        MockIBD2Threading mock;
-        mock.num_individuals = 20; // More individuals for stress
-        mock.setup_test_data();
-        
-        TEST_STRESS("ibd2_stress_test", 3, 8, [&](int thread_id) {
-            // High frequency operations
-            for (int i = 0; i < 5; i++) {
-                mock.simulate_push_ibd2(thread_id);
-                mock.simulate_ibd2_queries(thread_id);
-            }
-        });
-        
-        TEST_ASSERT(mock.verify_consistency(), "IBD2 stress test consistency");
+    MockIBD2Threading mock;
+    mock.num_individuals = 20; // More individuals for stress
+    mock.setup_test_data();
+
+    TEST_STRESS("ibd2_stress_test", 3, 8, [&](int thread_id) {
+        // High frequency operations
+        for (int i = 0; i < 5; i++) {
+            mock.simulate_push_ibd2(thread_id);
+            mock.simulate_ibd2_queries(thread_id);
+        }
     });
+
+    TEST_CHECK(mock.verify_consistency(), "ibd2_stress_consistency", "IBD2 stress test consistency");
 }
 
 // Test deadlock detection in IBD2 operations
 void test_ibd2_deadlock_detection() {
-    TEST_RUN("ibd2_deadlock_detection", []() {
-        MockIBD2Threading mock;
-        
-        TEST_DEADLOCK_DETECTION("ibd2_deadlock_test", 10, 4, [&](int thread_id) {
-            // Mix operations that could potentially deadlock
-            mock.simulate_push_ibd2(thread_id);
-            mock.simulate_collapse_operations(thread_id);
-        });
+    MockIBD2Threading mock;
+
+    TEST_DEADLOCK_DETECTION("ibd2_deadlock_test", 10, 4, [&](int thread_id) {
+        // Mix operations that could potentially deadlock
+        mock.simulate_push_ibd2(thread_id);
+        mock.simulate_collapse_operations(thread_id);
     });
 }
 
 // Test race condition detection
 void test_ibd2_race_detection() {
-    TEST_RUN("ibd2_race_detection", []() {
-        MockIBD2Threading mock;
-        
-        TEST_RACE_DETECTION("ibd2_race",
-            [&]() { 
-                mock.reset(); 
-            },
-            [&]() { 
-                // Basic consistency: track count should be non-negative
-                return mock.get_total_track_count() >= 0;
-            });
-    });
+    MockIBD2Threading mock;
+
+    TEST_RACE_DETECTION("ibd2_race",
+        [&]() {
+            mock.reset();
+        },
+        [&]() {
+            // Basic consistency: track count should be non-negative
+            return mock.get_total_track_count() >= 0;
+        });
 }
 
 // Test memory consistency across threads
 void test_ibd2_memory_consistency() {
-    TEST_RUN("ibd2_memory_consistency", []() {
-        MockIBD2Threading mock;
-        
-        // Initialize with known pattern
+    MockIBD2Threading mock;
+
+    // Initialize with known pattern
+    for (int ind = 0; ind < mock.num_individuals; ind++) {
+        std::vector<track> initial_tracks;
+        initial_tracks.emplace_back(ind, 0, 10);
+        mock.shared_ibd2.IBD2[ind] = initial_tracks;
+    }
+
+    TEST_THREADED("memory_consistency_check", 4, [&](int thread_id) {
+        // Verify data consistency
+        pthread_mutex_lock(&mock.ibd2_mutex);
+
         for (int ind = 0; ind < mock.num_individuals; ind++) {
-            std::vector<track> initial_tracks;
-            initial_tracks.emplace_back(ind, 0, 10);
-            mock.shared_ibd2.IBD2[ind] = initial_tracks;
-        }
-        
-        TEST_THREADED("memory_consistency_check", 4, [&](int thread_id) {
-            // Verify data consistency
-            pthread_mutex_lock(&mock.ibd2_mutex);
-            
-            for (int ind = 0; ind < mock.num_individuals; ind++) {
-                const auto& tracks = mock.shared_ibd2.IBD2[ind];
-                TEST_THREADED_ASSERT(tracks.size() >= 1, 
-                    "individual " + std::to_string(ind) + " has tracks");
-                
-                if (!tracks.empty()) {
-                    TEST_THREADED_ASSERT(tracks[0].ind == ind, 
-                        "track individual matches index");
-                }
+            const auto& tracks = mock.shared_ibd2.IBD2[ind];
+            TEST_THREADED_ASSERT(tracks.size() >= 1,
+                "individual " + std::to_string(ind) + " has tracks");
+
+            if (!tracks.empty()) {
+                TEST_THREADED_ASSERT(tracks[0].ind == ind,
+                    "track individual matches index");
             }
-            
-            pthread_mutex_unlock(&mock.ibd2_mutex);
-        });
+        }
+
+        pthread_mutex_unlock(&mock.ibd2_mutex);
     });
 }
 
 // Test without mutex (should demonstrate race conditions)
 void test_no_mutex_ibd2() {
-    TEST_RUN("no_mutex_ibd2", []() {
-        MockIBD2Threading mock;
-        mock.enable_mutex = false;
-        
-        std::vector<std::thread> threads;
-        for (int i = 0; i < 4; i++) {
-            threads.emplace_back([&mock, i]() {
-                mock.simulate_push_ibd2(i);
-            });
-        }
-        
-        for (auto& t : threads) {
-            t.join();
-        }
-        
-        // Check for potential issues without mutex
-        bool has_issues = !mock.verify_consistency();
-        std::cout << "No-mutex IBD2 test: " << (has_issues ? "detected potential race conditions" : "no issues detected") << std::endl;
-    });
+    TEST_START("no_mutex_ibd2");
+    MockIBD2Threading mock;
+    mock.enable_mutex = false;
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 4; i++) {
+        threads.emplace_back([&mock, i]() {
+            mock.simulate_push_ibd2(i);
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // Check for potential issues without mutex
+    bool has_issues = !mock.verify_consistency();
+    std::cout << "No-mutex IBD2 test: " << (has_issues ? "detected potential race conditions" : "no issues detected") << std::endl;
+    TEST_PASS("no_mutex_ibd2");
 }
 
 // Main test runner
@@ -496,5 +479,5 @@ int main() {
     test_no_mutex_ibd2();
     
     TEST_SUMMARY();
-    return TEST_EXIT();
+    return TestReporting::exit_code();
 }
