@@ -34,6 +34,7 @@ class genotype_set {
 public:
 	//DATA
 	int n_site, n_ind;							//Number of variants, number of individuals
+	unsigned long n_supersites;					//Number of multiallelic supersites
 	std::vector < genotype * > vecG;					//Vector of genotype graphs
 	std::vector < genotype * > vecFathers;			//Points to fathers, NULL otherwise
 	std::vector < genotype * > vecMothers;			//Points to mothers, NULL otherwise
@@ -41,7 +42,7 @@ public:
 	//CONSTRUCTOR/DESTRUCTOR
 	genotype_set();
 	~genotype_set();
-	void allocate(unsigned long, unsigned long);
+	void allocate(unsigned long, unsigned long, unsigned long n_supersites = 0);
 
 	//METHODS
 		void imputeMonomorphic(variant_map &);		//Impute to REF monomorphic variants

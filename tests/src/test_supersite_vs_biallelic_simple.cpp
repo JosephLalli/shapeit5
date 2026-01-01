@@ -17,7 +17,7 @@
 #include "test_common.h"
 static variant* make_var(std::string chr, int bp, std::string id, std::string ref, std::string alt, int idx) {
     // variant constructor takes lvalue refs; keep locals so refs remain valid
-    return new variant(chr, bp, id, ref, alt, idx);
+    return new variant(chr, bp, id, ref, alt, 1, idx);
 }
 
 int main() {

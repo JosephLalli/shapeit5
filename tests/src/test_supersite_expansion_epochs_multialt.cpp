@@ -69,7 +69,7 @@ static variant* make_var(const std::string& chr, int bp, const std::string& id,
     std::string id_copy = id;
     std::string ref_copy = ref;
     std::string alt_copy = alt;
-    return new variant(chr_copy, bp, id_copy, ref_copy, alt_copy, idx);
+    return new variant(chr_copy, bp, id_copy, ref_copy, alt_copy, 1, idx);
 }
 
 static void clear_variant_state(genotype& G, int locus) {

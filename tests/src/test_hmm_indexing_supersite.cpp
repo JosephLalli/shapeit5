@@ -37,7 +37,7 @@ using namespace std;
 
 // Helper: Create variant
 static variant* make_var(string chr, int bp, string id, string ref, string alt, int idx) {
-    return new variant(chr, bp, id, ref, alt, idx);
+    return new variant(chr, bp, id, ref, alt, 1, idx);
 }
 
 // Test result tracking

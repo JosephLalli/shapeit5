@@ -35,16 +35,22 @@ haplotype_set::~haplotype_set() {
 
 void haplotype_set::clear() {
 	n_site = 0;
+	n_supersites = 0;
 	n_hap = 0;
 	n_ind = 0;
+	H_supersite_codes.clear();
 }
 
-void haplotype_set::allocate(unsigned long n_main_samples, unsigned long n_ref_samples, unsigned long n_variants) {
+void haplotype_set::allocate(unsigned long n_main_samples, unsigned long n_ref_samples, unsigned long n_variants, unsigned long n_supersites) {
 	n_ind = n_main_samples;
 	n_hap = 2 * (n_main_samples + n_ref_samples);
 	n_site = n_variants;
+	this->n_supersites = n_supersites;
 	H_opt_var.allocate(n_site, n_hap);
 	H_opt_hap.allocate(n_hap, n_site);
+	if (n_supersites > 0) {
+		H_supersite_codes.assign(static_cast<size_t>(n_supersites) * n_hap, 0u);
+	}
 }
 
 void haplotype_set::updateHaplotypes(genotype_set & G, bool first_time) {

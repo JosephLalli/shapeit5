@@ -30,7 +30,7 @@
 #include "../../phase_common/src/containers/conditioning_set/conditioning_set_header.h"
 
 static variant* make_var(std::string chr, int bp, std::string id, std::string ref, std::string alt, int idx) {
-    return new variant(chr, bp, id, ref, alt, idx);
+    return new variant(chr, bp, id, ref, alt, 1, idx);
 }
 
 static void setup_genotype_simple(genotype& G, unsigned int n_variants) {

@@ -43,7 +43,7 @@ static std::mt19937 test_rng(12345);
 
 // Helper: Create variant
 static variant* make_var(string chr, int bp, string id, string ref, string alt, int idx) {
-    return new variant(chr, bp, id, ref, alt, idx);
+    return new variant(chr, bp, id, ref, alt, 1, idx);
 }
 
 // Helper: Create variant map with supersite-friendly grouping (first 3 per block share bp)

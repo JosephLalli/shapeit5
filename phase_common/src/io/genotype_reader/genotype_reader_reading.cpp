@@ -79,9 +79,13 @@ void genotype_reader::readGenotypes() {
 	if (n_scaf_samples) scaf_bitvector.allocate(2 * n_scaf_samples);
 
 	//Parsing VCF/BCF
-	uint32_t i_variant_total = 0, i_variant_kept = 0;
+	uint32_t i_variant_total = 0, i_variant_kept = 0, i_supersite_kept = 0;
 	while (XR.nextRecord()) {
 		if (variant_mask[i_variant_total]) {
+			const bool record_multiallelic = (XR.n_allele > 2);
+			const int n_alts = XR.n_allele > 0 ? (XR.n_allele - 1) : 0;
+			const int ss_idx = record_multiallelic ? static_cast<int>(i_supersite_kept) : -1;
+			const size_t ss_offset = record_multiallelic ? static_cast<size_t>(ss_idx) * H.n_hap : 0u;
 
 			// ====== Retrieve MAIN data ============== //
 			int32_t main_type = XR.typeRecord(idx_file_main);
@@ -90,22 +94,65 @@ void genotype_reader::readGenotypes() {
 			if (main_type == RECORD_BCFVCF_GENOTYPE) {
 				XR.readRecord(idx_file_main, reinterpret_cast< char** > (&main_buffer));
 				for(int32_t i = 0 ; i < 2 * n_main_samples ; i += 2) {
-					bool a0 = (bcf_gt_allele(main_buffer[i+0])==1);
-					bool a1 = (bcf_gt_allele(main_buffer[i+1])==1);
-					bool mi = (main_buffer[i+0] == bcf_gt_missing || main_buffer[i+1] == bcf_gt_missing);
-					bool he = !mi && a0 != a1;
-					bool ho = !mi && a0 == a1;
-					if (a0) VAR_SET_HAP0(MOD2(i_variant_kept), G.vecG[DIV2(i)]->Variants[DIV2(i_variant_kept)]);
-					if (a1) VAR_SET_HAP1(MOD2(i_variant_kept), G.vecG[DIV2(i)]->Variants[DIV2(i_variant_kept)]);
-					if (mi) VAR_SET_MIS(MOD2(i_variant_kept), G.vecG[DIV2(i)]->Variants[DIV2(i_variant_kept)]);
-					if (he) VAR_SET_HET(MOD2(i_variant_kept), G.vecG[DIV2(i)]->Variants[DIV2(i_variant_kept)]);
-					if (mi) { V.vec_pos[i_variant_kept]->cmis++; n_genotypes[3] ++; }
-					else { V.vec_pos[i_variant_kept]->cref += (1-a0)+(1-a1); V.vec_pos[i_variant_kept]->calt += a0+a1; n_genotypes[a0+a1] ++; }
+					genotype* g = G.vecG[DIV2(i)];
+					if (record_multiallelic) {
+						const int32_t raw0 = main_buffer[i+0];
+						const int32_t raw1 = main_buffer[i+1];
+						const bool mi = (raw0 == bcf_gt_missing || raw1 == bcf_gt_missing);
+						unsigned char &vbyte = g->Variants[DIV2(i_variant_kept)];
+						if (mi) {
+							g->setSupersiteObservedGt(ss_idx, 0u, 0u, 0x3u);
+							VAR_SET_MIS(MOD2(i_variant_kept), vbyte);
+							VAR_CLR_HAP0(MOD2(i_variant_kept), vbyte);
+							VAR_CLR_HAP1(MOD2(i_variant_kept), vbyte);
+							V.vec_pos[i_variant_kept]->cmis++;
+							n_genotypes[3] ++;
+							continue;
+						}
+						int allele0 = bcf_gt_allele(raw0);
+						int allele1 = bcf_gt_allele(raw1);
+						if (allele0 < 0 || allele0 > n_alts) allele0 = 0;
+						if (allele1 < 0 || allele1 > n_alts) allele1 = 0;
+						const uint8_t code0 = static_cast<uint8_t>(allele0);
+						const uint8_t code1 = static_cast<uint8_t>(allele1);
+						g->setSupersiteObservedGt(ss_idx, code0, code1, 0u);
+						const unsigned sample_idx = static_cast<unsigned>(DIV2(i));
+						const size_t hap0 = ss_offset + sample_idx * 2u;
+						const size_t hap1 = hap0 + 1u;
+						if (hap1 < H.H_supersite_codes.size()) {
+							H.H_supersite_codes[hap0] = code0;
+							H.H_supersite_codes[hap1] = code1;
+						}
+						const bool a0 = (code0 != 0);
+						const bool a1 = (code1 != 0);
+						a0 ? VAR_SET_HAP0(MOD2(i_variant_kept), vbyte) : VAR_CLR_HAP0(MOD2(i_variant_kept), vbyte);
+						a1 ? VAR_SET_HAP1(MOD2(i_variant_kept), vbyte) : VAR_CLR_HAP1(MOD2(i_variant_kept), vbyte);
+						if (code0 == code1) VAR_SET_HOM(MOD2(i_variant_kept), vbyte);
+						else VAR_SET_HET(MOD2(i_variant_kept), vbyte);
+						V.vec_pos[i_variant_kept]->cref += (code0 == 0) + (code1 == 0);
+						V.vec_pos[i_variant_kept]->calt += (code0 > 0) + (code1 > 0);
+						n_genotypes[(code0 > 0) + (code1 > 0)] ++;
+					} else {
+						bool a0 = (bcf_gt_allele(main_buffer[i+0])==1);
+						bool a1 = (bcf_gt_allele(main_buffer[i+1])==1);
+						bool mi = (main_buffer[i+0] == bcf_gt_missing || main_buffer[i+1] == bcf_gt_missing);
+						bool he = !mi && a0 != a1;
+						bool ho = !mi && a0 == a1;
+						if (a0) VAR_SET_HAP0(MOD2(i_variant_kept), g->Variants[DIV2(i_variant_kept)]);
+						if (a1) VAR_SET_HAP1(MOD2(i_variant_kept), g->Variants[DIV2(i_variant_kept)]);
+						if (mi) VAR_SET_MIS(MOD2(i_variant_kept), g->Variants[DIV2(i_variant_kept)]);
+						if (he) VAR_SET_HET(MOD2(i_variant_kept), g->Variants[DIV2(i_variant_kept)]);
+						if (mi) { V.vec_pos[i_variant_kept]->cmis++; n_genotypes[3] ++; }
+						else { V.vec_pos[i_variant_kept]->cref += (1-a0)+(1-a1); V.vec_pos[i_variant_kept]->calt += a0+a1; n_genotypes[a0+a1] ++; }
+					}
 				}
 			}
 
 			// ... in binary genotype format
 			else if (main_type == RECORD_BINARY_GENOTYPE) {
+				if (record_multiallelic) {
+					vrb.error("Binary genotype format cannot encode multiallelic records in main panel");
+				}
 				XR.readRecord(idx_file_main, reinterpret_cast< char** > (&main_bitvector.bytes));
 				for(int32_t i = 0 ; i < 2 * n_main_samples ; i += 2) {
 					bool a0 = main_bitvector.get(i+0);
@@ -134,20 +181,50 @@ void genotype_reader::readGenotypes() {
 				if (ref_type == RECORD_BCFVCF_GENOTYPE) {
 					XR.readRecord(idx_file_ref, reinterpret_cast< char** > (&ref_buffer));
 					for(int32_t i = 0 ; i < 2 * n_ref_samples ; i += 2) {
-						bool a0 = (bcf_gt_allele(ref_buffer[i+0])==1);
-						bool a1 = (bcf_gt_allele(ref_buffer[i+1])==1);
-						if (ref_buffer[i+0] == bcf_gt_missing || ref_buffer[i+1] == bcf_gt_missing) vrb.error("Missing genotype(s) in reference panel");
-						if (!bcf_gt_is_phased(ref_buffer[i+1])) vrb.error("Unphased genotype(s) in reference panel");
-						H.H_opt_hap.set(i+2*n_main_samples+0, i_variant_kept, a0);
-						H.H_opt_hap.set(i+2*n_main_samples+1, i_variant_kept, a1);
-						V.vec_pos[i_variant_kept]->cref += (1-a0)+(1-a1);
-						V.vec_pos[i_variant_kept]->calt += a0+a1;
-						n_alleles[a0]++; n_alleles[a1]++;
+						if (record_multiallelic) {
+							const int32_t raw0 = ref_buffer[i+0];
+							const int32_t raw1 = ref_buffer[i+1];
+							if (raw0 == bcf_gt_missing || raw1 == bcf_gt_missing) vrb.error("Missing genotype(s) in reference panel");
+							if (!bcf_gt_is_phased(ref_buffer[i+1])) vrb.error("Unphased genotype(s) in reference panel");
+							int allele0 = bcf_gt_allele(raw0);
+							int allele1 = bcf_gt_allele(raw1);
+							if (allele0 < 0 || allele0 > n_alts) allele0 = 0;
+							if (allele1 < 0 || allele1 > n_alts) allele1 = 0;
+							const uint8_t code0 = static_cast<uint8_t>(allele0);
+							const uint8_t code1 = static_cast<uint8_t>(allele1);
+							const unsigned ref_sample = static_cast<unsigned>(DIV2(i));
+							const size_t hap0 = ss_offset + (2u * n_main_samples) + ref_sample * 2u;
+							const size_t hap1 = hap0 + 1u;
+							if (hap1 < H.H_supersite_codes.size()) {
+								H.H_supersite_codes[hap0] = code0;
+								H.H_supersite_codes[hap1] = code1;
+							}
+							const bool a0 = (code0 != 0);
+							const bool a1 = (code1 != 0);
+							H.H_opt_hap.set(i+2*n_main_samples+0, i_variant_kept, a0);
+							H.H_opt_hap.set(i+2*n_main_samples+1, i_variant_kept, a1);
+							V.vec_pos[i_variant_kept]->cref += (code0 == 0) + (code1 == 0);
+							V.vec_pos[i_variant_kept]->calt += (code0 > 0) + (code1 > 0);
+							n_alleles[a0]++; n_alleles[a1]++;
+						} else {
+							bool a0 = (bcf_gt_allele(ref_buffer[i+0])==1);
+							bool a1 = (bcf_gt_allele(ref_buffer[i+1])==1);
+							if (ref_buffer[i+0] == bcf_gt_missing || ref_buffer[i+1] == bcf_gt_missing) vrb.error("Missing genotype(s) in reference panel");
+							if (!bcf_gt_is_phased(ref_buffer[i+1])) vrb.error("Unphased genotype(s) in reference panel");
+							H.H_opt_hap.set(i+2*n_main_samples+0, i_variant_kept, a0);
+							H.H_opt_hap.set(i+2*n_main_samples+1, i_variant_kept, a1);
+							V.vec_pos[i_variant_kept]->cref += (1-a0)+(1-a1);
+							V.vec_pos[i_variant_kept]->calt += a0+a1;
+							n_alleles[a0]++; n_alleles[a1]++;
+						}
 					}
 				}
 
 				// ... in binary haplotype format
 				else if (ref_type == RECORD_BINARY_HAPLOTYPE) {
+					if (record_multiallelic) {
+						vrb.error("Binary haplotype format cannot encode multiallelic records in reference panel");
+					}
 					XR.readRecord(idx_file_ref, reinterpret_cast< char** > (&ref_bitvector.bytes));
 					for(int32_t i = 0 ; i < 2 * n_ref_samples ; i += 2) {
 						bool a0 = ref_bitvector.get(i+0);
@@ -162,6 +239,9 @@ void genotype_reader::readGenotypes() {
 
 				// ... in sparse haplotype format
 				else if (ref_type == RECORD_SPARSE_HAPLOTYPE) {
+					if (record_multiallelic) {
+						vrb.error("Sparse haplotype format cannot encode multiallelic records in reference panel");
+					}
 					int32_t n_elements = XR.readRecord(idx_file_ref, reinterpret_cast< char** > (&ref_buffer)) / sizeof(int32_t);
 					bool major = (XR.getAF(idx_file_ref)>0.5f);
 					for(uint32_t i = 0 ; i < 2 * n_ref_samples ; i ++) H.H_opt_hap.set(i+2*n_main_samples, i_variant_kept, major);
@@ -184,7 +264,7 @@ void genotype_reader::readGenotypes() {
 			}
 
 			// ====== Retrieve SCAFFOLD data ============== //
-			if (panels[2] && XR.hasRecord(idx_file_scaf)) {
+			if (panels[2] && XR.hasRecord(idx_file_scaf) && !record_multiallelic) {
 				int32_t scaf_type = XR.typeRecord(idx_file_scaf);
 
 				// ... in BCF format
@@ -230,6 +310,7 @@ void genotype_reader::readGenotypes() {
 
 			}
 			vrb.progress("  * VCF/BCF parsing", i_variant_kept * 1.0 / n_variants);
+			if (record_multiallelic) i_supersite_kept++;
 			i_variant_kept ++;
 		}
 		i_variant_total++;

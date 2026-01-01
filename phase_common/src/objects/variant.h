@@ -23,6 +23,8 @@
 #ifndef _VARIANT_H
 #define _VARIANT_H
 
+#include <cstdint>
+
 #include <utils/otools.h>
 
 class variant {
@@ -33,6 +35,7 @@ public :
 	std::string id;
 	std::string ref;
 	std::string alt;
+	uint16_t n_alts;
 	double cm;
 	int idx;
 	unsigned int cref;
@@ -40,7 +43,7 @@ public :
 	unsigned int cmis;
 
 	//CONSTRUCTOR/DESTRUCTOR
-	variant(std::string & chr, int bp, std::string & id, std::string & ref, std::string & alt, int idx);
+	variant(std::string & chr, int bp, std::string & id, std::string & ref, std::string & alt, uint16_t n_alts, int idx);
 	~variant();
 
 	bool isSingleton();

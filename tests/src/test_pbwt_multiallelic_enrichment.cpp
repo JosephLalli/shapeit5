@@ -45,7 +45,7 @@ struct PanelLayout {
 };
 
 static variant* make_var(std::string chr, int bp, std::string id, std::string ref, std::string alt, int idx, double cm) {
-    variant* v = new variant(chr, bp, id, ref, alt, idx);
+    variant* v = new variant(chr, bp, id, ref, alt, 1, idx);
     v->cm = cm;
     return v;
 }

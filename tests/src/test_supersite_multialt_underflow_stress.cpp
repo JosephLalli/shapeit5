@@ -58,7 +58,7 @@ using std::cout;
 using std::endl;
 
 static variant* make_var(std::string chr, int bp, std::string id, std::string ref, std::string alt, int idx) {
-    return new variant(chr, bp, id, ref, alt, idx);
+    return new variant(chr, bp, id, ref, alt, 1, idx);
 }
 
 // Build a panel with diverse allele frequencies across multiple ALTs

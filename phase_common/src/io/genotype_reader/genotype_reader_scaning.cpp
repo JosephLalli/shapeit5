@@ -113,7 +113,8 @@ void genotype_reader::scanGenotypes() {
 		}
 
 		//Push variant information
-		V.push(new variant (XR.chr, XR.pos, XR.rsid, XR.ref, XR.alt, V.size()));
+		const uint16_t n_alts = (XR.n_allele > 0) ? static_cast<uint16_t>(XR.n_allele - 1) : 0u;
+		V.push(new variant (XR.chr, XR.pos, XR.rsid, XR.ref, XR.alt, n_alts, V.size()));
 
 		//Flag it!
 		variant_mask.back() = true;
@@ -137,6 +138,7 @@ void genotype_reader::scanGenotypes() {
 	}
 	XR.close();
 
+	n_supersites = n_variants_multiallelic;
 	if (has_multiallelic_records && has_binary_haplotype) {
 		vrb.error("Multiallelic records detected but reference/scaffold panel uses binary haplotype format; use BCF/VCF for multiallelic inputs");
 	}

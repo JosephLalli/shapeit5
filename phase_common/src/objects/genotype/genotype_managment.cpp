@@ -70,6 +70,7 @@ void genotype::free() {
 	vector < uint8_t > ().swap(supersite_flags);
 	vector < uint8_t > ().swap(ss_phased_gts);
 	vector < uint8_t > ().swap(ss_observed_gts);
+	vector < uint8_t > ().swap(ss_missing_mask);
 	vector < float > ().swap(ProbSuperClass);
 	sc_storage_events = 0;
 	supersite_panel_codes = nullptr;
@@ -97,8 +98,44 @@ inline size_t supersite_pair_offset(int ss_idx) {
 }
 }
 
-static inline uint8_t safe_class_code(uint8_t code) {
-	return (code <= SUPERSITE_MAX_ALTS) ? code : SUPERSITE_CODE_MISSING;
+void genotype::setSupersiteObservedGt(int ss_idx, uint8_t c0, uint8_t c1, uint8_t missing_mask) {
+	if (ss_idx < 0) return;
+	const size_t required_pairs = super_sites ? super_sites->size() : ss_observed_gts.size() / 2u;
+	const size_t required = required_pairs * 2u;
+	if (ss_observed_gts.size() != required) {
+		ss_observed_gts.assign(required, 0u);
+	}
+	if (ss_missing_mask.size() != required_pairs) {
+		ss_missing_mask.assign(required_pairs, 0u);
+	}
+	const size_t offset = supersite_pair_offset(ss_idx);
+	if (offset + 1 < ss_observed_gts.size()) {
+		ss_observed_gts[offset] = c0;
+		ss_observed_gts[offset + 1] = c1;
+	}
+	if (static_cast<size_t>(ss_idx) < ss_missing_mask.size()) {
+		ss_missing_mask[static_cast<size_t>(ss_idx)] = missing_mask & 0x3u;
+	}
+}
+
+void genotype::setSupersiteMissingMask(int ss_idx, uint8_t mask) {
+	if (ss_idx < 0) return;
+	const size_t required_pairs = super_sites ? super_sites->size() : ss_missing_mask.size();
+	if (ss_missing_mask.size() != required_pairs) {
+		ss_missing_mask.assign(required_pairs, 0u);
+	}
+	if (static_cast<size_t>(ss_idx) < ss_missing_mask.size()) {
+		ss_missing_mask[static_cast<size_t>(ss_idx)] = mask & 0x3u;
+	}
+}
+
+uint8_t genotype::getSupersiteMissingMask(int ss_idx) const {
+	if (ss_idx < 0 || static_cast<size_t>(ss_idx) >= ss_missing_mask.size()) return 0u;
+	return ss_missing_mask[static_cast<size_t>(ss_idx)] & 0x3u;
+}
+
+bool genotype::supersiteIsMissing(int ss_idx) const {
+	return getSupersiteMissingMask(ss_idx) != 0u;
 }
 
 void genotype::setSupersitePhasedGt(int ss_idx, uint8_t h0, uint8_t h1) {
@@ -106,12 +143,12 @@ void genotype::setSupersitePhasedGt(int ss_idx, uint8_t h0, uint8_t h1) {
 	const size_t required_pairs = super_sites ? super_sites->size() : ss_phased_gts.size() / 2u;
 	const size_t required = required_pairs * 2u;
 	if (ss_phased_gts.size() != required) {
-		ss_phased_gts.assign(required, SUPERSITE_CODE_MISSING);
+		ss_phased_gts.assign(required, 0u);
 	}
 	const size_t offset = supersite_pair_offset(ss_idx);
 	if (offset + 1 < ss_phased_gts.size()) {
-		ss_phased_gts[offset] = safe_class_code(h0);
-		ss_phased_gts[offset + 1] = safe_class_code(h1);
+		ss_phased_gts[offset] = h0;
+		ss_phased_gts[offset + 1] = h1;
 	}
 }
 
@@ -127,7 +164,7 @@ void genotype::getSupersitePhasedGt(int ss_idx, uint8_t& h0, uint8_t& h1) const 
 	// Fallback: derive from current hap bits if storage not initialized
 	// Note: when initialized, this pair represents the current epoch's sampled h0/h1.
 	// Immutable c0/c1 are used in emissions (see SiteView.sample_class0/1).
-	h0 = h1 = SUPERSITE_CODE_MISSING;
+	h0 = h1 = 0u;
 	if (!super_sites || !super_site_var_index || ss_idx < 0 || ss_idx >= static_cast<int>(super_sites->size())) return;
 	const SuperSite& ss = (*super_sites)[ss_idx];
 	h0 = getSampleSuperSiteAlleleCode(this, ss, *super_site_var_index, 0);
@@ -135,7 +172,7 @@ void genotype::getSupersitePhasedGt(int ss_idx, uint8_t& h0, uint8_t& h1) const 
 }
 
 void genotype::getSupersiteObservedGt(int ss_idx, uint8_t& c0, uint8_t& c1) const {
-	c0 = c1 = SUPERSITE_CODE_MISSING;
+	c0 = c1 = 0u;
 	if (ss_idx >= 0) {
 		const size_t offset = supersite_pair_offset(ss_idx);
 		if (offset + 1 < ss_observed_gts.size()) {
@@ -153,19 +190,18 @@ void genotype::getSupersiteObservedGt(int ss_idx, uint8_t& c0, uint8_t& c1) cons
 }
 
 bool genotype::supersiteIsAmbiguous(int ss_idx) const {
-	uint8_t h0 = SUPERSITE_CODE_MISSING;
-	uint8_t h1 = SUPERSITE_CODE_MISSING;
+	if (supersiteIsMissing(ss_idx)) return false;
+	uint8_t h0 = 0u;
+	uint8_t h1 = 0u;
 	getSupersitePhasedGt(ss_idx, h0, h1);
-	return (h0 != SUPERSITE_CODE_MISSING &&
-	        h1 != SUPERSITE_CODE_MISSING &&
-	        h0 != h1);
+	return (h0 != h1);
 }
 
 void genotype::snapshotSupersitePhasedGts(const std::vector<SuperSite>& super_sites_ref,
                                           const std::vector<int>& super_site_var_index_ref) {
 	const size_t required = super_sites_ref.size() * 2u;
 	if (ss_phased_gts.size() != required) {
-		ss_phased_gts.assign(required, SUPERSITE_CODE_MISSING);
+		ss_phased_gts.assign(required, 0u);
 	}
 	for (size_t ss_idx = 0; ss_idx < super_sites_ref.size(); ++ss_idx) {
 		const SuperSite& ss = super_sites_ref[ss_idx];
@@ -181,7 +217,7 @@ void genotype::snapshotSupersiteObservedGts(const std::vector<SuperSite>& super_
                                             const std::vector<int>& super_site_var_index_ref) {
 	const size_t required = super_sites_ref.size() * 2u;
 	if (ss_observed_gts.size() != required) {
-		ss_observed_gts.assign(required, SUPERSITE_CODE_MISSING);
+		ss_observed_gts.assign(required, 0u);
 	}
 	for (size_t ss_idx = 0; ss_idx < super_sites_ref.size(); ++ss_idx) {
 		const SuperSite& ss = super_sites_ref[ss_idx];
@@ -614,7 +650,10 @@ supersite_sc_offset = _supersite_sc_offset;
 	if (super_sites) {
 		const size_t required = super_sites->size() * 2u;
 		if (ss_phased_gts.size() != required) {
-			ss_phased_gts.assign(required, SUPERSITE_CODE_MISSING);
+			ss_phased_gts.assign(required, 0u);
+		}
+		if (ss_missing_mask.size() != super_sites->size()) {
+			ss_missing_mask.assign(super_sites->size(), 0u);
 		}
 	}
 }
@@ -646,8 +685,8 @@ void genotype::projectSupersites() {
 
         // Determine current sampled classes (h0/h1) for this anchor from stored pair
         // Note: getSupersitePhasedGt returns the current epoch's h0/h1; c0/c1 remain immutable in emissions.
-        uint8_t h0 = SUPERSITE_CODE_MISSING;
-        uint8_t h1 = SUPERSITE_CODE_MISSING;
+        uint8_t h0 = 0u;
+        uint8_t h1 = 0u;
         getSupersitePhasedGt(static_cast<int>(ss_idx), h0, h1);
 
         // Project to splits from sampled h0/h1: class 0=REF, 1..n_alts=ALT1..ALTn

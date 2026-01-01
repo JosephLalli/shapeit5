@@ -27,6 +27,7 @@ using namespace std;
 genotype_reader::genotype_reader(haplotype_set & _H, genotype_set & _G, variant_map & _V) : H(_H), G(_G), V(_V) {
 	nthreads = 1;
 	n_variants = 0;
+	n_supersites = 0;
 	n_main_samples = 0;
 	n_ref_samples = 0;
 	region = "";
@@ -43,6 +44,7 @@ genotype_reader::genotype_reader(haplotype_set & _H, genotype_set & _G, variant_
 genotype_reader::~genotype_reader() {
 	nthreads = 1;
 	n_variants = 0;
+	n_supersites = 0;
 	n_main_samples = 0;
 	n_ref_samples = 0;
 	region = "";
@@ -58,8 +60,8 @@ genotype_reader::~genotype_reader() {
 
 void genotype_reader::allocateGenotypes() {
 	assert(n_variants != 0 && (n_main_samples+n_ref_samples) != 0);
-	G.allocate(n_main_samples, n_variants);
-	H.allocate(n_main_samples, n_ref_samples, n_variants);
+	G.allocate(n_main_samples, n_variants, n_supersites);
+	H.allocate(n_main_samples, n_ref_samples, n_variants, n_supersites);
 }
 
 void genotype_reader::setFilterMAF(float _filter_min_maf) { filter_min_maf = _filter_min_maf; }

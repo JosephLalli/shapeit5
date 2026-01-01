@@ -158,6 +158,8 @@ public:
 	std::vector<uint8_t> ss_phased_gts;
 	// Immutable snapshot of site classes (c0,c1) per supersite, used for emissions
 	std::vector<uint8_t> ss_observed_gts;
+	// Missing mask per supersite: bit0=hap0 missing, bit1=hap1 missing
+	std::vector<uint8_t> ss_missing_mask;
 		// Per-sample RNG for deterministic multithreaded runs
 		random_number_generator sample_rng;
 		bool revert_buffer_fix; // Opt-in legacy sampler behavior
@@ -182,6 +184,10 @@ public:
 	// Capture immutable c0/c1 snapshot for emissions
 	void snapshotSupersiteObservedGts(const std::vector<SuperSite>& super_sites,
 	                                  const std::vector<int>& super_site_var_index);
+	void setSupersiteObservedGt(int ss_idx, uint8_t c0, uint8_t c1, uint8_t missing_mask);
+	void setSupersiteMissingMask(int ss_idx, uint8_t mask);
+	uint8_t getSupersiteMissingMask(int ss_idx) const;
+	bool supersiteIsMissing(int ss_idx) const;
 	void setRevertBufferFix(bool value) { revert_buffer_fix = value; }
 	void setSupersitePhasedGt(int ss_idx, uint8_t h0, uint8_t h1);
 	void getSupersitePhasedGt(int ss_idx, uint8_t& h0, uint8_t& h1) const;

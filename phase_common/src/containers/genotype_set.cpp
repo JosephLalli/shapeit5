@@ -27,6 +27,7 @@ using namespace std;
 genotype_set::genotype_set() {
 	n_site = 0;
 	n_ind = 0;
+	n_supersites = 0;
 }
 
 genotype_set::~genotype_set() {
@@ -36,15 +37,22 @@ genotype_set::~genotype_set() {
 	n_ind = 0;
 }
 
-void genotype_set::allocate(unsigned long n_main_samples, unsigned long n_variants) {
+void genotype_set::allocate(unsigned long n_main_samples, unsigned long n_variants, unsigned long n_supersites) {
 	vecG = vector < genotype * > (n_main_samples);
 	for (unsigned int i = 0 ; i < n_main_samples ; i ++) {
 		vecG[i] = new genotype (i);
 		vecG[i]->n_variants = n_variants;
 		vecG[i]->Variants = vector < unsigned char > (DIV2(n_variants) + MOD2(n_variants), 0);
+		if (n_supersites > 0) {
+			const size_t n_pairs = static_cast<size_t>(n_supersites) * 2u;
+			vecG[i]->ss_observed_gts.assign(n_pairs, 0u);
+			vecG[i]->ss_phased_gts.assign(n_pairs, 0u);
+			vecG[i]->ss_missing_mask.assign(static_cast<size_t>(n_supersites), 0u);
+		}
 	}
 	n_ind = n_main_samples;
 	n_site = n_variants;
+	this->n_supersites = n_supersites;
 }
 
 void genotype_set::imputeMonomorphic(variant_map & V) {

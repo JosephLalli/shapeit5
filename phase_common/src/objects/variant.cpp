@@ -23,12 +23,13 @@
 #define _GLOBAL
 #include <objects/variant.h>
 
-variant::variant(std::string & chr, int bp, std::string & id, std::string & ref, std::string & alt, int idx) {
+variant::variant(std::string & chr, int bp, std::string & id, std::string & ref, std::string & alt, uint16_t n_alts, int idx) {
 	this->chr = chr;
 	this->bp = bp;
 	this->id = id;
 	this->ref = ref;
 	this->alt = alt;
+	this->n_alts = n_alts;
 	this->idx = idx;
 	this->cref = 0;
 	this->calt = 0;
@@ -60,6 +61,9 @@ bool variant::isSingleton() {
 }
 
 bool variant::isMonomorphic() {
+	if (n_alts > 1) {
+		// Conservative for multiallelic: only all-REF is safely monomorphic.
+		return (calt == 0);
+	}
 	return (calt == 0 || cref == 0);
 }
-

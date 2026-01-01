@@ -23,6 +23,8 @@
 #ifndef _HAPLOTYPE_SET_H
 #define _HAPLOTYPE_SET_H
 
+#include <cstdint>
+
 #include <utils/otools.h>
 
 #include <containers/bitmatrix.h>
@@ -38,14 +40,16 @@ public:
 	bitmatrix H_opt_hap;		// Bit matrix of haplotypes (haplotype first). Transposed version of H_opt_var.
 	bitmatrix H_opt_var;		// Bit matrix of haplotypes (variant first). Transposed version of H_opt_hap.
 	unsigned long n_site;		// #variants
+	unsigned long n_supersites;	// #multiallelic supersites
 	unsigned long n_hap;		// #haplotypes
 	unsigned long n_ind;		// #individuals
+	std::vector < uint8_t > H_supersite_codes; // [supersite][hap] allele codes
 
 	//CONSTRUCTOR/DESTRUCTOR/INITIALIZATION
 	haplotype_set();
 	~haplotype_set();
 	void clear();
-	void allocate(unsigned long, unsigned long, unsigned long);
+	void allocate(unsigned long, unsigned long, unsigned long, unsigned long n_supersites = 0);
 
 	//Haplotype routines
 	void updateHaplotypes(genotype_set & G, bool first_time = false);

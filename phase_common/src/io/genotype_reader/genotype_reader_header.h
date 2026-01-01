@@ -38,6 +38,7 @@ public:
 
 	//COUNTS
 	uint64_t n_variants;
+	uint64_t n_supersites;
 	uint64_t n_main_samples;
 	uint64_t n_ref_samples;
 	std::vector < uint64_t > n_genotypes;
