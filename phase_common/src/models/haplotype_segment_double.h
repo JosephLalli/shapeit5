@@ -486,8 +486,8 @@ void haplotype_segment_double::INIT_AMB() {
 				// Load conditioning haplotype codes (cached after first call)
 				ss_load_cond_codes(ss, ss_idx);
 
-				unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-										 ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+				assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_double.h, INIT_AMB");
+				unsigned char amb_mask = G->Ambiguous[curr_abs_ambiguous];
 				uint8_t expected_class[HAP_NUMBER];
 				if (c0 == c1) {
 					for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
@@ -524,8 +524,8 @@ void haplotype_segment_double::INIT_AMB() {
 		}
 	}
 	// Biallelic path - simple AVX2 loop (original algorithm)
-	unsigned char amb_code = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-							 ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+	assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_double.h, INIT_AMB");
+	unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
 	for (int h = 0 ; h < HAP_NUMBER ; h ++) {
 		g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0;
 		g1[h] = HAP_GET(amb_code,h)?1.0:M.ed / M.ee;
@@ -580,8 +580,8 @@ void haplotype_segment_double::RUN_AMB() {
 
 				// Build expected class per lane
 				uint8_t expected_class[HAP_NUMBER];
-				unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-										 ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+				assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_double.h, RUN_AMB");
+				unsigned char amb_mask = G->Ambiguous[curr_abs_ambiguous];
 				if (c0 == c1) {
 					for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
 				} else {
@@ -631,10 +631,7 @@ void haplotype_segment_double::RUN_AMB() {
 		}
 	}
 	// Biallelic path
-	if (curr_abs_ambiguous < 0 || curr_abs_ambiguous >= (int)G->Ambiguous.size()) {
-		fprintf(stderr, "RUN_AMB: Invalid curr_abs_ambiguous index %d, returning\n", curr_abs_ambiguous);
-		return;
-	}
+	assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_double.h, RUN_AMB");
 	unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
 	for (int h = 0 ; h < HAP_NUMBER ; h ++) {
 		g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0;
@@ -698,8 +695,8 @@ void haplotype_segment_double::COLLAPSE_AMB() {
 
 				// Build expected class per lane
 				uint8_t expected_class[HAP_NUMBER];
-				unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-										 ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+				assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_double.h, COLLAPSE_AMB");
+				unsigned char amb_mask = G->Ambiguous[curr_abs_ambiguous];
 				if (c0 == c1) {
 					for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
 				} else {
@@ -750,6 +747,7 @@ void haplotype_segment_double::COLLAPSE_AMB() {
 		}
 	}
 	// Biallelic path
+	assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_double.h, COLLAPSE_AMB");
 	unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
 	for (int h = 0 ; h < HAP_NUMBER ; h ++) {
 		g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0;

@@ -88,10 +88,8 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
 
     if (is_ambiguous) {
         view.emit_kind = EmitKind::Amb;
-        uint8_t amb_code = 0u;
-        if (curr_abs_ambiguous >= 0 && curr_abs_ambiguous < static_cast<int>(G_->Ambiguous.size())) {
-            amb_code = G_->Ambiguous[curr_abs_ambiguous];
-        }
+        assert((curr_abs_ambiguous >= 0 && curr_abs_ambiguous < static_cast<int>(G_->Ambiguous.size())) && "Ambiguous index out of range - site_emission_adapter.h, BiallelicEmissionAdapter::build_view");
+        uint8_t amb_code = G_->Ambiguous[curr_abs_ambiguous];
         view.amb_mask = amb_code;
         for (int h = 0; h < HAP_NUMBER; ++h) {
             const bool wants_alt = ((amb_code >> h) & 1U) != 0;
@@ -171,7 +169,8 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
     if (anchor_amb) {
         view.emit_kind = EmitKind::Amb;
         uint8_t amb_mask = 0u;
-        if (G_ && curr_abs_ambiguous >= 0 && curr_abs_ambiguous < static_cast<int>(G_->Ambiguous.size())) {
+        if (G_) {
+            assert((curr_abs_ambiguous >= 0 && curr_abs_ambiguous < static_cast<int>(G_->Ambiguous.size())) && "Ambiguous index out of range - site_emission_adapter.h, SupersiteEmissionAdapter::build_view");
             amb_mask = G_->Ambiguous[curr_abs_ambiguous];
         }
         view.amb_mask = amb_mask;

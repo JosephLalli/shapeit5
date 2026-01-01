@@ -304,7 +304,8 @@ void haplotype_segment_single::forward() {
 							AlphaSumMissing[curr_rel_missing] = probSumH;
 							// Record the rel-missing index for backward SC (supersites) or IMPUTE (biallelic)
 							int idx = curr_abs_locus - locus_first;
-							if (idx >= 0 && idx < (int)missing_index_by_locus.size()) missing_index_by_locus[idx] = curr_rel_missing;
+							assert((idx >= 0 && idx < (int)missing_index_by_locus.size()) && "missing_index_by_locus out of range - haplotype_segment_single.cpp, forward");
+							missing_index_by_locus[idx] = curr_rel_missing;
 							curr_abs_missing ++;
 						}
 					}
@@ -502,7 +503,8 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			if (is_anchor && anchor_has_missing && SC && site_view.supersite_index >= 0 && (*anchor_has_missing)[site_view.supersite_index]) {
 				int idx = -1;
 				int map_i = curr_abs_locus - locus_first;
-				if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) idx = missing_index_by_locus[map_i];
+				assert((map_i >= 0 && map_i < (int)missing_index_by_locus.size()) && "missing_index_by_locus out of range - haplotype_segment_single.cpp, backward supersite");
+				idx = missing_index_by_locus[map_i];
 				if (idx >= 0) {
 					// Ensure supersite codes are loaded before any debug numerators
 					ss_load_cond_codes(*site_view.supersite, site_view.supersite_index);
@@ -516,7 +518,8 @@ int haplotype_segment_single::backward(vector < double > & transition_probabilit
 			if (!handled) {
 				int map_i = curr_abs_locus - locus_first;
 				int rel_missing_idx = -1;
-				if (map_i >= 0 && map_i < (int)missing_index_by_locus.size()) rel_missing_idx = missing_index_by_locus[map_i];
+				assert((map_i >= 0 && map_i < (int)missing_index_by_locus.size()) && "missing_index_by_locus out of range - haplotype_segment_single.cpp, backward");
+				rel_missing_idx = missing_index_by_locus[map_i];
 				if (rel_missing_idx >= 0) {
 					// Forward recorded a missing slot for this locus -> perform imputation
 					IMPUTE(missing_probabilities);
