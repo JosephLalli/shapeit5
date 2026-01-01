@@ -49,8 +49,10 @@ void genotype_reader::scanGenotypes() {
 	}
 
 	uint32_t n_variants_with_scaffold = 0;
-	uint32_t n_variants_noverlap = 0, n_variants_multi = 0, n_variants_notsnp = 0, n_variants_rare = 0, n_variants_nscaf = 0, n_variants_nref = 0;
+	uint32_t n_variants_noverlap = 0, n_variants_multiallelic = 0, n_variants_notsnp = 0, n_variants_rare = 0, n_variants_nscaf = 0, n_variants_nref = 0;
 	uint32_t n_variants_main_format = 0, n_variants_ref_format = 0, n_variants_scaf_format = 0;
+	has_multiallelic_records = false;
+	has_binary_haplotype = false;
 	while (XR.nextRecord()) {
 
 		//By defaults, we do not want the variants
@@ -61,8 +63,7 @@ void genotype_reader::scanGenotypes() {
 		bool has_ref = (panels[1] && XR.hasRecord(idx_file_ref));
 		bool has_scaf = (panels[2] && XR.hasRecord(idx_file_scaf));
 
-		//If non bi-allelic
-		if ((has_main+has_ref+has_scaf)==0) { n_variants_multi++; continue; }
+		const bool record_multiallelic = (XR.n_allele > 2);
 
 		//Not in reference panel
 		if (panels[1] && has_main && !has_ref) { n_variants_noverlap++; continue; }
@@ -92,8 +93,14 @@ void genotype_reader::scanGenotypes() {
 
 		//Keep SNPs only
 		if (filter_snp_only) {
-			bool bref = (XR.ref == "A") || (XR.ref == "T") || (XR.ref == "G") || (XR.ref == "C");
-			bool balt = (XR.alt == "A") || (XR.alt == "T") || (XR.alt == "G") || (XR.alt == "C");
+			auto is_snp_base = [](const std::string& base) {
+				return (base == "A") || (base == "T") || (base == "G") || (base == "C");
+			};
+			bool bref = is_snp_base(XR.ref);
+			bool balt = !XR.alts.empty();
+			for (const auto& alt : XR.alts) {
+				balt &= is_snp_base(alt);
+			}
 			n_variants_notsnp += (!bref || !balt);
 			if (!bref || !balt) continue;
 		}
@@ -111,14 +118,34 @@ void genotype_reader::scanGenotypes() {
 		//Flag it!
 		variant_mask.back() = true;
 		n_variants++;
+		if (record_multiallelic) {
+			++n_variants_multiallelic;
+			has_multiallelic_records = true;
+		}
+		if (panels[1] && has_ref) {
+			const int32_t ref_type = XR.typeRecord(idx_file_ref);
+			if (ref_type == RECORD_BINARY_HAPLOTYPE || ref_type == RECORD_SPARSE_HAPLOTYPE) {
+				has_binary_haplotype = true;
+			}
+		}
+		if (panels[2] && has_scaf) {
+			const int32_t scaf_type = XR.typeRecord(idx_file_scaf);
+			if (scaf_type == RECORD_BINARY_HAPLOTYPE || scaf_type == RECORD_SPARSE_HAPLOTYPE) {
+				has_binary_haplotype = true;
+			}
+		}
 	}
 	XR.close();
+
+	if (has_multiallelic_records && has_binary_haplotype) {
+		vrb.error("Multiallelic records detected but reference/scaffold panel uses binary haplotype format; use BCF/VCF for multiallelic inputs");
+	}
 
 	vrb.bullet("VCF/BCF scanning done (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
 	vrb.bullet2("Variants [#sites=" + stb.str(n_variants) + " / region=" + region + "]");
 	if (n_variants_with_scaffold) vrb.bullet3(stb.str(n_variants_with_scaffold) + " sites with scaffold data");
 	if (n_variants_noverlap) vrb.bullet3(stb.str(n_variants_noverlap) + " sites removed in main panel [not in reference panel]");
-	if (n_variants_multi) vrb.bullet3(stb.str(n_variants_multi) + " sites removed in main panel [multi-allelic]");
+	if (n_variants_multiallelic) vrb.bullet3(stb.str(n_variants_multiallelic) + " multiallelic sites retained");
 	if (n_variants_notsnp) vrb.bullet3(stb.str(n_variants_notsnp) + " sites removed in main panel [not SNPs]");
 	if (n_variants_rare) vrb.bullet3(stb.str(n_variants_rare) + " sites removed in main panel [below MAF threshold]");
 	if (n_variants_nref) vrb.bullet3(stb.str(n_variants_nref) + " sites removed in reference panel [not in main panel]");
@@ -129,4 +156,3 @@ void genotype_reader::scanGenotypes() {
 	if (n_variants == 0) vrb.error("No variants to be phased!");
 	vrb.bullet2("Samples [#target=" + stb.str(n_main_samples) + " / #reference=" + stb.str(n_ref_samples) + "]");
 }
-

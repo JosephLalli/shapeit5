@@ -50,6 +50,8 @@ public:
 	float filter_min_maf;
 	bool filter_snp_only;
 	std::vector < bool > variant_mask;
+	bool has_multiallelic_records;
+	bool has_binary_haplotype;
 
 	//CONSTRUCTORS/DESCTRUCTORS
 	genotype_reader(haplotype_set &, genotype_set &, variant_map &);

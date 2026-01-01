@@ -28,6 +28,9 @@
 void genotype_reader::readGenotypes() {
 	tac.clock();
 	vrb.wait("  * VCF/BCF parsing");
+	if (has_multiallelic_records && has_binary_haplotype) {
+		vrb.error("Multiallelic records detected but reference/scaffold panel uses binary haplotype format; use BCF/VCF for multiallelic inputs");
+	}
 
 	//File idx
 	int32_t idx_file_main = 0;

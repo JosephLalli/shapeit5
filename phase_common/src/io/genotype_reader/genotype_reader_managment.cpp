@@ -34,6 +34,8 @@ genotype_reader::genotype_reader(haplotype_set & _H, genotype_set & _G, variant_
 	n_alleles = vector < uint64_t > (2, 0);
 	filter_min_maf = -1.0f;
 	filter_snp_only = false;
+	has_multiallelic_records = false;
+	has_binary_haplotype = false;
 	filenames = vector < string > (3, "");
 	panels = vector < int8_t > (3, 0) ;
 }
@@ -48,6 +50,8 @@ genotype_reader::~genotype_reader() {
 	n_alleles = vector < uint64_t > (2, 0);
 	filter_min_maf = -1.0f;
 	filter_snp_only = false;
+	has_multiallelic_records = false;
+	has_binary_haplotype = false;
 	filenames = vector < string > (3, "");
 	panels = vector < int8_t > (3, 0) ;
 }
@@ -71,4 +75,3 @@ void genotype_reader::addScaffoldFilename(string file) { filenames[2] = file; pa
 void genotype_reader::setThreads(int _nthreads) { nthreads = _nthreads; }
 
 void genotype_reader::setRegion(string _region) { region = _region; }
-

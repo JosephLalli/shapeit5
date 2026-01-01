@@ -21,6 +21,9 @@ tests/out/*
 /*.bcf
 **tsv
 **tsv.gz
+emission_pattern_validation.csv
+k_inflation_analysis.csv
+phase_decision_accuracy.csv
 
 tests/out/**
 
