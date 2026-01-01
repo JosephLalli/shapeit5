@@ -40,7 +40,6 @@
 #include <immintrin.h>
 #include <boost/align/aligned_allocator.hpp>
 
-
 class haplotype_segment_single {
 private:
 	//EXTERNAL DATA
@@ -104,13 +103,13 @@ private:
 		float match[HAP_NUMBER];
 		float neither;
 	};
-	LaneWeights compute_lane_match_weights(const SiteView& site_view) const;
-	void build_lane_priors_first(const SiteView& site_view, double lane_probs[HAP_NUMBER]) const;
+	LaneWeights compute_lane_match_weights(const LocusView& view) const;
+	void build_lane_priors_first(const LocusView& view, double lane_probs[HAP_NUMBER]) const;
 
-	//SUPER-SITE SUPPORT
-	const std::vector<SuperSite>* super_sites;
-	const std::vector<int>* locus_to_super_idx;
-	const uint8_t* panel_codes;
+		//SUPER-SITE SUPPORT
+		const std::vector<SuperSite>* super_sites;
+		const std::vector<int>* locus_to_super_idx;
+		const uint8_t* panel_codes;
 	const std::vector<int>* super_site_var_index;
 	const std::vector<unsigned int>* cond_idx;
 	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets (set during backward)
@@ -133,10 +132,10 @@ private:
 	void INIT_AMB();
 	void INIT_MIS();
 	// Sibling-specific no-op DP helpers (bookkeeping only)
-	void INIT_SIB(const SiteView& site_view);
-	void RUN_SIB(const SiteView& site_view);
-	void COLLAPSE_SIB(const SiteView& site_view);
-	void handle_sibling_bookkeeping(const SiteView& site_view);
+	void INIT_SIB(const LocusView& view);
+	void RUN_SIB(const LocusView& view);
+	void COLLAPSE_SIB(const LocusView& view);
+	void handle_sibling_bookkeeping(const LocusView& view);
 	bool RUN_HOM(char);
 	void RUN_AMB();
 	void RUN_MIS();
@@ -174,70 +173,41 @@ public:
 /*******************************************************************************/
 
 /*
- * EMISSION PATTERN DESIGN RATIONALE (BUG #6 DOCUMENTATION):
- * 
- * Biallelic and supersite code use different emission computation patterns,
- * but both implement identical Li & Stephens emission probabilities:
- *   emit[h] = (donor_matches_sample[h]) ? 1.0 : (ed/ee)
- * 
- * BIALLELIC PATTERN (optimized for binary alleles):
- *   Uses inline conditional multiplication:
- *	 if (ag != ah) _prob *= mismatch;
- *   Advantages:
- *	 - Minimal overhead for simple boolean comparison (0 vs 1)
- *	 - Direct scalar-vector multiplication
- *	 - Cache-friendly for dense biallelic data
- * 
- * SUPERSITE PATTERN (required for per-lane multi-allelic semantics):
- *   Uses precomputed emission vectors or SIMD blend:
- *	 emit = _mm256_blendv_ps(mis_f, match_f, match_mask);
- *   Advantages:
- *	 - Handles per-lane expected class (each lane may expect different ALT)
- *	 - Supports 4-bit allele codes (0-15) vs binary (0-1)
- *	 - AMB sites need different emissions per lane based on amb_code mask
- *   Requirements:
- *	 - Must build per-lane expected class array from amb_code
- *	 - Must compare donor 4-bit code against per-lane expected codes
- *	 - Cannot use simple scalar broadcast (each lane has different expectation)
- * 
- * MATHEMATICAL EQUIVALENCE:
- *   Biallelic: if (donor_allele != sample_allele) → multiply by (ed/ee)
- *   Supersite: if (donor_code != expected_class[lane]) → multiply by (ed/ee)
- *   Both: P(observe sample | donor state) = match ? 1.0 : error_rate
- * 
- * DECISION: Keep both patterns (each optimized for its use case).
- * The divergence is intentional and necessary, not a bug to fix.
+ * Supersite integration overview
+ *
+ * The core Li–Stephens HMM remains biallelic. Supersites are an engineering
+ * layer that adapts multi-allelic loci to that biallelic emission framework.
+ *
+ * For standard biallelic sites, the expected allele is implicit and shared
+ * across all lanes, allowing a simple donor-vs-sample comparison.
+ *
+ * Supersites differ in that each haplotype lane may expect a different allele
+ * class (e.g. REF vs one of several ALTs, or missing). As a result:
+ *   - The expected allele must be computed per lane
+ *   - Emissions are evaluated lane-wise rather than via a single scalar test
+ *
+ * The emission logic is therefore split into two code paths:
+ *   - a fast biallelic path for simple sites
+ *   - a supersite path that supports per-lane expectations
+ *
+ * Both paths compute the same match/mismatch emission probabilities.
+ * The divergence is an implementation necessity, not a model change.
  */
 
 // Cache donor codes for a supersite to avoid repeated unpacking
 inline
 void haplotype_segment_single::ss_load_cond_codes(const SuperSite& ss, int ss_idx) {
-	// NEW APPROACH: Use static panel matrix populated during initialization
-	// This avoids dynamic dependency on cond_idx, fixing the forward/backward divergence bug
-
 	if (ss_idx < 0 || ss_idx >= (int)ss_panel_matrix.size()) {
 		std::fprintf(stderr, "ERROR: ss_load_cond_codes called with invalid ss_idx=%d (matrix size=%zu)\n",
 					 ss_idx, ss_panel_matrix.size());
 		std::abort();
 	}
 
-	// Simply copy from static matrix using relative indices (like biallelic Hvar)
 	ss_cond_codes.resize(n_cond_haps);
 	for (unsigned int k = 0; k < n_cond_haps; ++k) {
 		ss_cond_codes[k] = ss_panel_matrix[ss_idx][k];
 	}
-
-	// The static matrix is our "cache" and it's always valid.
 }
-
-
-
-
-
-
-
-
-
 
 /*******************************************************************************/
 /*****************			HOMOZYGOUS GENOTYPE			************************/
@@ -279,8 +249,6 @@ void haplotype_segment_single::INIT_HOM() {
 					_mm256_store_ps(&probSumH[0], _sum);
 					probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 				}
-
-				// Trace: matches per lane at anchor (HOM)
 				return;
 		}
 	}
@@ -326,9 +294,6 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
 
 				ss_load_cond_codes(ss, ss_idx);
 
-				// DETAILED BACKWARD TRACING
-
-
 				// Update probabilities with transitions
 				__m256 _sum = _mm256_set1_ps(0.0f);
 				__m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
@@ -351,8 +316,6 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
 				_mm256_store_ps(&probSumH[0], _sum);
 				probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 
-				// DETAILED BACKWARD TRACING - OUTPUT
-
 				return true;
 			}
 		}
@@ -361,8 +324,6 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
 	// Biallelic path
 	bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
 	if (rare_allele < 0 || ag == rare_allele) {
-		// EMISSION TRACING
-
 		__m256 _sum = _mm256_set1_ps(0.0f);
 		__m256 _factor = _mm256_set1_ps(yt / (n_cond_haps * probSumT));
 		__m256 _tFreq = _mm256_load_ps(&probSumH[0]);
@@ -374,15 +335,12 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
 			bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
 			__m256 _prob = _mm256_load_ps(&prob[i]);
 			_prob = _mm256_fmadd_ps(_prob, _nt, _tFreq);
-			float emission = (ag != ah) ? M.ed / M.ee : 1.0f;
 			if (ag!=ah) _prob = _mm256_mul_ps(_prob, _mismatch);
 			_sum = _mm256_add_ps(_sum, _prob);
 			_mm256_store_ps(&prob[i], _prob);
-
 		}
 		_mm256_store_ps(&probSumH[0], _sum);
 		probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-
 		return true;
 	}
 	return false;
@@ -441,7 +399,6 @@ void haplotype_segment_single::COLLAPSE_HOM() {
 	__m256 _sum = _mm256_set1_ps(0.0f);
 	__m256 _tFreq = _mm256_set1_ps(yt / n_cond_haps);
 	__m256 _nt = _mm256_set1_ps(nt / probSumT);
-
 	__m256 _mismatch = _mm256_set1_ps(M.ed / M.ee);
 	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
 		bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
@@ -453,7 +410,6 @@ void haplotype_segment_single::COLLAPSE_HOM() {
 	}
 	_mm256_store_ps(&probSumH[0], _sum);
 	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-
 }
 
 /*******************************************************************************/
@@ -487,8 +443,8 @@ void haplotype_segment_single::INIT_AMB() {
 
 				// Build per-lane expected class vector (8 lanes)
 				uint8_t expected_class[HAP_NUMBER];
-				unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-										? G->Ambiguous[curr_abs_ambiguous] : 0u;
+				assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_single.h, INIT_AMB");
+				unsigned char amb_mask = G->Ambiguous[curr_abs_ambiguous];
 				if (c0 == c1) {
 					for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
 				} else {
@@ -522,8 +478,8 @@ void haplotype_segment_single::INIT_AMB() {
 	}
 	
 	// Biallelic path
-	unsigned char amb_code = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-							 ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+	assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_single.h, INIT_AMB");
+	unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
 
 	// Biallelic INIT_AMB: simple AVX2 loop (original algorithm)
 	for (int h = 0 ; h < HAP_NUMBER ; h ++) {
@@ -570,8 +526,8 @@ void haplotype_segment_single::RUN_AMB() {
 
 				// Build per-lane expected class vector
 				uint8_t expected_class[HAP_NUMBER];
-				unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-										? G->Ambiguous[curr_abs_ambiguous] : 0u;
+				assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_single.h, RUN_AMB");
+				unsigned char amb_mask = G->Ambiguous[curr_abs_ambiguous];
 				if (c0 == c1) {
 					for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
 				} else {
@@ -617,6 +573,7 @@ void haplotype_segment_single::RUN_AMB() {
 	}
 	
 	// Biallelic path
+	assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_single.h, RUN_AMB");
 	unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
 	for (int h = 0 ; h < HAP_NUMBER ; h ++) {
 		g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0f;
@@ -706,8 +663,8 @@ void haplotype_segment_single::COLLAPSE_AMB() {
 
 				// Build per-lane expected class vector
 				uint8_t expected_class[HAP_NUMBER];
-				unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-										? G->Ambiguous[curr_abs_ambiguous] : 0u;
+				assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_single.h, COLLAPSE_AMB");
+				unsigned char amb_mask = G->Ambiguous[curr_abs_ambiguous];
 				if (c0 == c1) {
 					for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
 				} else {
@@ -752,6 +709,7 @@ void haplotype_segment_single::COLLAPSE_AMB() {
 	}
 	
 	// Biallelic path
+	assert((curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last) && "Ambiguous index out of range - haplotype_segment_single.h, COLLAPSE_AMB");
 	unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
 	for (int h = 0 ; h < HAP_NUMBER ; h ++) {
 		g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0f;
@@ -822,9 +780,9 @@ void haplotype_segment_single::COLLAPSE_MIS() {
 
 inline
 void haplotype_segment_single::SUMK() {
-		for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-			probSumK[k] = prob[i+0] + prob[i+1] + prob[i+2] + prob[i+3] + prob[i+4] + prob[i+5] + prob[i+6] + prob[i+7];
-		}
+	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+		probSumK[k] = prob[i+0] + prob[i+1] + prob[i+2] + prob[i+3] + prob[i+4] + prob[i+5] + prob[i+6] + prob[i+7];
+	}
 }
 
 /*******************************************************************************/
@@ -909,52 +867,51 @@ void haplotype_segment_single::IMPUTE(std::vector < float > & missing_probabilit
 	int ss_idx = -1;
 	if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
 
-	__m256 _sum = _mm256_set1_ps(0.0f);
+	const bool use_supersite = (ss_idx >= 0 && super_sites && super_site_var_index);
+	int target_class = 1; // ALT for biallelic
+	int max_class = 1;
+	if (use_supersite) {
+		const SuperSite& ss = (*super_sites)[ss_idx];
+		max_class = static_cast<int>(ss.var_count);
+		target_class = 0;
+		// Determine class for current split variant (0=REF, 1..n_alts)
+		for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+			if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
+				target_class = static_cast<int>(ai) + 1;
+				break;
+			}
+		}
+		ss_load_cond_codes(ss, ss_idx);
+	}
+
 	// NOTE: We intentionally do NOT divide by AlphaSumMissing here.
 	// The 1/AlphaSum factor cancels out in the final ratio normalization.
 	// Removing it avoids overflow when AlphaSum is subnormal (< FLT_MIN).
+	__m256 numer = _mm256_set1_ps(0.0f);
+	__m256 denom = _mm256_set1_ps(0.0f);
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		int code = 0;
+		if (use_supersite) {
+			code = static_cast<int>(ss_cond_codes[k]);
+			if (code > max_class) code = 0;
+		} else {
+			code = Hvar.get(curr_rel_locus + curr_rel_locus_offset, k) ? 1 : 0;
+		}
 
-	if (ss_idx >= 0) {
-		const SuperSite& ss = (*super_sites)[ss_idx];
-		// Determine class for current split variant (0=REF, 1..n_alts)
-		int target_class = 0;
-		for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-			if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) { target_class = (int)ai + 1; break; }
+		__m256 _prob = _mm256_load_ps(&prob[i]);
+		__m256 _alpha = _mm256_load_ps(&AlphaMissing[curr_rel_missing][i]);
+		__m256 term = _mm256_mul_ps(_alpha, _prob);  // No AlphaSum division needed
+		denom = _mm256_add_ps(denom, term);
+		if (code == target_class) {
+			numer = _mm256_add_ps(numer, term);
 		}
-		ss_load_cond_codes(ss, ss_idx);
-		// Prepare accumulators per class
-		__m256 sum_classes[SUPERSITE_MAX_ALTS + 1];
-		for (int c = 0; c <= (int)ss.var_count; ++c) sum_classes[c] = _mm256_set1_ps(0.0f);
-		__m256 denom = _mm256_set1_ps(0.0f);
-		for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-			int code = (int)ss_cond_codes[k]; if (code > (int)ss.var_count) code = 0;
-			__m256 _prob = _mm256_load_ps(&prob[i]);
-			__m256 _alpha = _mm256_load_ps(&AlphaMissing[curr_rel_missing][i]);
-			_sum = _mm256_mul_ps(_alpha, _prob);  // No AlphaSum division needed
-			sum_classes[code] = _mm256_add_ps(sum_classes[code], _sum);
-			denom = _mm256_add_ps(denom, _sum);
-		}
-		__m256 p = sum_classes[target_class];
-		alignas(32) float pv[8], dv[8];
-		_mm256_store_ps(pv, p);
-		_mm256_store_ps(dv, denom);
-		for (int h = 0; h < HAP_NUMBER; ++h) {
-			float d = dv[h];
-			missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = (d > 0.0f) ? (pv[h] / d) : 0.0f;
-		}
-	} else {
-		__m256 _sumA[2]; _sumA[0] = _mm256_set1_ps(0.0f); _sumA[1] = _mm256_set1_ps(0.0f);
-		for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-			bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-			__m256 _prob = _mm256_load_ps(&prob[i]);
-			__m256 _alpha = _mm256_load_ps(&AlphaMissing[curr_rel_missing][i]);
-			_sum = _mm256_mul_ps(_alpha, _prob);  // No AlphaSum division needed
-			_sumA[ah] = _mm256_add_ps(_sumA[ah], _sum);
-
-		}
-		float* prob0 = (float*)&_sumA[0];
-		float* prob1 = (float*)&_sumA[1];
-		for (int h = 0; h < HAP_NUMBER; h++) missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = prob1[h] / (prob0[h] + prob1[h]);
+	}
+	alignas(32) float numer_v[8], denom_v[8];
+	_mm256_store_ps(numer_v, numer);
+	_mm256_store_ps(denom_v, denom);
+	for (int h = 0; h < HAP_NUMBER; ++h) {
+		float d = denom_v[h];
+		missing_probabilities[curr_abs_missing * HAP_NUMBER + h] = (d > 0.0f) ? (numer_v[h] / d) : 0.0f;
 	}
 }
 

@@ -64,13 +64,13 @@ private:
 	// PER-VARIANT cursors: Include all biallelic splits (anchor + siblings)
 	// PER-BASEPAIR cursors: Only biological positions (anchors=1, siblings excluded)
 	int curr_segment_index;
-	int curr_segment_locus;     // PER-BASEPAIR: biological position within segment
-	int curr_abs_locus;         // PER-VARIANT: absolute variant index [0, n_variants)
+	int curr_segment_locus;	 // PER-BASEPAIR: biological position within segment
+	int curr_abs_locus;		 // PER-VARIANT: absolute variant index [0, n_variants)
 	int prev_abs_locus;
 	int curr_rel_locus;
 	int curr_rel_locus_offset;
-	int curr_abs_ambiguous;     // PER-BASEPAIR: index into G->Ambiguous[], siblings excluded
-	                            // Controlled by data_amb = hmm_amb && !is_sibling
+	int curr_abs_ambiguous;	 // PER-BASEPAIR: index into G->Ambiguous[], siblings excluded
+								// Controlled by data_amb = hmm_amb && !is_sibling
 	int curr_abs_transition;
 	int curr_abs_missing;
 	int curr_rel_missing;
@@ -79,8 +79,8 @@ private:
 	//DYNAMIC ARRAYS
 	double probSumT;
 	aligned_vector32 < double > prob;
-    aligned_vector32 < double > probSumK;
-    aligned_vector32 < double > probSumH;
+	aligned_vector32 < double > probSumK;
+	aligned_vector32 < double > probSumH;
 	std::vector < aligned_vector32 < double > > Alpha;
 	std::vector < aligned_vector32 < double > > AlphaSum;
 	std::vector < int > AlphaLocus;
@@ -103,23 +103,29 @@ private:
 	const std::vector<int>* super_site_var_index;
 	const std::vector<unsigned int>* cond_idx;
 	const std::vector<uint32_t>* supersite_sc_offset;  // Thread-local SC offsets (set during backward)
+
+	// Static panel code matrix: [supersite_idx][cond_hap_relative_idx] -> panel_code
+	// Populated once during initialization using cond_idx snapshot
+	// Similar to Hvar for biallelic, avoids dynamic cond_idx dependency
 	std::vector<aligned_vector32<uint8_t>> ss_panel_matrix;
-	aligned_vector32<uint8_t> ss_cond_codes;
+
+	aligned_vector32<uint8_t> ss_cond_codes;  // Temporary workspace for current supersite
 	aligned_vector32<double> ss_emissions;
 	aligned_vector32<double> ss_emissions_h1;
 	const bool supersites_enabled_flag;
 
-	// Anchor MIS mapping: record rel-missing index per locus in window
-	std::vector<int> missing_index_by_locus;
+	// Anchor MIS mapping: record which relative-missing index belongs to a given locus
+	std::vector<int> missing_index_by_locus; // size = locus_last - locus_first + 1, init -1
 
 	//INLINED AND UNROLLED ROUTINES
 	void INIT_HOM();
 	void INIT_AMB();
 	void INIT_MIS();
-	void handle_sibling_bookkeeping(const SiteView& site_view);
-	void INIT_SIB(const SiteView& site_view);
-	void RUN_SIB(const SiteView& site_view);
-	void COLLAPSE_SIB(const SiteView& site_view);
+	// Sibling-specific no-op DP helpers (bookkeeping only)
+	void INIT_SIB(const LocusView& view);
+	void RUN_SIB(const LocusView& view);
+	void COLLAPSE_SIB(const LocusView& view);
+	void handle_sibling_bookkeeping(const LocusView& view);
 	bool RUN_HOM(char);
 	void RUN_AMB();
 	void RUN_MIS();
@@ -132,7 +138,7 @@ private:
 	
 	void SUMK();
 	void IMPUTE(std::vector < float > & );
-	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx, int rel_missing_index, const std::vector<uint32_t>* supersite_sc_offset);  // Phase 3
+	void IMPUTE_SUPERSITE_MULTIVARIATE(std::vector<float>& SC, const SuperSite& ss, int ss_idx, int rel_missing_index, const std::vector<uint32_t>* supersite_sc_offset);
 	bool TRANS_HAP();
 	bool TRANS_DIP_MULT();
 	bool TRANS_DIP_ADD();
@@ -146,66 +152,51 @@ public:
 
 	//void fetch();
 	void forward();
-	int backward(std::vector < double > &, std::vector < float > &, 
-	            std::vector < float > * SC = nullptr,
-	            const std::vector < bool > * anchor_has_missing = nullptr,
-	            const std::vector<uint32_t>* supersite_sc_offset = nullptr);  // Phase 3: optional supersite posteriors
+	int backward(std::vector<double>&, std::vector < float > &, 
+				 std::vector<float>* SC = nullptr,
+				 const std::vector<bool> * anchor_has_missing = nullptr,
+				 const std::vector<uint32_t>* supersite_sc_offset = nullptr);
 	
 };
 
 /*******************************************************************************/
-/*****************     SUPERSITE HELPER FUNCTIONS (Phase 2)     ***************/
+/*****************	 SUPERSITE HELPER FUNCTIONS	  ***************/
 /*******************************************************************************/
 
 /*
- * EMISSION PATTERN DESIGN RATIONALE (BUG #6 DOCUMENTATION):
- * 
- * Biallelic and supersite code use different emission computation patterns,
- * but both implement identical Li & Stephens emission probabilities:
- *   emit[h] = (donor_matches_sample[h]) ? 1.0 : (ed/ee)
- * 
- * BIALLELIC PATTERN (optimized for binary alleles):
- *   Uses inline conditional multiplication:
- *     if (ag != ah) _prob *= mismatch;
- *   Advantages:
- *     - Minimal overhead for simple boolean comparison (0 vs 1)
- *     - Direct scalar-vector multiplication
- *     - Cache-friendly for dense biallelic data
- * 
- * SUPERSITE PATTERN (required for per-lane multi-allelic semantics):
- *   Uses precomputed emission vectors or SIMD blend:
- *     emit = _mm256_blendv_ps(mis_f, match_f, match_mask);
- *   Advantages:
- *     - Handles per-lane expected class (each lane may expect different ALT)
- *     - Supports 4-bit allele codes (0-15) vs binary (0-1)
- *     - AMB sites need different emissions per lane based on amb_code mask
- *   Requirements:
- *     - Must build per-lane expected class array from amb_code
- *     - Must compare donor 4-bit code against per-lane expected codes
- *     - Cannot use simple scalar broadcast (each lane has different expectation)
- * 
- * MATHEMATICAL EQUIVALENCE:
- *   Biallelic: if (donor_allele != sample_allele) → multiply by (ed/ee)
- *   Supersite: if (donor_code != expected_class[lane]) → multiply by (ed/ee)
- *   Both: P(observe sample | donor state) = match ? 1.0 : error_rate
- * 
- * DECISION: Keep both patterns (each optimized for its use case).
- * The divergence is intentional and necessary, not a bug to fix.
+ * Supersite integration overview
+ *
+ * The core Li–Stephens HMM remains biallelic. Supersites are an engineering
+ * layer that adapts multi-allelic loci to that biallelic emission framework.
+ *
+ * For standard biallelic sites, the expected allele is implicit and shared
+ * across all lanes, allowing a simple donor-vs-sample comparison.
+ *
+ * Supersites differ in that each haplotype lane may expect a different allele
+ * class (e.g. REF vs one of several ALTs, or missing). As a result:
+ *   - The expected allele must be computed per lane
+ *   - Emissions are evaluated lane-wise rather than via a single scalar test
+ *
+ * The emission logic is therefore split into two code paths:
+ *   - a fast biallelic path for simple sites
+ *   - a supersite path that supports per-lane expectations
+ *
+ * Both paths compute the same match/mismatch emission probabilities.
+ * The divergence is an implementation necessity, not a model change.
  */
 
-// Phase 3: Caching helper to load conditioning haplotype codes once per supersite
 inline
 void haplotype_segment_double::ss_load_cond_codes(const SuperSite& ss, int ss_idx) {
-    if (ss_idx < 0 || ss_idx >= (int)ss_panel_matrix.size()) {
-        std::fprintf(stderr, "ERROR: ss_load_cond_codes called with invalid ss_idx=%d (matrix size=%zu)\n",
-                     ss_idx, ss_panel_matrix.size());
-        std::abort();
-    }
+	if (ss_idx < 0 || ss_idx >= (int)ss_panel_matrix.size()) {
+		std::fprintf(stderr, "ERROR: ss_load_cond_codes called with invalid ss_idx=%d (matrix size=%zu)\n",
+					 ss_idx, ss_panel_matrix.size());
+		std::abort();
+	}
 
-    ss_cond_codes.resize(n_cond_haps);
-    for (unsigned int k = 0; k < n_cond_haps; ++k) {
-        ss_cond_codes[k] = ss_panel_matrix[ss_idx][k];
-    }
+	ss_cond_codes.resize(n_cond_haps);
+	for (unsigned int k = 0; k < n_cond_haps; ++k) {
+		ss_cond_codes[k] = ss_panel_matrix[ss_idx][k];
+	}
 }
 
 // Note: pack_expected_codes_pd() helper removed - was causing half-lane split antipattern
@@ -218,144 +209,144 @@ void haplotype_segment_double::ss_load_cond_codes(const SuperSite& ss, int ss_id
 
 inline
 void haplotype_segment_double::INIT_HOM() {
-    // Supersite dispatcher
-    int ss_idx = -1;
-    if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
-    if (ss_idx >= 0) {
-        const SuperSite& ss = (*super_sites)[ss_idx];
-        
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling at window boundary: initialize neutrally to avoid underflow
-            INIT_MIS();  // BUG FIX #1: Use biallelic MIS
-            return;
-        }
-        
-        // Classify using IMMUTABLE observed genotype (c0, c1)
-        uint8_t c0, c1;
-        G->getSupersiteObservedGt(ss_idx, c0, c1);
-        SSClass cls = classifyObservedGt(c0, c1);
-        switch (cls) {
-            case SSClass::MIS: INIT_MIS(); return;  // BUG FIX #1: Use biallelic MIS
-            case SSClass::AMB: INIT_AMB(); return;
-            case SSClass::HOM: {
-                const uint8_t sample_code = c0;
-                // Load conditioning haplotype codes (cached after first call)
-                ss_load_cond_codes(ss, ss_idx);
+	// Supersite dispatcher
+	int ss_idx = -1;
+	if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
+	if (ss_idx >= 0) {
+		const SuperSite& ss = (*super_sites)[ss_idx];
+		
+		// Anchor gate: only run DP at global_site_id
+		if (curr_abs_locus != (int)ss.global_site_id) {
+			// Sibling at window boundary: initialize neutrally to avoid underflow
+			INIT_MIS();  // BUG FIX #1: Use biallelic MIS
+			return;
+		}
+		
+		// Classify using IMMUTABLE observed genotype (c0, c1)
+		uint8_t c0, c1;
+		G->getSupersiteObservedGt(ss_idx, c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1);
+		switch (cls) {
+			case SSClass::MIS: INIT_MIS(); return;  // BUG FIX #1: Use biallelic MIS
+			case SSClass::AMB: INIT_AMB(); return;
+			case SSClass::HOM: {
+				const uint8_t sample_code = c0;
+				// Load conditioning haplotype codes (cached after first call)
+				ss_load_cond_codes(ss, ss_idx);
 
-                precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
-                __m256d _sum0 = _mm256_set1_pd(0.0);
-                __m256d _sum1 = _mm256_set1_pd(0.0);
-                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
-                    __m256d _prob0 = _emit;
-                    __m256d _prob1 = _emit;
-                    _sum0 = _mm256_add_pd(_sum0, _prob0);
-                    _sum1 = _mm256_add_pd(_sum1, _prob1);
-                    _mm256_store_pd(&prob[i+0], _prob0);
-                    _mm256_store_pd(&prob[i+4], _prob1);
-                }
-                _mm256_store_pd(&probSumH[0], _sum0);
-                _mm256_store_pd(&probSumH[4], _sum1);
-                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-                return;
-            }
-        }
-    }
-    // Default biallelic path - simple AVX2 loop (original algorithm)
-    const bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-    __m256d _sum0 = _mm256_set1_pd(0.0);
-    __m256d _sum1 = _mm256_set1_pd(0.0);
-    __m256d _mismatch = _mm256_set1_pd(M.ed / M.ee);
-    for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-        bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256d _prob0, _prob1;
-        if (ag == ah) {
-            _prob0 = _mm256_set1_pd(1.0);
-            _prob1 = _mm256_set1_pd(1.0);
-        } else {
-            _prob0 = _mismatch;
-            _prob1 = _mismatch;
-        }
-        _sum0 = _mm256_add_pd(_sum0, _prob0);
-        _sum1 = _mm256_add_pd(_sum1, _prob1);
-        _mm256_store_pd(&prob[i], _prob0);
-        _mm256_store_pd(&prob[i+4], _prob1);
-    }
-    _mm256_store_pd(&probSumH[0], _sum0);
-    _mm256_store_pd(&probSumH[4], _sum1);
-    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+				precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
+				__m256d _sum0 = _mm256_set1_pd(0.0);
+				__m256d _sum1 = _mm256_set1_pd(0.0);
+				for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+					__m256d _emit = _mm256_set1_pd(ss_emissions[k]);
+					__m256d _prob0 = _emit;
+					__m256d _prob1 = _emit;
+					_sum0 = _mm256_add_pd(_sum0, _prob0);
+					_sum1 = _mm256_add_pd(_sum1, _prob1);
+					_mm256_store_pd(&prob[i+0], _prob0);
+					_mm256_store_pd(&prob[i+4], _prob1);
+				}
+				_mm256_store_pd(&probSumH[0], _sum0);
+				_mm256_store_pd(&probSumH[4], _sum1);
+				probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+				return;
+			}
+		}
+	}
+	// Default biallelic path - simple AVX2 loop (original algorithm)
+	const bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
+	__m256d _sum0 = _mm256_set1_pd(0.0);
+	__m256d _sum1 = _mm256_set1_pd(0.0);
+	__m256d _mismatch = _mm256_set1_pd(M.ed / M.ee);
+	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+		bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
+		__m256d _prob0, _prob1;
+		if (ag == ah) {
+			_prob0 = _mm256_set1_pd(1.0);
+			_prob1 = _mm256_set1_pd(1.0);
+		} else {
+			_prob0 = _mismatch;
+			_prob1 = _mismatch;
+		}
+		_sum0 = _mm256_add_pd(_sum0, _prob0);
+		_sum1 = _mm256_add_pd(_sum1, _prob1);
+		_mm256_store_pd(&prob[i], _prob0);
+		_mm256_store_pd(&prob[i+4], _prob1);
+	}
+	_mm256_store_pd(&probSumH[0], _sum0);
+	_mm256_store_pd(&probSumH[4], _sum1);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 }
 
 inline
 bool haplotype_segment_double::RUN_HOM(char rare_allele) {
-    // Supersite dispatcher
-    int ss_idx = -1;
-    if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
-    if (ss_idx >= 0) {
-        const SuperSite& ss = (*super_sites)[ss_idx];
-        
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: true no-op (preserve probability state, no DP)
-            return true;
-        }
-        
-        // Classify using IMMUTABLE observed genotype (c0, c1)
-        uint8_t c0, c1;
-        G->getSupersiteObservedGt(ss_idx, c0, c1);
-        SSClass cls = classifyObservedGt(c0, c1);
-        switch (cls) {
-            case SSClass::MIS: RUN_MIS(); return true;  // BUG FIX #1: Use biallelic MIS
-            case SSClass::AMB: RUN_AMB(); return true;
-            case SSClass::HOM: {
-                const uint8_t sample_code = c0;
-                if (ss.rare_code_mask != 0 && sample_code <= ss.n_alts) {
-                    if ((ss.rare_code_mask & static_cast<uint16_t>(1u << sample_code)) == 0) return false;
-                }
+	// Supersite dispatcher
+	int ss_idx = -1;
+	if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
+	if (ss_idx >= 0) {
+		const SuperSite& ss = (*super_sites)[ss_idx];
+		
+		// Anchor gate: only run DP at global_site_id
+		if (curr_abs_locus != (int)ss.global_site_id) {
+			// Sibling: true no-op (preserve probability state, no DP)
+			return true;
+		}
+		
+		// Classify using IMMUTABLE observed genotype (c0, c1)
+		uint8_t c0, c1;
+		G->getSupersiteObservedGt(ss_idx, c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1);
+		switch (cls) {
+			case SSClass::MIS: RUN_MIS(); return true;  // BUG FIX #1: Use biallelic MIS
+			case SSClass::AMB: RUN_AMB(); return true;
+			case SSClass::HOM: {
+				const uint8_t sample_code = c0;
+				if (ss.rare_code_mask != 0 && sample_code <= ss.n_alts) {
+					if ((ss.rare_code_mask & static_cast<uint16_t>(1u << sample_code)) == 0) return false;
+				}
 
-                // Load conditioning haplotype codes (cached after first call)
-                ss_load_cond_codes(ss, ss_idx);
+				// Load conditioning haplotype codes (cached after first call)
+				ss_load_cond_codes(ss, ss_idx);
 
-                precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
-                __m256d _sum0 = _mm256_set1_pd(0.0);
-                __m256d _sum1 = _mm256_set1_pd(0.0);
-                __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
-                __m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
-                __m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
-                _tFreq0 = _mm256_mul_pd(_tFreq0, _factor);
-                _tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
-                __m256d _nt = _mm256_set1_pd(nt / probSumT);
-                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
-                    __m256d _prob0 = _mm256_load_pd(&prob[i]);
-                    __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
-                    _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-                    _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
-                    if (ss_emissions[k] != 1.0) {
-                        _prob0 = _mm256_mul_pd(_prob0, _emit);
-                        _prob1 = _mm256_mul_pd(_prob1, _emit);
-                    }
-                    _sum0 = _mm256_add_pd(_sum0, _prob0);
-                    _sum1 = _mm256_add_pd(_sum1, _prob1);
-                    _mm256_store_pd(&prob[i], _prob0);
-                    _mm256_store_pd(&prob[i+4], _prob1);
-                }
-                _mm256_store_pd(&probSumH[0], _sum0);
-                _mm256_store_pd(&probSumH[4], _sum1);
-                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-                return true;
-            }
-        }
-    }
-    // Biallelic path
-    bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-    if (rare_allele < 0 || ag == rare_allele) {
-    __m256d _sum0 = _mm256_set1_pd(0.0);
-    __m256d _sum1 = _mm256_set1_pd(0.0);
-        __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
-        __m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
-        __m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
+				precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
+				__m256d _sum0 = _mm256_set1_pd(0.0);
+				__m256d _sum1 = _mm256_set1_pd(0.0);
+				__m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
+				__m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
+				__m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
+				_tFreq0 = _mm256_mul_pd(_tFreq0, _factor);
+				_tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
+				__m256d _nt = _mm256_set1_pd(nt / probSumT);
+				for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+					__m256d _emit = _mm256_set1_pd(ss_emissions[k]);
+					__m256d _prob0 = _mm256_load_pd(&prob[i]);
+					__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
+					_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+					_prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+					if (ss_emissions[k] != 1.0) {
+						_prob0 = _mm256_mul_pd(_prob0, _emit);
+						_prob1 = _mm256_mul_pd(_prob1, _emit);
+					}
+					_sum0 = _mm256_add_pd(_sum0, _prob0);
+					_sum1 = _mm256_add_pd(_sum1, _prob1);
+					_mm256_store_pd(&prob[i], _prob0);
+					_mm256_store_pd(&prob[i+4], _prob1);
+				}
+				_mm256_store_pd(&probSumH[0], _sum0);
+				_mm256_store_pd(&probSumH[4], _sum1);
+				probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+				return true;
+			}
+		}
+	}
+	// Biallelic path
+	bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
+	if (rare_allele < 0 || ag == rare_allele) {
+	__m256d _sum0 = _mm256_set1_pd(0.0);
+	__m256d _sum1 = _mm256_set1_pd(0.0);
+		__m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
+		__m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
+		__m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
 		_tFreq0 = _mm256_mul_pd(_tFreq0, _factor);
 		_tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
 		__m256d _nt = _mm256_set1_pd(nt / probSumT);
@@ -385,84 +376,84 @@ bool haplotype_segment_double::RUN_HOM(char rare_allele) {
 
 inline
 void haplotype_segment_double::COLLAPSE_HOM() {
-    // Supersite dispatcher
-    int ss_idx = -1;
-    if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
-    if (ss_idx >= 0) {
-        const SuperSite& ss = (*super_sites)[ss_idx];
-        
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: true no-op (preserve probability state, no DP)
-            return;
-        }
-        
-        // Classify using IMMUTABLE observed genotype (c0, c1)
-        uint8_t c0, c1;
-        G->getSupersiteObservedGt(ss_idx, c0, c1);
-        SSClass cls = classifyObservedGt(c0, c1);
-        switch (cls) {
-            case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
-            case SSClass::AMB: COLLAPSE_AMB(); return;
-            case SSClass::HOM: {
-                const uint8_t sample_code = c0;
-                // Load conditioning haplotype codes (cached after first call)
-                ss_load_cond_codes(ss, ss_idx);
+	// Supersite dispatcher
+	int ss_idx = -1;
+	if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
+	if (ss_idx >= 0) {
+		const SuperSite& ss = (*super_sites)[ss_idx];
+		
+		// Anchor gate: only run DP at global_site_id
+		if (curr_abs_locus != (int)ss.global_site_id) {
+			// Sibling: true no-op (preserve probability state, no DP)
+			return;
+		}
+		
+		// Classify using IMMUTABLE observed genotype (c0, c1)
+		uint8_t c0, c1;
+		G->getSupersiteObservedGt(ss_idx, c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1);
+		switch (cls) {
+			case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
+			case SSClass::AMB: COLLAPSE_AMB(); return;
+			case SSClass::HOM: {
+				const uint8_t sample_code = c0;
+				// Load conditioning haplotype codes (cached after first call)
+				ss_load_cond_codes(ss, ss_idx);
 
-                precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
-                __m256d _sum0 = _mm256_set1_pd(0.0);
-                __m256d _sum1 = _mm256_set1_pd(0.0);
-                __m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
-                __m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
-                __m256d _nt = _mm256_set1_pd(nt / probSumT);
-                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    __m256d _emit = _mm256_set1_pd(ss_emissions[k]);
-                    __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-                    __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
-                    _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-                    _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
-                    if (ss_emissions[k] != 1.0) {
-                        _prob0 = _mm256_mul_pd(_prob0, _emit);
-                        _prob1 = _mm256_mul_pd(_prob1, _emit);
-                    }
-                    _sum0 = _mm256_add_pd(_sum0, _prob0);
-                    _sum1 = _mm256_add_pd(_sum1, _prob1);
-                    _mm256_store_pd(&prob[i], _prob0);
-                    _mm256_store_pd(&prob[i+4], _prob1);
-                }
-                _mm256_store_pd(&probSumH[0], _sum0);
-                _mm256_store_pd(&probSumH[4], _sum1);
-                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-                return;
-            }
-        }
-    }
-    // Biallelic path
-    bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
-    __m256d _sum0 = _mm256_set1_pd(0.0);
-    __m256d _sum1 = _mm256_set1_pd(0.0);
-    __m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
-    __m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
-    __m256d _nt = _mm256_set1_pd(nt / probSumT);
-    __m256d _mismatch = _mm256_set1_pd(M.ed / M.ee);
-    for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-        bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-        __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
-        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
-        if (ag!=ah) {
-            _prob0 = _mm256_mul_pd(_prob0, _mismatch);
-            _prob1 = _mm256_mul_pd(_prob1, _mismatch);
-        }
-        _sum0 = _mm256_add_pd(_sum0, _prob0);
-        _sum1 = _mm256_add_pd(_sum1, _prob1);
-        _mm256_store_pd(&prob[i], _prob0);
-        _mm256_store_pd(&prob[i+4], _prob1);
-    }
-    _mm256_store_pd(&probSumH[0], _sum0);
-    _mm256_store_pd(&probSumH[4], _sum1);
-    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+				precomputeSuperSiteEmissions_AVX2(ss_cond_codes.data(), n_cond_haps, sample_code, 1.0, M.ed / M.ee, ss_emissions);
+				__m256d _sum0 = _mm256_set1_pd(0.0);
+				__m256d _sum1 = _mm256_set1_pd(0.0);
+				__m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
+				__m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
+				__m256d _nt = _mm256_set1_pd(nt / probSumT);
+				for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+					__m256d _emit = _mm256_set1_pd(ss_emissions[k]);
+					__m256d _prob0 = _mm256_set1_pd(probSumK[k]);
+					__m256d _prob1 = _mm256_set1_pd(probSumK[k]);
+					_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+					_prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+					if (ss_emissions[k] != 1.0) {
+						_prob0 = _mm256_mul_pd(_prob0, _emit);
+						_prob1 = _mm256_mul_pd(_prob1, _emit);
+					}
+					_sum0 = _mm256_add_pd(_sum0, _prob0);
+					_sum1 = _mm256_add_pd(_sum1, _prob1);
+					_mm256_store_pd(&prob[i], _prob0);
+					_mm256_store_pd(&prob[i+4], _prob1);
+				}
+				_mm256_store_pd(&probSumH[0], _sum0);
+				_mm256_store_pd(&probSumH[4], _sum1);
+				probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+				return;
+			}
+		}
+	}
+	// Biallelic path
+	bool ag = VAR_GET_HAP0(MOD2(curr_abs_locus), G->Variants[DIV2(curr_abs_locus)]);
+	__m256d _sum0 = _mm256_set1_pd(0.0);
+	__m256d _sum1 = _mm256_set1_pd(0.0);
+	__m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
+	__m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
+	__m256d _nt = _mm256_set1_pd(nt / probSumT);
+	__m256d _mismatch = _mm256_set1_pd(M.ed / M.ee);
+	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+		bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
+		__m256d _prob0 = _mm256_set1_pd(probSumK[k]);
+		__m256d _prob1 = _mm256_set1_pd(probSumK[k]);
+		_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+		_prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+		if (ag!=ah) {
+			_prob0 = _mm256_mul_pd(_prob0, _mismatch);
+			_prob1 = _mm256_mul_pd(_prob1, _mismatch);
+		}
+		_sum0 = _mm256_add_pd(_sum0, _prob0);
+		_sum1 = _mm256_add_pd(_sum1, _prob1);
+		_mm256_store_pd(&prob[i], _prob0);
+		_mm256_store_pd(&prob[i+4], _prob1);
+	}
+	_mm256_store_pd(&probSumH[0], _sum0);
+	_mm256_store_pd(&probSumH[4], _sum1);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 }
 
 /*******************************************************************************/
@@ -471,184 +462,184 @@ void haplotype_segment_double::COLLAPSE_HOM() {
 
 inline
 void haplotype_segment_double::INIT_AMB() {
-    // Supersite dispatcher
-    int ss_idx = -1;
-    if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
-    if (ss_idx >= 0) {
-        const SuperSite& ss = (*super_sites)[ss_idx];
-        
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling at window boundary: initialize neutrally to avoid underflow
-            INIT_MIS();  // BUG FIX #1: Use biallelic MIS
-            return;
-        }
-        
-        // Classify using IMMUTABLE observed genotype (c0, c1)
-        uint8_t c0, c1;
-        G->getSupersiteObservedGt(ss_idx, c0, c1);
-        SSClass cls = classifyObservedGt(c0, c1);
-        switch (cls) {
-            case SSClass::MIS: INIT_MIS(); return;  // BUG FIX #1: Use biallelic MIS
-            case SSClass::HOM: INIT_HOM(); return;
-            case SSClass::AMB: {
-                // Load conditioning haplotype codes (cached after first call)
-                ss_load_cond_codes(ss, ss_idx);
+	// Supersite dispatcher
+	int ss_idx = -1;
+	if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
+	if (ss_idx >= 0) {
+		const SuperSite& ss = (*super_sites)[ss_idx];
+		
+		// Anchor gate: only run DP at global_site_id
+		if (curr_abs_locus != (int)ss.global_site_id) {
+			// Sibling at window boundary: initialize neutrally to avoid underflow
+			INIT_MIS();  // BUG FIX #1: Use biallelic MIS
+			return;
+		}
+		
+		// Classify using IMMUTABLE observed genotype (c0, c1)
+		uint8_t c0, c1;
+		G->getSupersiteObservedGt(ss_idx, c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1);
+		switch (cls) {
+			case SSClass::MIS: INIT_MIS(); return;  // BUG FIX #1: Use biallelic MIS
+			case SSClass::HOM: INIT_HOM(); return;
+			case SSClass::AMB: {
+				// Load conditioning haplotype codes (cached after first call)
+				ss_load_cond_codes(ss, ss_idx);
 
-                unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-                                         ? G->Ambiguous[curr_abs_ambiguous] : 0u;
-                uint8_t expected_class[HAP_NUMBER];
-                if (c0 == c1) {
-                    for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
-                } else {
-                    for (int h = 0; h < HAP_NUMBER; ++h) {
-                        bool use_c1 = ((amb_mask >> h) & 1U);
-                        expected_class[h] = use_c1 ? c1 : c0;
-                    }
-                }
+				unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+										 ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+				uint8_t expected_class[HAP_NUMBER];
+				if (c0 == c1) {
+					for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+				} else {
+					for (int h = 0; h < HAP_NUMBER; ++h) {
+						bool use_c1 = ((amb_mask >> h) & 1U);
+						expected_class[h] = use_c1 ? c1 : c0;
+					}
+				}
 
-                __m256d _sum0 = _mm256_set1_pd(0.0);
-                __m256d _sum1 = _mm256_set1_pd(0.0);
+				__m256d _sum0 = _mm256_set1_pd(0.0);
+				__m256d _sum1 = _mm256_set1_pd(0.0);
 
-                // Strict 4-bit class equality semantics
-                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    alignas(32) double E8[HAP_NUMBER];
-                    for (int h = 0; h < HAP_NUMBER; ++h) {
-                        bool match = (expected_class[h] == ss_cond_codes[k]);
-                        E8[h] = match ? 1.0 : (M.ed / M.ee);
-                    }
-                    __m256d emit_lo = _mm256_load_pd(&E8[0]);
-                    __m256d emit_hi = _mm256_load_pd(&E8[4]);
+				// Strict 4-bit class equality semantics
+				for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+					alignas(32) double E8[HAP_NUMBER];
+					for (int h = 0; h < HAP_NUMBER; ++h) {
+						bool match = (expected_class[h] == ss_cond_codes[k]);
+						E8[h] = match ? 1.0 : (M.ed / M.ee);
+					}
+					__m256d emit_lo = _mm256_load_pd(&E8[0]);
+					__m256d emit_hi = _mm256_load_pd(&E8[4]);
 
-                    _sum0 = _mm256_add_pd(_sum0, emit_lo);
-                    _sum1 = _mm256_add_pd(_sum1, emit_hi);
-                    _mm256_store_pd(&prob[i+0], emit_lo);
-                    _mm256_store_pd(&prob[i+4], emit_hi);
-                }
-                _mm256_store_pd(&probSumH[0], _sum0);
-                _mm256_store_pd(&probSumH[4], _sum1);
-                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-                return;
-            }
-        }
-    }
-    // Biallelic path - simple AVX2 loop (original algorithm)
-    unsigned char amb_code = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-                             ? G->Ambiguous[curr_abs_ambiguous] : 0u;
-    for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0;
-        g1[h] = HAP_GET(amb_code,h)?1.0:M.ed / M.ee;
-    }
-    __m256d _sum0 = _mm256_set1_pd(0.0);
-    __m256d _sum1 = _mm256_set1_pd(0.0);
-    __m256d _emit0[2], _emit1[2];
-    _emit0[0] = _mm256_loadu_pd(&g0[0]);
-    _emit0[1] = _mm256_loadu_pd(&g1[0]);
-    _emit1[0] = _mm256_loadu_pd(&g0[4]);
-    _emit1[1] = _mm256_loadu_pd(&g1[4]);
-    for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
-        bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256d _prob0 = _emit0[ah];
-        __m256d _prob1 = _emit1[ah];
-        _sum0 = _mm256_add_pd(_sum0, _prob0);
-        _sum1 = _mm256_add_pd(_sum1, _prob1);
-        _mm256_store_pd(&prob[i], _prob0);
-        _mm256_store_pd(&prob[i+4], _prob1);
-    }
-    _mm256_store_pd(&probSumH[0], _sum0);
-    _mm256_store_pd(&probSumH[4], _sum1);
-    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+					_sum0 = _mm256_add_pd(_sum0, emit_lo);
+					_sum1 = _mm256_add_pd(_sum1, emit_hi);
+					_mm256_store_pd(&prob[i+0], emit_lo);
+					_mm256_store_pd(&prob[i+4], emit_hi);
+				}
+				_mm256_store_pd(&probSumH[0], _sum0);
+				_mm256_store_pd(&probSumH[4], _sum1);
+				probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+				return;
+			}
+		}
+	}
+	// Biallelic path - simple AVX2 loop (original algorithm)
+	unsigned char amb_code = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+							 ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+	for (int h = 0 ; h < HAP_NUMBER ; h ++) {
+		g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0;
+		g1[h] = HAP_GET(amb_code,h)?1.0:M.ed / M.ee;
+	}
+	__m256d _sum0 = _mm256_set1_pd(0.0);
+	__m256d _sum1 = _mm256_set1_pd(0.0);
+	__m256d _emit0[2], _emit1[2];
+	_emit0[0] = _mm256_loadu_pd(&g0[0]);
+	_emit0[1] = _mm256_loadu_pd(&g1[0]);
+	_emit1[0] = _mm256_loadu_pd(&g0[4]);
+	_emit1[1] = _mm256_loadu_pd(&g1[4]);
+	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
+		bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
+		__m256d _prob0 = _emit0[ah];
+		__m256d _prob1 = _emit1[ah];
+		_sum0 = _mm256_add_pd(_sum0, _prob0);
+		_sum1 = _mm256_add_pd(_sum1, _prob1);
+		_mm256_store_pd(&prob[i], _prob0);
+		_mm256_store_pd(&prob[i+4], _prob1);
+	}
+	_mm256_store_pd(&probSumH[0], _sum0);
+	_mm256_store_pd(&probSumH[4], _sum1);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 }
 
 inline
 void haplotype_segment_double::RUN_AMB() {
-    const char rare_allele = M.rare_allele[curr_abs_locus];
+	const char rare_allele = M.rare_allele[curr_abs_locus];
 
-    // Supersite dispatcher
-    int ss_idx = -1;
-    if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
-    if (ss_idx >= 0) {
-        const SuperSite& ss = (*super_sites)[ss_idx];
-        
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: true no-op (preserve probability state, no DP)
-            return;
-        }
-        
-        // Classify using IMMUTABLE observed genotype (c0, c1)
-        uint8_t c0, c1;
-        G->getSupersiteObservedGt(ss_idx, c0, c1);
-        SSClass cls = classifyObservedGt(c0, c1);
-        switch (cls) {
-            case SSClass::MIS: RUN_MIS(); return;  // BUG FIX #1: Use biallelic MIS
-            case SSClass::HOM: RUN_HOM(rare_allele); return;
-            case SSClass::AMB: {
-                // Load conditioning haplotype codes (cached after first call)
-                ss_load_cond_codes(ss, ss_idx);
+	// Supersite dispatcher
+	int ss_idx = -1;
+	if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
+	if (ss_idx >= 0) {
+		const SuperSite& ss = (*super_sites)[ss_idx];
+		
+		// Anchor gate: only run DP at global_site_id
+		if (curr_abs_locus != (int)ss.global_site_id) {
+			// Sibling: true no-op (preserve probability state, no DP)
+			return;
+		}
+		
+		// Classify using IMMUTABLE observed genotype (c0, c1)
+		uint8_t c0, c1;
+		G->getSupersiteObservedGt(ss_idx, c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1);
+		switch (cls) {
+			case SSClass::MIS: RUN_MIS(); return;  // BUG FIX #1: Use biallelic MIS
+			case SSClass::HOM: RUN_HOM(rare_allele); return;
+			case SSClass::AMB: {
+				// Load conditioning haplotype codes (cached after first call)
+				ss_load_cond_codes(ss, ss_idx);
 
-                // Build expected class per lane
-                uint8_t expected_class[HAP_NUMBER];
-                unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-                                         ? G->Ambiguous[curr_abs_ambiguous] : 0u;
-                if (c0 == c1) {
-                    for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
-                } else {
-                    for (int h = 0; h < HAP_NUMBER; ++h) {
-                        bool use_c1 = ((amb_mask >> h) & 1U);
-                        expected_class[h] = use_c1 ? c1 : c0;
-                    }
-                }
+				// Build expected class per lane
+				uint8_t expected_class[HAP_NUMBER];
+				unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+										 ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+				if (c0 == c1) {
+					for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+				} else {
+					for (int h = 0; h < HAP_NUMBER; ++h) {
+						bool use_c1 = ((amb_mask >> h) & 1U);
+						expected_class[h] = use_c1 ? c1 : c0;
+					}
+				}
 
-                __m256d _sum0 = _mm256_set1_pd(0.0);
-                __m256d _sum1 = _mm256_set1_pd(0.0);
-                __m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
-                __m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
-                __m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
-                _tFreq0 = _mm256_mul_pd(_tFreq0, _factor);
-                _tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
-                __m256d _nt = _mm256_set1_pd(nt / probSumT);
+				__m256d _sum0 = _mm256_set1_pd(0.0);
+				__m256d _sum1 = _mm256_set1_pd(0.0);
+				__m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
+				__m256d _tFreq0 = _mm256_load_pd(&probSumH[0]);
+				__m256d _tFreq1 = _mm256_load_pd(&probSumH[4]);
+				_tFreq0 = _mm256_mul_pd(_tFreq0, _factor);
+				_tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
+				__m256d _nt = _mm256_set1_pd(nt / probSumT);
 
-                // Strict 4-bit class equality semantics
-                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    __m256d _prob0 = _mm256_load_pd(&prob[i]);
-                    __m256d _prob1 = _mm256_load_pd(&prob[i+4]);
-                    _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-                    _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+				// Strict 4-bit class equality semantics
+				for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+					__m256d _prob0 = _mm256_load_pd(&prob[i]);
+					__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
+					_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+					_prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
 
-                    alignas(32) double E8[HAP_NUMBER];
-                    for (int h = 0; h < HAP_NUMBER; ++h) {
-                        bool match = (expected_class[h] == ss_cond_codes[k]);
-                        E8[h] = match ? 1.0 : (M.ed / M.ee);
-                    }
+					alignas(32) double E8[HAP_NUMBER];
+					for (int h = 0; h < HAP_NUMBER; ++h) {
+						bool match = (expected_class[h] == ss_cond_codes[k]);
+						E8[h] = match ? 1.0 : (M.ed / M.ee);
+					}
 
-                    __m256d emit_lo = _mm256_load_pd(&E8[0]);
-                    __m256d emit_hi = _mm256_load_pd(&E8[4]);
+					__m256d emit_lo = _mm256_load_pd(&E8[0]);
+					__m256d emit_hi = _mm256_load_pd(&E8[4]);
 
-                    _prob0 = _mm256_mul_pd(_prob0, emit_lo);
-                    _prob1 = _mm256_mul_pd(_prob1, emit_hi);
-                    _sum0  = _mm256_add_pd(_sum0, _prob0);
-                    _sum1  = _mm256_add_pd(_sum1, _prob1);
-                    _mm256_store_pd(&prob[i],   _prob0);
-                    _mm256_store_pd(&prob[i+4], _prob1);
-                }
-                _mm256_store_pd(&probSumH[0], _sum0);
-                _mm256_store_pd(&probSumH[4], _sum1);
-                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-                return;
-            }
-        }
-    }
-    // Biallelic path
-    if (curr_abs_ambiguous < 0 || curr_abs_ambiguous >= (int)G->Ambiguous.size()) {
-        fprintf(stderr, "RUN_AMB: Invalid curr_abs_ambiguous index %d, returning\n", curr_abs_ambiguous);
-        return;
-    }
-    unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
-    for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0;
-        g1[h] = HAP_GET(amb_code,h)?1.0:M.ed / M.ee;
-    }
+					_prob0 = _mm256_mul_pd(_prob0, emit_lo);
+					_prob1 = _mm256_mul_pd(_prob1, emit_hi);
+					_sum0  = _mm256_add_pd(_sum0, _prob0);
+					_sum1  = _mm256_add_pd(_sum1, _prob1);
+					_mm256_store_pd(&prob[i],   _prob0);
+					_mm256_store_pd(&prob[i+4], _prob1);
+				}
+				_mm256_store_pd(&probSumH[0], _sum0);
+				_mm256_store_pd(&probSumH[4], _sum1);
+				probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+				return;
+			}
+		}
+	}
+	// Biallelic path
+	if (curr_abs_ambiguous < 0 || curr_abs_ambiguous >= (int)G->Ambiguous.size()) {
+		fprintf(stderr, "RUN_AMB: Invalid curr_abs_ambiguous index %d, returning\n", curr_abs_ambiguous);
+		return;
+	}
+	unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
+	for (int h = 0 ; h < HAP_NUMBER ; h ++) {
+		g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0;
+		g1[h] = HAP_GET(amb_code,h)?1.0:M.ed / M.ee;
+	}
 	__m256d _sum0 = _mm256_set1_pd(0.0f);
 	__m256d _sum1 = _mm256_set1_pd(0.0f);
 	__m256d _factor = _mm256_set1_pd(yt / (n_cond_haps * probSumT));
@@ -682,93 +673,93 @@ void haplotype_segment_double::RUN_AMB() {
 
 inline
 void haplotype_segment_double::COLLAPSE_AMB() {
-    // Supersite dispatcher
-    int ss_idx = -1;
-    if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
-    if (ss_idx >= 0) {
-        const SuperSite& ss = (*super_sites)[ss_idx];
-        
-        // Anchor gate: only run DP at global_site_id
-        if (curr_abs_locus != (int)ss.global_site_id) {
-            // Sibling: true no-op (preserve probability state, no DP)
-            return;
-        }
-        
-        // Classify using IMMUTABLE observed genotype (c0, c1)
-        uint8_t c0, c1;
-        G->getSupersiteObservedGt(ss_idx, c0, c1);
-        SSClass cls = classifyObservedGt(c0, c1);
-        switch (cls) {
-            case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
-            case SSClass::HOM: COLLAPSE_HOM(); return;
-            case SSClass::AMB: {
-                // Load conditioning haplotype codes (cached after first call)
-                ss_load_cond_codes(ss, ss_idx);
+	// Supersite dispatcher
+	int ss_idx = -1;
+	if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
+	if (ss_idx >= 0) {
+		const SuperSite& ss = (*super_sites)[ss_idx];
+		
+		// Anchor gate: only run DP at global_site_id
+		if (curr_abs_locus != (int)ss.global_site_id) {
+			// Sibling: true no-op (preserve probability state, no DP)
+			return;
+		}
+		
+		// Classify using IMMUTABLE observed genotype (c0, c1)
+		uint8_t c0, c1;
+		G->getSupersiteObservedGt(ss_idx, c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1);
+		switch (cls) {
+			case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
+			case SSClass::HOM: COLLAPSE_HOM(); return;
+			case SSClass::AMB: {
+				// Load conditioning haplotype codes (cached after first call)
+				ss_load_cond_codes(ss, ss_idx);
 
-                // Build expected class per lane
-                uint8_t expected_class[HAP_NUMBER];
-                unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
-                                         ? G->Ambiguous[curr_abs_ambiguous] : 0u;
-                if (c0 == c1) {
-                    for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
-                } else {
-                    for (int h = 0; h < HAP_NUMBER; ++h) {
-                        bool use_c1 = ((amb_mask >> h) & 1U);
-                        expected_class[h] = use_c1 ? c1 : c0;
-                    }
-                }
+				// Build expected class per lane
+				uint8_t expected_class[HAP_NUMBER];
+				unsigned char amb_mask = (curr_abs_ambiguous >= ambiguous_first && curr_abs_ambiguous <= ambiguous_last)
+										 ? G->Ambiguous[curr_abs_ambiguous] : 0u;
+				if (c0 == c1) {
+					for (int h = 0; h < HAP_NUMBER; ++h) expected_class[h] = c0;
+				} else {
+					for (int h = 0; h < HAP_NUMBER; ++h) {
+						bool use_c1 = ((amb_mask >> h) & 1U);
+						expected_class[h] = use_c1 ? c1 : c0;
+					}
+				}
 
-                // Unified loop: collapse from probSumK with per-lane emissions
-                // BUG FIX #5: Single code path with parameterized emission computation
-                __m256d _sum0 = _mm256_set1_pd(0.0);
-                __m256d _sum1 = _mm256_set1_pd(0.0);
-                __m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
-                __m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
-                __m256d _nt = _mm256_set1_pd(nt / probSumT);
+				// Unified loop: collapse from probSumK with per-lane emissions
+				// BUG FIX #5: Single code path with parameterized emission computation
+				__m256d _sum0 = _mm256_set1_pd(0.0);
+				__m256d _sum1 = _mm256_set1_pd(0.0);
+				__m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
+				__m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
+				__m256d _nt = _mm256_set1_pd(nt / probSumT);
 
-                for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-                    // Transition: collapse from previous segment boundary using donor/column marginals
-                    double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
-                    __m256d _prob0 = _mm256_set1_pd(base);
-                    __m256d _prob1 = _mm256_set1_pd(base);
-                    _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-                    _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+				for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+					// Transition: collapse from previous segment boundary using donor/column marginals
+					double base = (k < probSumK.size()) ? probSumK[k] : 0.0;
+					__m256d _prob0 = _mm256_set1_pd(base);
+					__m256d _prob1 = _mm256_set1_pd(base);
+					_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+					_prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
 
-                    // Strict 4-bit class equality semantics
-                    alignas(32) double E8[HAP_NUMBER];
-                    for (int h = 0; h < HAP_NUMBER; ++h) {
-                        bool match = (expected_class[h] == ss_cond_codes[k]);
-                        E8[h] = match ? 1.0 : (M.ed / M.ee);
-                    }
-                    __m256d emit_lo = _mm256_load_pd(&E8[0]);
-                    __m256d emit_hi = _mm256_load_pd(&E8[4]);
-                    _prob0 = _mm256_mul_pd(_prob0, emit_lo);
-                    _prob1 = _mm256_mul_pd(_prob1, emit_hi);
-                    
-                    _sum0 = _mm256_add_pd(_sum0, _prob0);
-                    _sum1 = _mm256_add_pd(_sum1, _prob1);
-                    _mm256_store_pd(&prob[i],   _prob0);
-                    _mm256_store_pd(&prob[i+4], _prob1);
-                }
-                
-                _mm256_store_pd(&probSumH[0], _sum0);
-                _mm256_store_pd(&probSumH[4], _sum1);
-                probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
-                return;
-            }
-        }
-    }
-    // Biallelic path
-    unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
-    for (int h = 0 ; h < HAP_NUMBER ; h ++) {
-        g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0;
-        g1[h] = HAP_GET(amb_code,h)?1.0:M.ed / M.ee;
-    }
-    __m256d _sum0 = _mm256_set1_pd(0.0f);
-    __m256d _sum1 = _mm256_set1_pd(0.0f);
-    __m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
-    __m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
-    __m256d _nt = _mm256_set1_pd(nt / probSumT);
+					// Strict 4-bit class equality semantics
+					alignas(32) double E8[HAP_NUMBER];
+					for (int h = 0; h < HAP_NUMBER; ++h) {
+						bool match = (expected_class[h] == ss_cond_codes[k]);
+						E8[h] = match ? 1.0 : (M.ed / M.ee);
+					}
+					__m256d emit_lo = _mm256_load_pd(&E8[0]);
+					__m256d emit_hi = _mm256_load_pd(&E8[4]);
+					_prob0 = _mm256_mul_pd(_prob0, emit_lo);
+					_prob1 = _mm256_mul_pd(_prob1, emit_hi);
+					
+					_sum0 = _mm256_add_pd(_sum0, _prob0);
+					_sum1 = _mm256_add_pd(_sum1, _prob1);
+					_mm256_store_pd(&prob[i],   _prob0);
+					_mm256_store_pd(&prob[i+4], _prob1);
+				}
+				
+				_mm256_store_pd(&probSumH[0], _sum0);
+				_mm256_store_pd(&probSumH[4], _sum1);
+				probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+				return;
+			}
+		}
+	}
+	// Biallelic path
+	unsigned char amb_code = G->Ambiguous[curr_abs_ambiguous];
+	for (int h = 0 ; h < HAP_NUMBER ; h ++) {
+		g0[h] = HAP_GET(amb_code,h)?M.ed / M.ee:1.0;
+		g1[h] = HAP_GET(amb_code,h)?1.0:M.ed / M.ee;
+	}
+	__m256d _sum0 = _mm256_set1_pd(0.0f);
+	__m256d _sum1 = _mm256_set1_pd(0.0f);
+	__m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
+	__m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
+	__m256d _nt = _mm256_set1_pd(nt / probSumT);
 	__m256d _emit0[2], _emit1[2];
 	_emit0[0] = _mm256_loadu_pd(&g0[0]);
 	_emit0[1] = _mm256_loadu_pd(&g1[0]);
@@ -776,10 +767,10 @@ void haplotype_segment_double::COLLAPSE_AMB() {
 	_emit1[1] = _mm256_loadu_pd(&g1[4]);
 	for(int k = 0, i = 0 ; k != n_cond_haps ; ++k, i += HAP_NUMBER) {
 		bool ah = Hvar.get(curr_rel_locus+curr_rel_locus_offset, k);
-        __m256d _prob0 = _mm256_set1_pd(probSumK[k]);
-        __m256d _prob1 = _mm256_set1_pd(probSumK[k]);
-        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+		__m256d _prob0 = _mm256_set1_pd(probSumK[k]);
+		__m256d _prob1 = _mm256_set1_pd(probSumK[k]);
+		_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+		_prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
 		_prob0 = _mm256_mul_pd(_prob0, _emit0[ah]);
 		_prob1 = _mm256_mul_pd(_prob1, _emit1[ah]);
 		_sum0 = _mm256_add_pd(_sum0, _prob0);
@@ -804,23 +795,23 @@ void haplotype_segment_double::INIT_MIS() {
 }
 
 inline
-void haplotype_segment_double::handle_sibling_bookkeeping(const SiteView& site_view) {
-	(void)site_view;
+void haplotype_segment_double::handle_sibling_bookkeeping(const LocusView& view) {
+	(void)view;
 }
 
 inline
-void haplotype_segment_double::INIT_SIB(const SiteView& site_view) {
+void haplotype_segment_double::INIT_SIB(const LocusView& view) {
 	INIT_MIS();
 }
 
 inline
-void haplotype_segment_double::RUN_SIB(const SiteView& site_view) {
-	handle_sibling_bookkeeping(site_view);
+void haplotype_segment_double::RUN_SIB(const LocusView& view) {
+	handle_sibling_bookkeeping(view);
 }
 
 inline
-void haplotype_segment_double::COLLAPSE_SIB(const SiteView& site_view) {
-	handle_sibling_bookkeeping(site_view);
+void haplotype_segment_double::COLLAPSE_SIB(const LocusView& view) {
+	handle_sibling_bookkeeping(view);
 }
 
 inline
@@ -850,25 +841,25 @@ void haplotype_segment_double::RUN_MIS() {
 
 inline
 void haplotype_segment_double::COLLAPSE_MIS() {
-    __m256d _sum0 = _mm256_set1_pd(0.0);
-    __m256d _sum1 = _mm256_set1_pd(0.0);
-    __m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
-    __m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
-    __m256d _nt = _mm256_set1_pd(nt / probSumT);
-    for (int k = 0, i = 0; k != n_cond_haps; ++k, i += HAP_NUMBER) {
-        double base = (k < (int)probSumK.size()) ? probSumK[k] : 0.0;
-        __m256d _prob0 = _mm256_set1_pd(base);
-        __m256d _prob1 = _mm256_set1_pd(base);
-        _prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
-        _prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
-        _sum0 = _mm256_add_pd(_sum0, _prob0);
-        _sum1 = _mm256_add_pd(_sum1, _prob1);
-        _mm256_store_pd(&prob[i], _prob0);
-        _mm256_store_pd(&prob[i + 4], _prob1);
-    }
-    _mm256_store_pd(&probSumH[0], _sum0);
-    _mm256_store_pd(&probSumH[4], _sum1);
-    probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
+	__m256d _sum0 = _mm256_set1_pd(0.0);
+	__m256d _sum1 = _mm256_set1_pd(0.0);
+	__m256d _tFreq0 = _mm256_set1_pd(yt / n_cond_haps);
+	__m256d _tFreq1 = _mm256_set1_pd(yt / n_cond_haps);
+	__m256d _nt = _mm256_set1_pd(nt / probSumT);
+	for (int k = 0, i = 0; k != n_cond_haps; ++k, i += HAP_NUMBER) {
+		double base = (k < (int)probSumK.size()) ? probSumK[k] : 0.0;
+		__m256d _prob0 = _mm256_set1_pd(base);
+		__m256d _prob1 = _mm256_set1_pd(base);
+		_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
+		_prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
+		_sum0 = _mm256_add_pd(_sum0, _prob0);
+		_sum1 = _mm256_add_pd(_sum1, _prob1);
+		_mm256_store_pd(&prob[i], _prob0);
+		_mm256_store_pd(&prob[i + 4], _prob1);
+	}
+	_mm256_store_pd(&probSumH[0], _sum0);
+	_mm256_store_pd(&probSumH[4], _sum1);
+	probSumT = probSumH[0] + probSumH[1] + probSumH[2] + probSumH[3] + probSumH[4] + probSumH[5] + probSumH[6] + probSumH[7];
 }
 
 /*******************************************************************************/
@@ -973,209 +964,172 @@ bool haplotype_segment_double::TRANS_DIP_ADD() {
 
 inline
 void haplotype_segment_double::IMPUTE(std::vector<float>& missing_probabilities) {
-    int ss_idx = -1;
-    if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
+	int ss_idx = -1;
+	if (super_sites && locus_to_super_idx) ss_idx = (*locus_to_super_idx)[curr_abs_locus];
 
-    __m256d _alphaSum_lo = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][0]);
-    __m256d _alphaSum_hi = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][4]);
-    __m256d _ones = _mm256_set1_pd(1.0);
-    __m256d _alphaInv_lo = _mm256_div_pd(_ones, _alphaSum_lo);
-    __m256d _alphaInv_hi = _mm256_div_pd(_ones, _alphaSum_hi);
+	__m256d _alphaSum_lo = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][0]);
+	__m256d _alphaSum_hi = _mm256_load_pd(&AlphaSumMissing[curr_rel_missing][4]);
+	__m256d _ones = _mm256_set1_pd(1.0);
+	__m256d _alphaInv_lo = _mm256_div_pd(_ones, _alphaSum_lo);
+	__m256d _alphaInv_hi = _mm256_div_pd(_ones, _alphaSum_hi);
 
-    if (ss_idx >= 0) {
-        const SuperSite& ss = (*super_sites)[ss_idx];
+	const bool use_supersite = (ss_idx >= 0 && super_sites && super_site_var_index);
+	int target_class = 1; // ALT for biallelic
+	int max_class = 1;
+	if (use_supersite) {
+		const SuperSite& ss = (*super_sites)[ss_idx];
+		max_class = static_cast<int>(ss.var_count);
+		target_class = 0;
+		for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
+			if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
+				target_class = static_cast<int>(ai) + 1;
+				break;
+			}
+		}
+		ss_load_cond_codes(ss, ss_idx);
+	}
 
-        int target_class = 0;
-        for (uint8_t ai = 0; ai < ss.var_count; ++ai) {
-            if ((*super_site_var_index)[ss.var_start + ai] == curr_abs_locus) {
-                target_class = static_cast<int>(ai) + 1;
-                break;
-            }
-        }
+	__m256d numer_lo = _mm256_set1_pd(0.0);
+	__m256d numer_hi = _mm256_set1_pd(0.0);
+	__m256d denom_lo = _mm256_set1_pd(0.0);
+	__m256d denom_hi = _mm256_set1_pd(0.0);
 
-        ss_load_cond_codes(ss, ss_idx);
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		int code = 0;
+		if (use_supersite) {
+			code = static_cast<int>(ss_cond_codes[k]);
+			if (code > max_class) code = 0;
+		} else {
+			code = Hvar.get(curr_rel_locus + curr_rel_locus_offset, k) ? 1 : 0;
+		}
 
-        __m256d sum_lo[SUPERSITE_MAX_ALTS + 1];
-        __m256d sum_hi[SUPERSITE_MAX_ALTS + 1];
-        for (int c = 0; c <= (int)ss.var_count; ++c) {
-            sum_lo[c] = _mm256_set1_pd(0.0);
-            sum_hi[c] = _mm256_set1_pd(0.0);
-        }
-        __m256d denom_lo = _mm256_set1_pd(0.0);
-        __m256d denom_hi = _mm256_set1_pd(0.0);
+		__m256d _prob_lo = _mm256_load_pd(&prob[i]);
+		__m256d _prob_hi = _mm256_load_pd(&prob[i + 4]);
+		__m256d _alpha_lo = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i]);
+		__m256d _alpha_hi = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i + 4]);
+		__m256d term_lo = _mm256_mul_pd(_mm256_mul_pd(_alpha_lo, _alphaInv_lo), _prob_lo);
+		__m256d term_hi = _mm256_mul_pd(_mm256_mul_pd(_alpha_hi, _alphaInv_hi), _prob_hi);
 
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            int code = (int)ss_cond_codes[k];
-            if (code > (int)ss.var_count) code = 0;
+		denom_lo = _mm256_add_pd(denom_lo, term_lo);
+		denom_hi = _mm256_add_pd(denom_hi, term_hi);
+		if (code == target_class) {
+			numer_lo = _mm256_add_pd(numer_lo, term_lo);
+			numer_hi = _mm256_add_pd(numer_hi, term_hi);
+		}
+	}
 
-            __m256d _prob_lo = _mm256_load_pd(&prob[i]);
-            __m256d _prob_hi = _mm256_load_pd(&prob[i + 4]);
-            __m256d _alpha_lo = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i]);
-            __m256d _alpha_hi = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i + 4]);
-            __m256d term_lo = _mm256_mul_pd(_mm256_mul_pd(_alpha_lo, _alphaInv_lo), _prob_lo);
-            __m256d term_hi = _mm256_mul_pd(_mm256_mul_pd(_alpha_hi, _alphaInv_hi), _prob_hi);
+	alignas(32) double numer_lo_vals[4];
+	alignas(32) double numer_hi_vals[4];
+	alignas(32) double denom_lo_vals[4];
+	alignas(32) double denom_hi_vals[4];
+	_mm256_store_pd(numer_lo_vals, numer_lo);
+	_mm256_store_pd(numer_hi_vals, numer_hi);
+	_mm256_store_pd(denom_lo_vals, denom_lo);
+	_mm256_store_pd(denom_hi_vals, denom_hi);
 
-            sum_lo[code] = _mm256_add_pd(sum_lo[code], term_lo);
-            sum_hi[code] = _mm256_add_pd(sum_hi[code], term_hi);
-            denom_lo = _mm256_add_pd(denom_lo, term_lo);
-            denom_hi = _mm256_add_pd(denom_hi, term_hi);
-        }
-
-        alignas(32) double sum_lo_vals[SUPERSITE_MAX_ALTS + 1][4];
-        alignas(32) double sum_hi_vals[SUPERSITE_MAX_ALTS + 1][4];
-        alignas(32) double denom_lo_vals[4];
-        alignas(32) double denom_hi_vals[4];
-
-        for (int c = 0; c <= (int)ss.var_count; ++c) {
-            _mm256_store_pd(sum_lo_vals[c], sum_lo[c]);
-            _mm256_store_pd(sum_hi_vals[c], sum_hi[c]);
-        }
-        _mm256_store_pd(denom_lo_vals, denom_lo);
-        _mm256_store_pd(denom_hi_vals, denom_hi);
-
-        for (int lane = 0; lane < 4; ++lane) {
-            double denom = denom_lo_vals[lane];
-            double numer = sum_lo_vals[target_class][lane];
-            missing_probabilities[curr_abs_missing * HAP_NUMBER + lane] = (float)((denom > 0.0) ? (numer / denom) : 0.0);
-        }
-        for (int lane = 0; lane < 4; ++lane) {
-            double denom = denom_hi_vals[lane];
-            double numer = sum_hi_vals[target_class][lane];
-            missing_probabilities[curr_abs_missing * HAP_NUMBER + 4 + lane] = (float)((denom > 0.0) ? (numer / denom) : 0.0);
-        }
-    } else {
-        __m256d sum_lo[2];
-        __m256d sum_hi[2];
-        sum_lo[0] = _mm256_set1_pd(0.0);
-        sum_lo[1] = _mm256_set1_pd(0.0);
-        sum_hi[0] = _mm256_set1_pd(0.0);
-        sum_hi[1] = _mm256_set1_pd(0.0);
-
-        for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-            bool ah = Hvar.get(curr_rel_locus + curr_rel_locus_offset, k);
-
-            __m256d _prob_lo = _mm256_load_pd(&prob[i]);
-            __m256d _prob_hi = _mm256_load_pd(&prob[i + 4]);
-            __m256d _alpha_lo = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i]);
-            __m256d _alpha_hi = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i + 4]);
-            __m256d term_lo = _mm256_mul_pd(_mm256_mul_pd(_alpha_lo, _alphaInv_lo), _prob_lo);
-            __m256d term_hi = _mm256_mul_pd(_mm256_mul_pd(_alpha_hi, _alphaInv_hi), _prob_hi);
-
-            sum_lo[ah] = _mm256_add_pd(sum_lo[ah], term_lo);
-            sum_hi[ah] = _mm256_add_pd(sum_hi[ah], term_hi);
-        }
-
-        alignas(32) double class_lo[2][4];
-        alignas(32) double class_hi[2][4];
-        _mm256_store_pd(class_lo[0], sum_lo[0]);
-        _mm256_store_pd(class_lo[1], sum_lo[1]);
-        _mm256_store_pd(class_hi[0], sum_hi[0]);
-        _mm256_store_pd(class_hi[1], sum_hi[1]);
-
-        for (int lane = 0; lane < 4; ++lane) {
-            double denom = class_lo[0][lane] + class_lo[1][lane];
-            double numer = class_lo[1][lane];
-            missing_probabilities[curr_abs_missing * HAP_NUMBER + lane] = (float)((denom > 0.0) ? (numer / denom) : 0.0);
-        }
-        for (int lane = 0; lane < 4; ++lane) {
-            double denom = class_hi[0][lane] + class_hi[1][lane];
-            double numer = class_hi[1][lane];
-            missing_probabilities[curr_abs_missing * HAP_NUMBER + 4 + lane] = (float)((denom > 0.0) ? (numer / denom) : 0.0);
-        }
-    }
+	for (int lane = 0; lane < 4; ++lane) {
+		double denom = denom_lo_vals[lane];
+		double numer = numer_lo_vals[lane];
+		missing_probabilities[curr_abs_missing * HAP_NUMBER + lane] = (float)((denom > 0.0) ? (numer / denom) : 0.0);
+	}
+	for (int lane = 0; lane < 4; ++lane) {
+		double denom = denom_hi_vals[lane];
+		double numer = numer_hi_vals[lane];
+		missing_probabilities[curr_abs_missing * HAP_NUMBER + 4 + lane] = (float)((denom > 0.0) ? (numer / denom) : 0.0);
+	}
 }
 
-// Phase 3: Multivariant imputation for supersites
+// Multivariant imputation for supersites
 // Computes P(class_c | Alpha, Beta) for each class c in {0=REF, 1=ALT1, ..., n_alts}
 // Writes to SC buffer at ss.class_prob_offset
 inline
 void haplotype_segment_double::IMPUTE_SUPERSITE_MULTIVARIATE(std::vector < float > & SC, const SuperSite& ss, int ss_idx, int rel_missing_index, const std::vector<uint32_t>* supersite_sc_offset) {
-    // Return early if panel codes not available (no supersites built)
-    if (panel_codes == nullptr) {
-        return;
-    }
+	// Return early if panel codes not available (no supersites built)
+	if (panel_codes == nullptr) {
+		return;
+	}
 
-    ss_load_cond_codes(ss, ss_idx);
-    
-    const int C = ss.n_classes;  // 1 + n_alts
-    
-    // Calculate offset - use thread-local offset if available, otherwise fallback to simple calculation
-    uint32_t offset;
-    if (supersite_sc_offset != nullptr) {
-        offset = (*supersite_sc_offset)[ss_idx];  // Use thread-local offset to prevent race conditions
-    } else {
-        // Fallback for tests: assume simple layout with supersite index * (lanes * classes)
-        offset = static_cast<uint32_t>(ss_idx) * HAP_NUMBER * C;
-    }
-    
-    const size_t required = static_cast<size_t>(offset) + static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>(C);
-    assert(required <= SC.size());
-    
-    // Compute 1 / AlphaSum for normalization
-    __m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[rel_missing_index][0]);
-    __m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[rel_missing_index][4]);
-    __m256d _ones = _mm256_set1_pd(1.0);
-    _alphaSum0 = _mm256_div_pd(_ones, _alphaSum0);
-    _alphaSum1 = _mm256_div_pd(_ones, _alphaSum1);
-    
-    // Accumulators: per-class, per-lane (lo=lanes 0-3, hi=lanes 4-7)
-    __m256d sum_lo[SUPERSITE_MAX_ALTS + 1];
-    __m256d sum_hi[SUPERSITE_MAX_ALTS + 1];
-    for (int c = 0; c < C; ++c) {
-        sum_lo[c] = _mm256_set1_pd(0.0);
-        sum_hi[c] = _mm256_set1_pd(0.0);
-    }
-    
-    __m256d denom_lo = _mm256_set1_pd(0.0);
-    __m256d denom_hi = _mm256_set1_pd(0.0);
-    
-    // Accumulate: for each conditioning haplotype k, add its contribution to class bucket
-    for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
-        int code = (int)ss_cond_codes[k];  // 0=REF, 1..n_alts
-        if (code >= C) code = 0;  // Safety: invalid code -> REF
-        
-        // Load Alpha (forward) and Beta (backward prob)
-        __m256d _alpha0 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i]);
-        __m256d _alpha1 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+4]);
-        __m256d _beta0  = _mm256_load_pd(&prob[i]);
-        __m256d _beta1  = _mm256_load_pd(&prob[i+4]);
-        
-        // Posterior contribution: Alpha * Beta / AlphaSum
-        __m256d _term0 = _mm256_mul_pd(_mm256_mul_pd(_alpha0, _alphaSum0), _beta0);
-        __m256d _term1 = _mm256_mul_pd(_mm256_mul_pd(_alpha1, _alphaSum1), _beta1);
-        
-        // Add to class bucket
-        sum_lo[code] = _mm256_add_pd(sum_lo[code], _term0);
-        sum_hi[code] = _mm256_add_pd(sum_hi[code], _term1);
-        
-        // Accumulate denominator (total across all classes)
-        denom_lo = _mm256_add_pd(denom_lo, _term0);
-        denom_hi = _mm256_add_pd(denom_hi, _term1);
-    }
-    
-    // Normalize and write to SC buffer
-    // Layout: SC[offset + h*C + c] = P(class c | lane h)
-    alignas(32) double lo_buf[4], hi_buf[4], dlo[4], dhi[4];
-    _mm256_store_pd(dlo, denom_lo);
-    _mm256_store_pd(dhi, denom_hi);
-    
-    for (int c = 0; c < C; ++c) {
-        _mm256_store_pd(lo_buf, sum_lo[c]);
-        _mm256_store_pd(hi_buf, sum_hi[c]);
-        
-        // Lanes 0-3 (lo)
-        for (int h = 0; h < 4; ++h) {
-            float p = (dlo[h] > 0.0) ? (float)(lo_buf[h] / dlo[h]) : (1.0f / C);  // Fallback to uniform
-            SC[offset + h * C + c] = p;
-        }
-        
-        // Lanes 4-7 (hi)
-        for (int h = 4; h < HAP_NUMBER; ++h) {
-            int hidx = h - 4;
-            float p = (dhi[hidx] > 0.0) ? (float)(hi_buf[hidx] / dhi[hidx]) : (1.0f / C);
-            SC[offset + h * C + c] = p;
-        }
-    }
+	ss_load_cond_codes(ss, ss_idx);
+	
+	const int C = ss.n_classes;  // 1 + n_alts
+	
+	// Calculate offset - use thread-local offset if available, otherwise fallback to simple calculation
+	uint32_t offset;
+	if (supersite_sc_offset != nullptr) {
+		offset = (*supersite_sc_offset)[ss_idx];  // Use thread-local offset to prevent race conditions
+	} else {
+		// Fallback for tests: assume simple layout with supersite index * (lanes * classes)
+		offset = static_cast<uint32_t>(ss_idx) * HAP_NUMBER * C;
+	}
+	
+	const size_t required = static_cast<size_t>(offset) + static_cast<size_t>(HAP_NUMBER) * static_cast<size_t>(C);
+	assert(required <= SC.size());
+	
+	// Compute 1 / AlphaSum for normalization
+	__m256d _alphaSum0 = _mm256_load_pd(&AlphaSumMissing[rel_missing_index][0]);
+	__m256d _alphaSum1 = _mm256_load_pd(&AlphaSumMissing[rel_missing_index][4]);
+	__m256d _ones = _mm256_set1_pd(1.0);
+	_alphaSum0 = _mm256_div_pd(_ones, _alphaSum0);
+	_alphaSum1 = _mm256_div_pd(_ones, _alphaSum1);
+	
+	// Accumulators: per-class, per-lane (lo=lanes 0-3, hi=lanes 4-7)
+	__m256d sum_lo[SUPERSITE_MAX_ALTS + 1];
+	__m256d sum_hi[SUPERSITE_MAX_ALTS + 1];
+	for (int c = 0; c < C; ++c) {
+		sum_lo[c] = _mm256_set1_pd(0.0);
+		sum_hi[c] = _mm256_set1_pd(0.0);
+	}
+	
+	__m256d denom_lo = _mm256_set1_pd(0.0);
+	__m256d denom_hi = _mm256_set1_pd(0.0);
+	
+	// Accumulate: for each conditioning haplotype k, add its contribution to class bucket
+	for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
+		int code = (int)ss_cond_codes[k];  // 0=REF, 1..n_alts
+		if (code >= C) code = 0;  // Safety: invalid code -> REF
+		
+		// Load Alpha (forward) and Beta (backward prob)
+		__m256d _alpha0 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i]);
+		__m256d _alpha1 = _mm256_load_pd(&AlphaMissing[curr_rel_missing][i+4]);
+		__m256d _beta0  = _mm256_load_pd(&prob[i]);
+		__m256d _beta1  = _mm256_load_pd(&prob[i+4]);
+		
+		// Posterior contribution: Alpha * Beta / AlphaSum
+		__m256d _term0 = _mm256_mul_pd(_mm256_mul_pd(_alpha0, _alphaSum0), _beta0);
+		__m256d _term1 = _mm256_mul_pd(_mm256_mul_pd(_alpha1, _alphaSum1), _beta1);
+		
+		// Add to class bucket
+		sum_lo[code] = _mm256_add_pd(sum_lo[code], _term0);
+		sum_hi[code] = _mm256_add_pd(sum_hi[code], _term1);
+		
+		// Accumulate denominator (total across all classes)
+		denom_lo = _mm256_add_pd(denom_lo, _term0);
+		denom_hi = _mm256_add_pd(denom_hi, _term1);
+	}
+	
+	// Normalize and write to SC buffer
+	// Layout: SC[offset + h*C + c] = P(class c | lane h)
+	alignas(32) double lo_buf[4], hi_buf[4], dlo[4], dhi[4];
+	_mm256_store_pd(dlo, denom_lo);
+	_mm256_store_pd(dhi, denom_hi);
+	
+	for (int c = 0; c < C; ++c) {
+		_mm256_store_pd(lo_buf, sum_lo[c]);
+		_mm256_store_pd(hi_buf, sum_hi[c]);
+		
+		// Lanes 0-3 (lo)
+		for (int h = 0; h < 4; ++h) {
+			float p = (dlo[h] > 0.0) ? (float)(lo_buf[h] / dlo[h]) : (1.0f / C);  // Fallback to uniform
+			SC[offset + h * C + c] = p;
+		}
+		
+		// Lanes 4-7 (hi)
+		for (int h = 4; h < HAP_NUMBER; ++h) {
+			int hidx = h - 4;
+			float p = (dhi[hidx] > 0.0) ? (float)(hi_buf[hidx] / dhi[hidx]) : (1.0f / C);
+			SC[offset + h * C + c] = p;
+		}
+	}
 
 }
 
