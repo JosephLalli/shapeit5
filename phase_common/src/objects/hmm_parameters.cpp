@@ -103,6 +103,14 @@ float hmm_parameters::getBackwardTransProb(int prev_idx, int curr_idx) {
 void hmm_parameters::markSuperSiteSiblings(const std::vector<class SuperSite>& super_sites, const std::vector<int>& locus_to_super_idx) {
 	// Mark all sibling loci (non-anchor members of supersites) to be skipped during HMM
 	// Siblings are treated like rare variants - they don't run DP, only the anchor does
+	bool has_siblings = false;
+	for (const auto& ss : super_sites) {
+		if (ss.var_count > 1) {
+			has_siblings = true;
+			break;
+		}
+	}
+	if (!has_siblings) return;
 	for (size_t ss_idx = 0; ss_idx < super_sites.size(); ++ss_idx) {
 		const SuperSite& ss = super_sites[ss_idx];
 		for (size_t v = 0; v < rare_allele.size(); ++v) {

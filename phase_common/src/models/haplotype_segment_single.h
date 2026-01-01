@@ -231,7 +231,7 @@ void haplotype_segment_single::INIT_HOM() {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: INIT_MIS(); return;
 			case SSClass::AMB: INIT_AMB(); return;
@@ -282,15 +282,13 @@ bool haplotype_segment_single::RUN_HOM(char rare_allele) {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: RUN_MIS(); return true;
 			case SSClass::AMB: RUN_AMB(); return true;
 			case SSClass::HOM: {
 				const uint8_t sample_code = c0;
-				if (ss.rare_code_mask != 0 && sample_code <= ss.n_alts) {
-					if ((ss.rare_code_mask & static_cast<uint16_t>(1u << sample_code)) == 0) return false;
-				}
+				if (supersite_has_rare_mask(ss) && !supersite_code_is_rare(ss, sample_code)) return false;
 
 				ss_load_cond_codes(ss, ss_idx);
 
@@ -362,7 +360,7 @@ void haplotype_segment_single::COLLAPSE_HOM() {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: COLLAPSE_MIS(); return;
 			case SSClass::AMB: COLLAPSE_AMB(); return;
@@ -433,7 +431,7 @@ void haplotype_segment_single::INIT_AMB() {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: INIT_MIS(); return;  // BUG FIX #1: Use biallelic MIS
 			case SSClass::HOM: INIT_HOM(); return;
@@ -516,7 +514,7 @@ void haplotype_segment_single::RUN_AMB() {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: RUN_MIS(); return;  // BUG FIX #1: Use biallelic MIS
 			case SSClass::HOM: RUN_HOM(rare_allele); return;
@@ -653,7 +651,7 @@ void haplotype_segment_single::COLLAPSE_AMB() {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
 			case SSClass::HOM: COLLAPSE_HOM(); return;
@@ -678,7 +676,7 @@ void haplotype_segment_single::COLLAPSE_AMB() {
 				__m256 mis_f   = _mm256_set1_ps(M.ed / M.ee);
 				__m256i exp_vec;
 				
-				// Strict 4-bit class equality semantics
+				// Strict class equality semantics
 				alignas(32) int expv[HAP_NUMBER];
 				for (int h = 0; h < HAP_NUMBER; ++h)
 					expv[h] = (int)expected_class[h];

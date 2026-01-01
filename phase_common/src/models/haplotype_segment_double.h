@@ -225,7 +225,7 @@ void haplotype_segment_double::INIT_HOM() {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: INIT_MIS(); return;  // BUG FIX #1: Use biallelic MIS
 			case SSClass::AMB: INIT_AMB(); return;
@@ -295,15 +295,13 @@ bool haplotype_segment_double::RUN_HOM(char rare_allele) {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: RUN_MIS(); return true;  // BUG FIX #1: Use biallelic MIS
 			case SSClass::AMB: RUN_AMB(); return true;
 			case SSClass::HOM: {
 				const uint8_t sample_code = c0;
-				if (ss.rare_code_mask != 0 && sample_code <= ss.n_alts) {
-					if ((ss.rare_code_mask & static_cast<uint16_t>(1u << sample_code)) == 0) return false;
-				}
+				if (supersite_has_rare_mask(ss) && !supersite_code_is_rare(ss, sample_code)) return false;
 
 				// Load conditioning haplotype codes (cached after first call)
 				ss_load_cond_codes(ss, ss_idx);
@@ -391,7 +389,7 @@ void haplotype_segment_double::COLLAPSE_HOM() {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
 			case SSClass::AMB: COLLAPSE_AMB(); return;
@@ -478,7 +476,7 @@ void haplotype_segment_double::INIT_AMB() {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: INIT_MIS(); return;  // BUG FIX #1: Use biallelic MIS
 			case SSClass::HOM: INIT_HOM(); return;
@@ -501,7 +499,7 @@ void haplotype_segment_double::INIT_AMB() {
 				__m256d _sum0 = _mm256_set1_pd(0.0);
 				__m256d _sum1 = _mm256_set1_pd(0.0);
 
-				// Strict 4-bit class equality semantics
+				// Strict class equality semantics
 				for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
 					alignas(32) double E8[HAP_NUMBER];
 					for (int h = 0; h < HAP_NUMBER; ++h) {
@@ -570,7 +568,7 @@ void haplotype_segment_double::RUN_AMB() {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: RUN_MIS(); return;  // BUG FIX #1: Use biallelic MIS
 			case SSClass::HOM: RUN_HOM(rare_allele); return;
@@ -600,7 +598,7 @@ void haplotype_segment_double::RUN_AMB() {
 				_tFreq1 = _mm256_mul_pd(_tFreq1, _factor);
 				__m256d _nt = _mm256_set1_pd(nt / probSumT);
 
-				// Strict 4-bit class equality semantics
+				// Strict class equality semantics
 				for (int k = 0, i = 0; k != (int)n_cond_haps; ++k, i += HAP_NUMBER) {
 					__m256d _prob0 = _mm256_load_pd(&prob[i]);
 					__m256d _prob1 = _mm256_load_pd(&prob[i+4]);
@@ -685,7 +683,7 @@ void haplotype_segment_double::COLLAPSE_AMB() {
 		// Classify using IMMUTABLE observed genotype (c0, c1)
 		uint8_t c0, c1;
 		G->getSupersiteObservedGt(ss_idx, c0, c1);
-		SSClass cls = classifyObservedGt(c0, c1);
+		SSClass cls = classifyObservedGt(c0, c1, G->supersiteIsMissing(ss_idx));
 		switch (cls) {
 			case SSClass::MIS: COLLAPSE_MIS(); return;  // BUG FIX #1: Use biallelic MIS
 			case SSClass::HOM: COLLAPSE_HOM(); return;
@@ -722,7 +720,7 @@ void haplotype_segment_double::COLLAPSE_AMB() {
 					_prob0 = _mm256_fmadd_pd(_prob0, _nt, _tFreq0);
 					_prob1 = _mm256_fmadd_pd(_prob1, _nt, _tFreq1);
 
-					// Strict 4-bit class equality semantics
+					// Strict class equality semantics
 					alignas(32) double E8[HAP_NUMBER];
 					for (int h = 0; h < HAP_NUMBER; ++h) {
 						bool match = (expected_class[h] == ss_cond_codes[k]);

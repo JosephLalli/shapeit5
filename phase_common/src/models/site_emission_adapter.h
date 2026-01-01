@@ -67,8 +67,8 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
     if (!G_) {
         view.emit_kind = EmitKind::Mis;
         std::fill(std::begin(view.lane_class), std::end(view.lane_class), 0);
-        view.sample_class0 = SUPERSITE_CODE_MISSING;
-        view.sample_class1 = SUPERSITE_CODE_MISSING;
+        view.sample_class0 = 0u;
+        view.sample_class1 = 0u;
         view.amb_mask = 0u;
         return;
     }
@@ -80,8 +80,8 @@ inline void BiallelicEmissionAdapter::build_view(int abs_locus,
     if (is_missing) {
         view.emit_kind = EmitKind::Mis;
         std::fill(std::begin(view.lane_class), std::end(view.lane_class), 0);
-        view.sample_class0 = SUPERSITE_CODE_MISSING;
-        view.sample_class1 = SUPERSITE_CODE_MISSING;
+        view.sample_class0 = 0u;
+        view.sample_class1 = 0u;
         view.amb_mask = 0u;
         return;
     }
@@ -139,28 +139,27 @@ inline bool SupersiteEmissionAdapter::build_view(int abs_locus,
 
     if (!is_anchor) {
         view.emit_kind = EmitKind::Mis;
-        view.sample_class0 = SUPERSITE_CODE_MISSING;
-        view.sample_class1 = SUPERSITE_CODE_MISSING;
+        view.sample_class0 = 0u;
+        view.sample_class1 = 0u;
         view.amb_mask = 0u;
         return true;
     }
 
-    uint8_t c0 = SUPERSITE_CODE_MISSING;
-    uint8_t c1 = SUPERSITE_CODE_MISSING;
+    uint8_t c0 = 0u;
+    uint8_t c1 = 0u;
     if (G_) {
         // Use immutable observed genotype (c0,c1) for emissions
         G_->getSupersiteObservedGt(ss_idx, c0, c1);
     }
 
-    const unsigned char anchor_byte = G_ ? G_->Variants[DIV2(ss.global_site_id)] : 0;
-    const bool anchor_missing = G_ ? VAR_GET_MIS(MOD2(ss.global_site_id), anchor_byte) : true;
-    const bool anchor_amb = G_ ? VAR_GET_HET(MOD2(ss.global_site_id), anchor_byte) : false;
+    const bool anchor_missing = G_ ? G_->supersiteIsMissing(ss_idx) : true;
+    const bool anchor_amb = (!anchor_missing && (c0 != c1));
 
     if (anchor_missing) {
         // Missing anchor: emissions uninformative, lanes uniform (mirror bial MIS)
         view.emit_kind = EmitKind::Mis;
-        view.sample_class0 = SUPERSITE_CODE_MISSING;
-        view.sample_class1 = SUPERSITE_CODE_MISSING;
+        view.sample_class0 = 0u;
+        view.sample_class1 = 0u;
         view.amb_mask = 0u;
         std::fill(std::begin(view.lane_class), std::end(view.lane_class), 0u);
         return true;

@@ -113,9 +113,8 @@ void phaser::read_files_and_initialise() {
 
 	if (!options.count("pbwt-disable-init")) H.solve(&G);
 
-	//step8: Build super-sites for multiallelic positions (one-time, before genotype building)
-	// This collapses split biallelic records at identical (chr,bp) positions into
-	// super-sites and packs per-haplotype codes (2 codes per byte).
+	//step8: Build supersites for multiallelic positions (one-time, before genotype building)
+	// One supersite per multiallelic record; per-haplotype codes are stored as 1 byte each.
 	// Uses global panel order (H.n_hap), independent of per-window conditioning sets.
 	// MUST be done before genotype_builder so build() can use locus_to_super_idx for segment boundaries.
 		if (enable_supersites) {

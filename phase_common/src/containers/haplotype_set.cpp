@@ -64,7 +64,18 @@ void haplotype_set::updateHaplotypes(genotype_set & G, bool first_time) {
 				H_opt_hap.set(2*i+1, v, a1);
 			}
 		}
-
+		if (!H_supersite_codes.empty() && n_supersites > 0) {
+			const size_t required_pairs = static_cast<size_t>(n_supersites) * 2u;
+			if (G.vecG[i]->ss_phased_gts.size() >= required_pairs) {
+				const size_t hap_base = static_cast<size_t>(2u) * i;
+				for (size_t ss_idx = 0; ss_idx < n_supersites; ++ss_idx) {
+					const size_t g_off = ss_idx * 2u;
+					const size_t h_off = ss_idx * n_hap + hap_base;
+					H_supersite_codes[h_off] = G.vecG[i]->ss_phased_gts[g_off];
+					H_supersite_codes[h_off + 1] = G.vecG[i]->ss_phased_gts[g_off + 1];
+				}
+			}
+		}
 	}
 	vrb.bullet("HAP update (" + stb.str(tac.rel_time()*1.0/1000, 2) + "s)");
 }

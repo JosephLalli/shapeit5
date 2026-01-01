@@ -30,7 +30,7 @@
 
 // Supersite constants (fallback if super_site_accessor.h not included yet)
 #ifndef SUPERSITE_MAX_ALTS
-#define SUPERSITE_MAX_ALTS 15
+#define SUPERSITE_MAX_ALTS 255
 #endif
 
 // Forward declaration to avoid circular dependency

@@ -81,7 +81,7 @@ void phaser::declare_options() {
 
 	bpo::options_description opt_supersites ("Super-site support (experimental)");
 	opt_supersites.add_options()
-		("enable-supersites", "Enable super-site support for multiallelic positions (STRs) with 4-bit encoding")
+		("enable-supersites", "Enable supersite support for multiallelic positions (one record per locus, 8-bit allele codes)")
 		("no-supersite-pbwt", "Disable supersite-aware PBWT algorithm (use standard biallelic PBWT even when supersites enabled)");
 
 	descriptions.add(opt_base)
