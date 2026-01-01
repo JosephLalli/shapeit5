@@ -75,8 +75,8 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	panel_codes(_G ? _G->supersite_panel_codes : nullptr),
 	super_site_var_index(_G ? _G->super_site_var_index : nullptr),
 	cond_idx(&idxH),
-    supersite_sc_offset(nullptr),
-    supersites_enabled_flag(_G && _G->super_sites && _G->locus_to_super_idx && _G->super_site_var_index && _G->supersite_panel_codes) {
+	supersite_sc_offset(nullptr),
+	supersites_enabled_flag(_G && _G->super_sites && _G->locus_to_super_idx && _G->super_site_var_index && _G->supersite_panel_codes) {
 	if (!supersites_enabled_flag) {
 		super_sites = nullptr;
 		locus_to_super_idx = nullptr;
@@ -100,7 +100,7 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	probSumT = 0.0f;
 	prob = aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f);
 	probSumH = aligned_vector32 < float > (HAP_NUMBER, 0.0f);
-    probSumK = aligned_vector32 < float > (n_cond_haps, 0.0f);
+	probSumK = aligned_vector32 < float > (n_cond_haps, 0.0f);
 	Alpha = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER * n_cond_haps, 0.0f));
 	AlphaLocus = vector < int > (segment_last - segment_first + 1, 0);
 	AlphaSum = vector < aligned_vector32 < float > > (segment_last - segment_first + 1, aligned_vector32 < float > (HAP_NUMBER, 0.0f));
@@ -114,7 +114,7 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	//Cache efficient data transfer for conditioning haplotypes
 	curr_rel_locus_offset = Hhap.subset(H, idxH, locus_first, locus_last);
 	Hvar.allocateFast(Hhap.n_cols, Hhap.n_rows);
-    Hhap.transpose(Hvar);
+	Hhap.transpose(Hvar);
 
 	curr_segment_index = segment_first;
 	curr_segment_locus = 0;
@@ -123,28 +123,28 @@ haplotype_segment_single::haplotype_segment_single(genotype * _G, bitmatrix & H,
 	curr_abs_ambiguous = ambiguous_first;
 	curr_abs_missing = missing_first;
 
-    if (super_sites && locus_to_super_idx && panel_codes && super_site_var_index) {
-        ss_cond_codes = aligned_vector32<uint8_t>(n_cond_haps, 0);
-        ss_emissions = aligned_vector32<float>(n_cond_haps, 1.0f);
-        ss_emissions_h1 = aligned_vector32<float>(n_cond_haps, 1.0f);
+	if (super_sites && locus_to_super_idx && panel_codes && super_site_var_index) {
+		ss_cond_codes = aligned_vector32<uint8_t>(n_cond_haps, 0);
+		ss_emissions = aligned_vector32<float>(n_cond_haps, 1.0f);
+		ss_emissions_h1 = aligned_vector32<float>(n_cond_haps, 1.0f);
 
-        // Populate static panel code matrix (like Hvar for biallelic)
-        // Take a snapshot of current cond_idx to avoid dynamic dependency
-        if (cond_idx) {
-            ss_panel_matrix.resize(super_sites->size());
+		// Populate static panel code matrix (like Hvar for biallelic)
+		// Take a snapshot of current cond_idx to avoid dynamic dependency
+		if (cond_idx) {
+			ss_panel_matrix.resize(super_sites->size());
 
-            for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
-                const SuperSite& ss = (*super_sites)[ss_idx];
-                ss_panel_matrix[ss_idx].resize(n_cond_haps);
+			for (size_t ss_idx = 0; ss_idx < super_sites->size(); ++ss_idx) {
+				const SuperSite& ss = (*super_sites)[ss_idx];
+				ss_panel_matrix[ss_idx].resize(n_cond_haps);
 
-                // Unpack panel codes for all conditioning haplotypes at this supersite
-                for (unsigned int k = 0; k < n_cond_haps; ++k) {
-                    unsigned int gh = (*cond_idx)[k];  // Snapshot: read cond_idx ONCE here
-                    ss_panel_matrix[ss_idx][k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
-                }
-            }
-        }
-    }
+				// Unpack panel codes for all conditioning haplotypes at this supersite
+				for (unsigned int k = 0; k < n_cond_haps; ++k) {
+					unsigned int gh = (*cond_idx)[k];  // Snapshot: read cond_idx ONCE here
+					ss_panel_matrix[ss_idx][k] = unpackSuperSiteCode(panel_codes, ss.panel_offset, gh);
+				}
+			}
+		}
+	}
 
 }
 
@@ -187,10 +187,10 @@ void haplotype_segment_single::forward() {
 	BiallelicEmissionAdapter bial_adapter(G, &Hvar);
 	SupersiteEmissionAdapter supersite_adapter(G, super_sites, locus_to_super_idx, super_site_var_index);
 
-    for (curr_abs_locus = locus_first ; curr_abs_locus <= locus_last ; curr_abs_locus++) {
-        // Keep segment cursor in range before any Lengths_bio access (protects trailing siblings)
-        if (curr_segment_index < segment_first) curr_segment_index = segment_first;
-        if (curr_segment_index > segment_last) curr_segment_index = segment_last;
+	for (curr_abs_locus = locus_first ; curr_abs_locus <= locus_last ; curr_abs_locus++) {
+		// Keep segment cursor in range before any Lengths_bio access (protects trailing siblings)
+		if (curr_segment_index < segment_first) curr_segment_index = segment_first;
+		if (curr_segment_index > segment_last) curr_segment_index = segment_last;
 		curr_rel_locus = curr_abs_locus - locus_first;
 		curr_rel_missing = curr_abs_missing - missing_first;
 		bool update_prev_locus = true;
@@ -214,41 +214,41 @@ void haplotype_segment_single::forward() {
 	const bool data_amb = hmm_amb && !is_sibling;
 		yt = (curr_abs_locus == locus_first)?0.0:M.getForwardTransProb(prev_abs_locus, curr_abs_locus);
 		nt = 1.0f - yt;
-        if (curr_rel_locus == 0) {
-            if (is_anchor) {
-                switch (emit) {
-                    case EmitKind::Hom:
-                        INIT_HOM();
-                        break;
-                    case EmitKind::Amb:
-                        INIT_AMB();
-                        break;
-                    case EmitKind::Mis:
-                        INIT_MIS();
-                        break;
-                }
-            } else if (is_sibling) {
-                // Sibling at window start: neutral init but no prev_locus advance
-                INIT_MIS();
-                update_prev_locus = false;
-            } else {
+		if (curr_rel_locus == 0) {
+			if (is_anchor) {
+				switch (emit) {
+					case EmitKind::Hom:
+						INIT_HOM();
+						break;
+					case EmitKind::Amb:
+						INIT_AMB();
+						break;
+					case EmitKind::Mis:
+						INIT_MIS();
+						break;
+				}
+			} else if (is_sibling) {
+				// Sibling at window start: neutral init but no prev_locus advance
+				INIT_MIS();
+				update_prev_locus = false;
+			} else {
 				if (hmm_hom) INIT_HOM();
 				else if (hmm_amb) INIT_AMB();
 				else INIT_MIS();
 			}
-        } else if (curr_segment_locus != 0) {
-            if (is_anchor) {
-                switch (emit) {
-                    case EmitKind::Hom:
-                        update_prev_locus = RUN_HOM(rare_allele);
-                        break;
-                    case EmitKind::Amb:
-                        RUN_AMB();
-                        break;
-                    case EmitKind::Mis:
-                        RUN_MIS();
-                        break;
-                }
+		} else if (curr_segment_locus != 0) {
+			if (is_anchor) {
+				switch (emit) {
+					case EmitKind::Hom:
+						update_prev_locus = RUN_HOM(rare_allele);
+						break;
+					case EmitKind::Amb:
+						RUN_AMB();
+						break;
+					case EmitKind::Mis:
+						RUN_MIS();
+						break;
+				}
 			} else if (is_sibling) {
 				// Sibling within window: no-op DP but perform bookkeeping
 				RUN_SIB(site_view);
@@ -258,19 +258,19 @@ void haplotype_segment_single::forward() {
 				else if (hmm_amb) RUN_AMB();
 				else RUN_MIS();
 			}
-        } else {
-            if (is_anchor) {
-                switch (emit) {
-                    case EmitKind::Hom:
-                        COLLAPSE_HOM();
-                        break;
-                    case EmitKind::Amb:
-                        COLLAPSE_AMB();
-                        break;
-                    case EmitKind::Mis:
-                        COLLAPSE_MIS();
-                        break;
-                }
+		} else {
+			if (is_anchor) {
+				switch (emit) {
+					case EmitKind::Hom:
+						COLLAPSE_HOM();
+						break;
+					case EmitKind::Amb:
+						COLLAPSE_AMB();
+						break;
+					case EmitKind::Mis:
+						COLLAPSE_MIS();
+						break;
+				}
 			} else if (is_sibling) {
 				// Sibling at segment boundary: no-op DP with bookkeeping
 				COLLAPSE_SIB(site_view);
@@ -280,7 +280,7 @@ void haplotype_segment_single::forward() {
 				else if (hmm_amb) COLLAPSE_AMB();
 				else  COLLAPSE_MIS();
 			}
-        }
+		}
 		prev_abs_locus=update_prev_locus?curr_abs_locus:prev_abs_locus;
 		const int prev_after = prev_abs_locus;
 		if (curr_segment_locus == (G->Lengths_bio[curr_segment_index] - 1)) SUMK();
@@ -341,7 +341,7 @@ void haplotype_segment_single::forward() {
 }
 
 int haplotype_segment_single::backward(vector < double > & transition_probabilities, vector < float > & missing_probabilities, 
-                                       vector<float>* SC, const vector<bool>* anchor_has_missing, const vector<uint32_t>* supersite_sc_offset) {
+									   vector<float>* SC, const vector<bool>* anchor_has_missing, const vector<uint32_t>* supersite_sc_offset) {
 	int n_underflow_recovered = 0;
 	// Set thread-local offset storage for IMPUTE_SUPERSITE_MULTIVARIATE calls
 	this->supersite_sc_offset = supersite_sc_offset;
@@ -641,15 +641,15 @@ void haplotype_segment_single::SET_FIRST_TRANS(vector < double > & transition_pr
 }
 
 int haplotype_segment_single::SET_OTHER_TRANS(vector < double > & transition_probabilities) {
-    int underflow_recovered = 0;
-    if (TRANS_HAP()) {
-        return -1;
-    }
+	int underflow_recovered = 0;
+	if (TRANS_HAP()) {
+		return -1;
+	}
 
-    if (TRANS_DIP_MULT()) {
-        if (TRANS_DIP_ADD()) return -2;
-        else underflow_recovered = 1;
-    }
+	if (TRANS_DIP_MULT()) {
+		if (TRANS_DIP_ADD()) return -2;
+		else underflow_recovered = 1;
+	}
 
 	unsigned int curr_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index]);
 	unsigned int prev_dipcount = G->countDiplotypes(G->Diplotypes[curr_segment_index-1]);
