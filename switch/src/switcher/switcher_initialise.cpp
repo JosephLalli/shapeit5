@@ -28,11 +28,12 @@ using std::string;
 
 void switcher::read_files_and_initialise() {
 	//step1: Read input files
+	const std::string site_log_path = options.count("site-log") ? options["site-log"].as < std::string > () : "";
 
 	if (options.count("frequency"))
-		haplotype_reader(H, options["region"].as < string > (), options["min-pp"].as < double > (), options["thread"].as < int > ()).readHaplotypes(options["validation"].as < string > (), options["estimation"].as < string > (), options["frequency"].as < string > (), options.count("dupid"));
+		haplotype_reader(H, options["region"].as < string > (), options["min-pp"].as < double > (), options["thread"].as < int > (), site_log_path).readHaplotypes(options["validation"].as < string > (), options["estimation"].as < string > (), options["frequency"].as < string > (), options.count("dupid"));
 	else
-		haplotype_reader(H, options["region"].as < string > (), options["min-pp"].as < double > (), options["thread"].as < int > ()).readHaplotypes(options["validation"].as < string > (), options["estimation"].as < string > (), options.count("dupid"));
+		haplotype_reader(H, options["region"].as < string > (), options["min-pp"].as < double > (), options["thread"].as < int > (), site_log_path).readHaplotypes(options["validation"].as < string > (), options["estimation"].as < string > (), options.count("dupid"));
 
 	//step2: read pedigrees if necessary
 	if (options.count("pedigree")) H.readPedigrees(options["pedigree"].as < std::string > (), options.count("dupid"));

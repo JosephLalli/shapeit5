@@ -39,44 +39,46 @@ void haplotype_checker::check() {
 	vrb.title("Check phasing discordances"); tac.clock();
 	unsigned long int n_missed = 0, n_incorrect = 0 ;
 	for (int i = 0 ; i < H.IDXesti.size() ; i++) {
-		for (int l_curr = 0, l_prev = -1 ; l_curr < H.n_variants ; l_curr ++) {
-			bool curr_t0 = H.Htrue[2*H.IDXesti[i]+0][l_curr];
-			bool curr_t1 = H.Htrue[2*H.IDXesti[i]+1][l_curr];
-			bool curr_e0 = H.Hesti[2*H.IDXesti[i]+0][l_curr];
-			bool curr_e1 = H.Hesti[2*H.IDXesti[i]+1][l_curr];
-			bool prev_t0, prev_t1, prev_e0, prev_e1;
-			bool het_check1 = (curr_e0 != curr_e1);								//Phased haplotypes are hets
-			bool het_check2 = het_check1 && (curr_t0 != curr_t1);				//Validation haplotypes are hets
-			bool het_check3 = het_check2 && !(H.Missing[H.IDXesti[i]][l_curr]); //Validation haplotypes are non-missing
-			bool het_check4 = het_check3 && H.Phased[H.IDXesti[i]][l_curr];		//Validation haplotypes are phased
-			bool het_check5 = het_check4 && H.Estimated[H.IDXesti[i]][l_curr];	//Haplotypes have been estimated there
-			if (het_check5) {
-				if (l_prev >= 0) {
-					prev_t0 = H.Htrue[2*H.IDXesti[i]+0][l_prev];
-					prev_t1 = H.Htrue[2*H.IDXesti[i]+1][l_prev];
-					prev_e0 = H.Hesti[2*H.IDXesti[i]+0][l_prev];
-					prev_e1 = H.Hesti[2*H.IDXesti[i]+1][l_prev];
-					Errors[i][l_curr] = ((curr_t0==prev_t0) != (curr_e0==prev_e0));
-					Checked[i][l_curr] = true;
+		int prev_phase = -1;
+		for (int l_curr = 0 ; l_curr < H.n_variants ; l_curr ++) {
+			const uint16_t curr_t0 = H.Htrue[2*H.IDXesti[i]+0][l_curr];
+			const uint16_t curr_t1 = H.Htrue[2*H.IDXesti[i]+1][l_curr];
+			const uint16_t curr_e0 = H.Hesti[2*H.IDXesti[i]+0][l_curr];
+			const uint16_t curr_e1 = H.Hesti[2*H.IDXesti[i]+1][l_curr];
+			const bool het_check1 = (curr_e0 != curr_e1);								 // Phased haplotypes are hets
+			const bool het_check2 = het_check1 && (curr_t0 != curr_t1);				 // Validation haplotypes are hets
+			const bool het_check3 = het_check2 && !(H.Missing[H.IDXesti[i]][l_curr]);  // Validation haplotypes are non-missing
+			const bool het_check4 = het_check3 && H.Phased[H.IDXesti[i]][l_curr];		 // Validation haplotypes are phased
+			const bool het_check5 = het_check4 &&
+			                        H.Estimated[H.IDXesti[i]][l_curr] &&
+			                        !H.MissingEst[H.IDXesti[i]][l_curr];              // Haplotypes have been estimated there
+			if (!het_check5) continue;
 
-					//Calibration
-					if (H.Hprob[H.IDXesti[i]][l_curr]) {
-						string key = stb.str(l_curr) + "_" + stb.str(H.IDXesti[i]);
-						map < string, float > :: iterator itM = H.Vprob.find(key);
-						if (itM != H.Vprob.end()) {
-							//cout << "Found [" << key << "]" << endl;
-							if (itM->second >= 0.0f && itM->second <= 1.0f) {
-								int bin = itM->second * (Calib.size()-1);
-								Calib[bin][0] += itM->second;
-								Calib[bin][1] += Errors[i][l_curr];
-								Calib[bin][2] += Checked[i][l_curr];
-							} else n_incorrect ++;
-						} else n_missed ++;
-					}
+			int orientation = -1;
+			if (curr_e0 == curr_t0 && curr_e1 == curr_t1) orientation = 0;
+			else if (curr_e0 == curr_t1 && curr_e1 == curr_t0) orientation = 1;
+
+			if (orientation < 0) continue;
+
+			if (prev_phase >= 0) {
+				Errors[i][l_curr] = (orientation != prev_phase);
+				Checked[i][l_curr] = true;
+
+				//Calibration
+				if (H.Hprob[H.IDXesti[i]][l_curr]) {
+					string key = stb.str(l_curr) + "_" + stb.str(H.IDXesti[i]);
+					map < string, float > :: iterator itM = H.Vprob.find(key);
+					if (itM != H.Vprob.end()) {
+						if (itM->second >= 0.0f && itM->second <= 1.0f) {
+							int bin = itM->second * (Calib.size()-1);
+							Calib[bin][0] += itM->second;
+							Calib[bin][1] += Errors[i][l_curr];
+							Calib[bin][2] += Checked[i][l_curr];
+						} else n_incorrect ++;
+					} else n_missed ++;
 				}
-				l_prev = l_curr;
-
 			}
+			prev_phase = orientation;
 		}
 	}
 	unsigned int n_phasing_errors = 0, n_phased_hets = 0;

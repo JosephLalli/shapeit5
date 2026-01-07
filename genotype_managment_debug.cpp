@@ -24,7 +24,6 @@
 #include <models/super_site_accessor.h>
 #include <objects/super_site_builder.h>
 #include <string>
-#include <algorithm>
 #include <iostream>
 #include <cstdlib>
 #include <cstdio>
@@ -40,7 +39,6 @@ genotype::genotype(unsigned int _index) {
 	n_stored_transitionProbs = 0;
 	n_storage_events = 0;
 	sc_storage_events = 0;
-	supersite_prob_layout_ready = false;
 	std::fill(curr_dipcodes, curr_dipcodes + 64, 0);
 	this->name = "";
 	double_precision = false;
@@ -74,10 +72,7 @@ void genotype::free() {
 	vector < uint8_t > ().swap(ss_observed_gts);
 	vector < uint8_t > ().swap(ss_missing_mask);
 	vector < float > ().swap(ProbSuperClass);
-	vector < uint32_t > ().swap(supersite_prob_ids);
-	vector < uint32_t > ().swap(supersite_prob_offsets);
 	sc_storage_events = 0;
-	supersite_prob_layout_ready = false;
 	supersite_panel_codes = nullptr;
 	supersite_panel_codes_size = 0;
 }
@@ -95,18 +90,6 @@ bool genotype::supersiteHasFlag(int ss_idx, uint8_t flag) const {
 	return ss_idx >= 0 &&
 	       ss_idx < static_cast<int>(supersite_flags.size()) &&
 	       (supersite_flags[ss_idx] & flag);
-}
-
-bool genotype::getSupersiteProbOffset(int ss_idx, uint32_t& offset) const {
-	offset = 0u;
-	if (!supersite_prob_layout_ready || supersite_prob_ids.empty()) return false;
-	auto it = std::lower_bound(supersite_prob_ids.begin(), supersite_prob_ids.end(),
-	                           static_cast<uint32_t>(ss_idx));
-	if (it == supersite_prob_ids.end() || *it != static_cast<uint32_t>(ss_idx)) return false;
-	const size_t idx = static_cast<size_t>(it - supersite_prob_ids.begin());
-	if (idx >= supersite_prob_offsets.size()) return false;
-	offset = supersite_prob_offsets[idx];
-	return static_cast<size_t>(offset) < ProbSuperClass.size();
 }
 
 namespace {
@@ -364,48 +347,48 @@ void genotype::make(vector < unsigned char > & DipSampled, vector < float > & Cu
 				}
 				m++;
 			}
-			if (VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)])) {
-				// Recompute ss_idx for this specific variant
+				if (VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)])) {
+					// Recompute ss_idx for this specific variant
 				int ss_idx_amb = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
-
+				
 				// Check if this is a heterozygous supersite
 				if (ss_idx_amb >= 0 && super_sites && super_site_var_index) {
 					const SuperSite& ss = (*super_sites)[ss_idx_amb];
 					if (vabs == ss.global_site_id) {
 						// This is a heterozygous supersite anchor
-						// Determine h0/h1 (sampled classes for this epoch) from lanes and immutable c0/c1
-
-						// Get the current allele codes from the immutable supersite snapshot
-						uint8_t current_c0 = 0u;
-						uint8_t current_c1 = 0u;
-						getSupersiteObservedGt(ss_idx_amb, current_c0, current_c1);
-
+                    // Determine h0/h1 (sampled classes for this epoch) from lanes and immutable c0/c1
+                    
+							// Get the current allele codes from the immutable supersite snapshot
+                    uint8_t current_c0 = 0u;
+                    uint8_t current_c1 = 0u;
+                    getSupersiteObservedGt(ss_idx_amb, current_c0, current_c1);
+						
 						// The Ambiguous array tells us the phase orientation for this site
 						// Use it to determine which allele goes to which lane
 						unsigned char amb_code = Ambiguous[a];
-
+						
 						// Determine which allele class each sampled lane should get
 						// If HAP_GET(amb_code, hap) == 0, this lane gets c0's allele
 						// If HAP_GET(amb_code, hap) == 1, this lane gets c1's allele
-						uint8_t h0 = HAP_GET(amb_code, hap0) ? current_c1 : current_c0;
-						uint8_t h1 = HAP_GET(amb_code, hap1) ? current_c1 : current_c0;
+                    uint8_t h0 = HAP_GET(amb_code, hap0) ? current_c1 : current_c0;
+                    uint8_t h1 = HAP_GET(amb_code, hap1) ? current_c1 : current_c0;
 
-						// Project to anchor variant: class 0=REF, 1..n_alts=ALT
-						unsigned char& anchor_byte = Variants[DIV2(vabs)];
-						if (h0 != 0u) VAR_SET_HAP0(MOD2(vabs), anchor_byte);
-						else VAR_CLR_HAP0(MOD2(vabs), anchor_byte);
-						if (h1 != 0u) VAR_SET_HAP1(MOD2(vabs), anchor_byte);
-						else VAR_CLR_HAP1(MOD2(vabs), anchor_byte);
+					// Project to anchor variant: class 0=REF, 1..n_alts=ALT
+					unsigned char& anchor_byte = Variants[DIV2(vabs)];
+					if (h0 != 0u) VAR_SET_HAP0(MOD2(vabs), anchor_byte);
+					else VAR_CLR_HAP0(MOD2(vabs), anchor_byte);
+					if (h1 != 0u) VAR_SET_HAP1(MOD2(vabs), anchor_byte);
+					else VAR_CLR_HAP1(MOD2(vabs), anchor_byte);
 
-						// Persist sampled h0/h1 for this supersite anchor
-						setSupersitePhasedGt(ss_idx_amb, h0, h1);
-
-						// Do not perform range skip: supersite members are not guaranteed contiguous
-						a++;  // One ambiguous event per supersite
-						continue;
-					}
+                    // Persist sampled h0/h1 for this supersite anchor
+                    setSupersitePhasedGt(ss_idx_amb, h0, h1);
+						
+							// Do not perform range skip: supersite members are not guaranteed contiguous
+							a++;  // One ambiguous event per supersite
+							continue;
 				}
-
+				} // End of supersite check
+				
 				// Normal biallelic heterozygous site
 				bool hap0_bit = HAP_GET(Ambiguous[a], hap0);
 				bool hap1_bit = HAP_GET(Ambiguous[a], hap1);
@@ -452,18 +435,14 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 
 					// Anchor: pick class per hap from aggregated SC posteriors
 					const int C = static_cast<int>(ss.n_classes);
-					uint32_t ss_offset = 0u;
-					const bool has_prob_offset = getSupersiteProbOffset(ss_idx_mis, ss_offset);
 					auto avg_supersite_class = [&](int lane) -> uint8_t {
-						if (!has_prob_offset || ProbSuperClass.empty() || sc_storage_events == 0) {
+						if (ProbSuperClass.empty() || sc_storage_events == 0) {
 							return SUPERSITE_CODE_REF;
 						}
 						float best_p = -1.0f;
 						int best_c = 0;
 						for (int c = 0; c < C; ++c) {
-							const size_t idx = static_cast<size_t>(ss_offset) +
-							                   static_cast<size_t>(lane) * static_cast<size_t>(C) +
-							                   static_cast<size_t>(c);
+							const size_t idx = supersite_class_index(ss_idx_mis, lane, c);
 							const float p = ProbSuperClass[idx] / static_cast<float>(sc_storage_events);
 							if (p > best_p) {
 								best_p = p;
@@ -504,8 +483,8 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 			}
 			bool is_amb = VAR_GET_AMB(MOD2(vabs), Variants[DIV2(vabs)]);
 
-			if (is_amb) {
-				// Recompute ss_idx for this specific variant
+				if (is_amb) {
+					// Recompute ss_idx for this specific variant
 				int ss_idx_amb = (super_sites && locus_to_super_idx) ? (*locus_to_super_idx)[vabs] : -1;
 
 				// Check if this is a heterozygous supersite
@@ -544,8 +523,9 @@ void genotype::make(vector < unsigned char > & DipSampled) {
 						a++;  // One ambiguous event per supersite
 						continue;
 					}
-				}
+				} // End of supersite check
 
+				// Normal biallelic heterozygous site
 				bool hap0_bit = HAP_GET(Ambiguous[a], hap0);
 				bool hap1_bit = HAP_GET(Ambiguous[a], hap1);
 				hap0_bit ? VAR_SET_HAP0(MOD2(vabs), Variants[DIV2(vabs)]) : VAR_CLR_HAP0(MOD2(vabs), Variants[DIV2(vabs)]);

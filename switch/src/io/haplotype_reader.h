@@ -34,9 +34,10 @@ public:
 	double minPP;
 	haplotype_set & H;
 	std::string region;
+	std::string site_log_path;
 
 	//CONSTRUCTORS/DESCTRUCTORS
-	haplotype_reader(haplotype_set &, std::string region, double minPP, int _nthreads);
+	haplotype_reader(haplotype_set &, std::string region, double minPP, int _nthreads, std::string site_log_path = "");
 	~haplotype_reader();
 
 	//IO

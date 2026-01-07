@@ -47,8 +47,7 @@ void mendel_solver::set() {
 	vrb.title("Assume input truth is already phased"); tac.clock();
 	for (int i = 0 ; i < H.vecSamples.size() ; i++) {
 		for (int l = 0 ; l < H.n_variants ; l ++) {
-			int g = H.Htrue[2*i+0][l] + H.Htrue[2*i+1][l];
-			H.Phased[i][l] = (g == 1);
+			H.Phased[i][l] = !H.Missing[i][l] && (H.Htrue[2*i+0][l] != H.Htrue[2*i+1][l]);
 		}
 	}
 	vrb.bullet("Timing: " + stb.str(tac.rel_time()*1.0/1000, 2) + "s");
@@ -165,6 +164,12 @@ void mendel_solver::solve(bool singleton_trick) {
 	vrb.title("Mendel phasing using pedigrees"); tac.clock();
 	for (int i = 0 ; i < H.vecSamples.size() ; i++) {
 		for (int l = 0 ; l < H.n_variants ; l ++) {
+			H.Phased[i][l] = !H.Missing[i][l] && (H.Htrue[2*i+0][l] != H.Htrue[2*i+1][l]);
+		}
+	}
+	for (int i = 0 ; i < H.vecSamples.size() ; i++) {
+		for (int l = 0 ; l < H.n_variants ; l ++) {
+			if (H.NAlts[l] > 1) continue;
 			int fidx = ((H.Fathers[i] >= 0) && (!H.Missing[i][l]) && (!H.Missing[H.Fathers[i]][l]))?H.Fathers[i]:-1;
 			int midx = ((H.Mothers[i] >= 0) && (!H.Missing[i][l]) && (!H.Missing[H.Mothers[i]][l]))?H.Mothers[i]:-1;
 			if (fidx != -1 && midx != -1) solveT(l, i, fidx, midx);
@@ -183,6 +188,7 @@ void mendel_solver::count() {
 	vrb.title("Mendel imbalance in duos"); tac.clock();
 	for (int i = 0 ; i < H.vecSamples.size() ; i++) {
 		for (int l = 0 ; l < H.n_variants ; l ++) {
+			if (H.NAlts[l] > 1) continue;
 			int fidx = ((H.Fathers[i] >= 0) && (!H.Missing[i][l]) && (!H.Missing[H.Fathers[i]][l]))?H.Fathers[i]:-1;
 			int midx = ((H.Mothers[i] >= 0) && (!H.Missing[i][l]) && (!H.Missing[H.Mothers[i]][l]))?H.Mothers[i]:-1;
 			if (fidx != -1 && midx != -1) countT(l, i, fidx, midx);
@@ -322,4 +328,3 @@ void mendel_solver::writeDistances(string fout) {
 	fdo.close();
 	vrb.bullet("Timing: " + stb.str(tac.rel_time()*1.0/1000, 2) + "s");
 }
-

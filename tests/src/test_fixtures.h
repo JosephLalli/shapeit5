@@ -24,7 +24,7 @@ inline SuperSiteContext build_supersites(variant_map& V, conditioning_set& H, bo
                     ctx.locus_to_super_idx, ctx.super_site_var_index);
     if (clear_rare_mask) {
         for (auto& ss : ctx.super_sites) {
-            ss.rare_code_mask = 0;
+            ss.rare_code_mask = {0u, 0u, 0u, 0u};
         }
     }
     return ctx;

@@ -37,7 +37,12 @@ void genotype_checker::check() {
 	vrb.title("Check genotyping discordances");
 	for (int i = 0 ; i < H.IDXesti.size() ; i++) {
 		for (int l = 0 ; l < H.n_variants ; l ++) {
-			Errors[i][l] = (!H.Missing[H.IDXesti[i]][l]) && ((H.Htrue[2*H.IDXesti[i]+0][l] + H.Htrue[2*H.IDXesti[i]+1][l]) != (H.Hesti[2*H.IDXesti[i]+0][l] + H.Hesti[2*H.IDXesti[i]+1][l]));
+			const uint16_t t0 = H.Htrue[2*H.IDXesti[i]+0][l];
+			const uint16_t t1 = H.Htrue[2*H.IDXesti[i]+1][l];
+			const uint16_t e0 = H.Hesti[2*H.IDXesti[i]+0][l];
+			const uint16_t e1 = H.Hesti[2*H.IDXesti[i]+1][l];
+			const bool match = (t0 == e0 && t1 == e1) || (t0 == e1 && t1 == e0);
+			Errors[i][l] = (!H.Missing[H.IDXesti[i]][l]) && (!H.MissingEst[H.IDXesti[i]][l]) && !match;
 		}
 	}
 
@@ -55,7 +60,7 @@ void genotype_checker::writePerSample(string fout) {
 		int n_errors = 0, n_nmissing = 0;
 		for (int l = 0 ; l < H.n_variants ; l ++) {
 			n_errors += Errors[i][l];
-			n_nmissing += !H.Missing[H.IDXesti[i]][l];
+			n_nmissing += (!H.Missing[H.IDXesti[i]][l] && !H.MissingEst[H.IDXesti[i]][l]);
 		}
 		fdo << H.vecSamples[H.IDXesti[i]] << " " << n_errors << " " << n_nmissing << " " << stb.str(n_errors * 100.0f / n_nmissing, 2) << endl;
 	}
@@ -72,7 +77,7 @@ void genotype_checker::writePerVariant(string fout) {
 		int n_errors = 0, n_nmissing = 0;
 		for (int i = 0 ; i < H.IDXesti.size() ; i++) {
 			n_errors += Errors[i][l];
-			n_nmissing += !H.Missing[H.IDXesti[i]][l];
+			n_nmissing += (!H.Missing[H.IDXesti[i]][l] && !H.MissingEst[H.IDXesti[i]][l]);
 		}
 		fdo << H.RSIDs[l]  << " " << H.Positions[l] << " " << n_errors << " " << n_nmissing << " " << stb.str(n_errors * 100.0f / n_nmissing, 2) << endl;
 	}

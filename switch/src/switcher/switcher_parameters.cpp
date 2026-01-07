@@ -48,7 +48,8 @@ void switcher::declare_options() {
 	bpo::options_description opt_output ("Output files");
 	opt_output.add_options()
 			("output,O", bpo::value< string >(), "Prefix for all report files")
-			("log", bpo::value< string >(), "Log file");
+			("log", bpo::value< string >(), "Log file")
+			("site-log", bpo::value< string >(), "Write per-site diagnostics to this file");
 
 	descriptions.add(opt_base).add(opt_input).add(opt_output);
 }
@@ -90,6 +91,7 @@ void switcher::verbose_files() {
 	vrb.bullet("Output prefix : [" + options["output"].as < string > () + "]");
 	if (options.count("pedigree")) vrb.bullet("Pedigree file : [" + options["pedigree"].as < string > () + "]");
 	if (options.count("log")) vrb.bullet("Output LOG    : [" + options["log"].as < string > () + "]");
+	if (options.count("site-log")) vrb.bullet("Site log file : [" + options["site-log"].as < string > () + "]");
 }
 
 void switcher::verbose_options() {

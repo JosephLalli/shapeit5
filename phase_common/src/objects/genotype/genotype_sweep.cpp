@@ -337,29 +337,49 @@ void genotype::store(vector < double > & CurrentTransProbabilities, vector < flo
 	n_storage_events ++;
 
 	// Supersite multivariant posterior aggregation (mirrors biallelic ProbMissing)
-	if (super_sites && SC && anchor_has_missing && supersite_sc_offset) {
-		const size_t n_ss = super_sites->size();
-		constexpr int MAX_CLASSES = SUPERSITE_MAX_ALTS + 1;
-
-		if (ProbSuperClass.size() != n_ss * HAP_NUMBER * MAX_CLASSES) {
-			ProbSuperClass.assign(n_ss * HAP_NUMBER * MAX_CLASSES, 0.0f);
+	if (super_sites && SC && anchor_has_missing) {
+		const size_t expected_size = SC->size();
+		if (ProbSuperClass.size() != expected_size) {
+			ProbSuperClass.assign(expected_size, 0.0f);
 			sc_storage_events = 0;
+			supersite_prob_ids.clear();
+			supersite_prob_offsets.clear();
+			supersite_prob_layout_ready = false;
 		}
 
-		for (size_t ss_idx = 0; ss_idx < n_ss; ++ss_idx) {
-			if (!(*anchor_has_missing)[ss_idx]) continue; // only aggregate missing anchors
-			const SuperSite& ss = (*super_sites)[ss_idx];
-			const int C = static_cast<int>(ss.n_classes);
-			const uint32_t offset = (*supersite_sc_offset)[ss_idx];
+		if (!supersite_prob_layout_ready) {
+			// Build missing-only layout once per sample (offsets in ascending supersite order).
+			supersite_prob_ids.clear();
+			supersite_prob_offsets.clear();
+			uint32_t offset = 0u;
+			const size_t n_ss = super_sites->size();
+			for (size_t ss_idx = 0; ss_idx < n_ss; ++ss_idx) {
+				if (!(*anchor_has_missing)[ss_idx]) continue; // only aggregate missing anchors
+				supersite_prob_ids.push_back(static_cast<uint32_t>(ss_idx));
+				supersite_prob_offsets.push_back(offset);
+				const SuperSite& ss = (*super_sites)[ss_idx];
+				offset += HAP_NUMBER * static_cast<uint32_t>(ss.n_classes);
+			}
+			supersite_prob_layout_ready = true;
+		}
 
-			for (int h = 0; h < HAP_NUMBER; ++h) {
-				for (int c = 0; c < C; ++c) {
-					const size_t dst = supersite_class_index(static_cast<int>(ss_idx), h, c);
-					ProbSuperClass[dst] += (*SC)[offset + h * C + c];
+		if (!supersite_prob_ids.empty()) {
+			for (size_t i = 0; i < supersite_prob_ids.size(); ++i) {
+				const size_t ss_idx = supersite_prob_ids[i];
+				const SuperSite& ss = (*super_sites)[ss_idx];
+				const int C = static_cast<int>(ss.n_classes);
+				const uint32_t offset = supersite_prob_offsets[i];
+
+				for (int h = 0; h < HAP_NUMBER; ++h) {
+					for (int c = 0; c < C; ++c) {
+						const size_t dst = static_cast<size_t>(offset) +
+						                   static_cast<size_t>(h) * static_cast<size_t>(C) +
+						                   static_cast<size_t>(c);
+						ProbSuperClass[dst] += (*SC)[dst];
+					}
 				}
 			}
+			++sc_storage_events;
 		}
-
-		++sc_storage_events;
 	}
 }

@@ -38,20 +38,23 @@ void haplotype_set::clear() {
 	Hesti.clear();
 	IDXesti.clear();
 	Missing.clear();
+	MissingEst.clear();
 	Phased.clear();
 	MAC.clear();
+	NAlts.clear();
 	Mothers.clear();
 	Fathers.clear();
 }
 
 void haplotype_set::push(string & sample_id) {
 
-	Htrue.push_back(vector < bool > ());
-	Htrue.push_back(vector < bool > ());
-	Hesti.push_back(vector < bool > ());
-	Hesti.push_back(vector < bool > ());
+	Htrue.push_back(vector < uint16_t > ());
+	Htrue.push_back(vector < uint16_t > ());
+	Hesti.push_back(vector < uint16_t > ());
+	Hesti.push_back(vector < uint16_t > ());
 	Hprob.push_back(vector < bool > ());
 	Missing.push_back(vector < bool > ());
+	MissingEst.push_back(vector < bool > ());
 	Phased.push_back(vector < bool > ());
 	Estimated.push_back(vector < bool > ());
 
@@ -95,7 +98,11 @@ void haplotype_set::readPedigrees(string fped, bool dupid) {
 void haplotype_set::assumePhased() {
 	vrb.title("Assuming all hets in validation are correctly phased");
 	Phased = vector < vector < bool > > (vecSamples.size(), vector < bool > (n_variants, false));
-	for (int i = 0 ; i < vecSamples.size() ; i ++) for (int l = 0 ; l < n_variants ; l ++) Phased[i][l] = !Missing[i][l] && (Htrue[2*i+0][l]!=Htrue[2*i+1][l]);
+	for (int i = 0 ; i < vecSamples.size() ; i ++) {
+		for (int l = 0 ; l < n_variants ; l ++) {
+			Phased[i][l] = !Missing[i][l] && (Htrue[2*i+0][l] != Htrue[2*i+1][l]);
+		}
+	}
 }
 
 unsigned int haplotype_set::distance(unsigned int h0, unsigned int h1) {
@@ -103,4 +110,3 @@ unsigned int haplotype_set::distance(unsigned int h0, unsigned int h1) {
 	for (int l = 0 ; l < n_variants ; l++) dist += (Phased[h1/2][l] && (Htrue[h0][l] != Hesti[h1][l]));
 	return dist;
 }
-

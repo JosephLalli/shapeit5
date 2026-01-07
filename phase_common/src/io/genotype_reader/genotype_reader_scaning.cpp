@@ -22,8 +22,6 @@
 
 #include <io/genotype_reader/genotype_reader_header.h>
 
-#include <utils/xcf.h>
-
 
 void genotype_reader::scanGenotypes() {
 	tac.clock();
@@ -31,21 +29,51 @@ void genotype_reader::scanGenotypes() {
 
 	//File idx
 	int32_t idx_file_main = 0;
-	int32_t idx_file_ref = panels[1]?1:-1;
-	int32_t idx_file_scaf = panels[2]?(panels[1]+panels[2]):-1;
+	int32_t idx_file_ref = panels[1] ? 1 : -1;
+	int32_t idx_file_scaf = panels[2] ? (panels[1] + panels[2]) : -1;
 
-	//Initialize VCF/BCF reader(s)
-	xcf_reader XR(region, nthreads);
+	//Initialize synced reader
+	bcf_srs_t *sr = bcf_sr_init();
+	sr->collapse = COLLAPSE_NONE;
+	sr->require_index = 1;
+	if (nthreads > 1) bcf_sr_set_threads(sr, nthreads);
 
-	//Opening file(s)
-	for (int f = 0 ; f < 3 ; f ++) if (panels[f]) XR.addFile(filenames[f]);
+	//Set region filter
+	if (!region.empty()) {
+		if (bcf_sr_set_regions(sr, region.c_str(), 0) == -1)
+			vrb.error("Impossible to jump to region [" + region + "]");
+		if (bcf_sr_set_targets(sr, region.c_str(), 0, 0) == -1)
+			vrb.error("Impossible to constrain to region [" + region + "]");
+	}
+
+	//Add file readers
+	for (int f = 0; f < 3; f++) {
+		if (panels[f]) {
+			if (!bcf_sr_add_reader(sr, filenames[f].c_str())) {
+				switch (sr->errnum) {
+				case not_bgzf:
+					vrb.error("Opening [" + filenames[f] + "]: not compressed with bgzip");
+					break;
+				case idx_load_failed:
+					vrb.error("Opening [" + filenames[f] + "]: impossible to load index file");
+					break;
+				case file_type_error:
+					vrb.error("Opening [" + filenames[f] + "]: file format not supported by HTSlib");
+					break;
+				default:
+					vrb.error("Opening [" + filenames[f] + "]: unknown error");
+					break;
+				}
+			}
+		}
+	}
 
 	//Sample processing
-	n_main_samples = XR.getSamples(0);
-	n_ref_samples = panels[1] ? XR.getSamples(1) : 0;
-	if ((n_main_samples+n_ref_samples) < 50) {
+	n_main_samples = bcf_hdr_nsamples(sr->readers[idx_file_main].header);
+	n_ref_samples = panels[1] ? bcf_hdr_nsamples(sr->readers[idx_file_ref].header) : 0;
+	if ((n_main_samples + n_ref_samples) < 50) {
 		if (n_ref_samples) vrb.error("Less than 50 samples is not enough to get reliable phasing");
-		else  vrb.error("Less than 50 samples is not enough to get reliable phasing, consider using a reference panel to increase sample size");
+		else vrb.error("Less than 50 samples is not enough to get reliable phasing, consider using a reference panel to increase sample size");
 	}
 
 	uint32_t n_variants_with_scaffold = 0;
@@ -53,17 +81,61 @@ void genotype_reader::scanGenotypes() {
 	uint32_t n_variants_main_format = 0, n_variants_ref_format = 0, n_variants_scaf_format = 0;
 	has_multiallelic_records = false;
 	has_binary_haplotype = false;
-	while (XR.nextRecord()) {
+
+	//Buffers for AC/AN extraction (reused across iterations)
+	int32_t *vAC = nullptr, *vAN = nullptr;
+	int nAC = 0, nAN = 0;
+
+	while (bcf_sr_next_line(sr)) {
 
 		//By defaults, we do not want the variants
 		variant_mask.push_back(false);
 
 		//See which file has a record
-		bool has_main = XR.hasRecord(idx_file_main);
-		bool has_ref = (panels[1] && XR.hasRecord(idx_file_ref));
-		bool has_scaf = (panels[2] && XR.hasRecord(idx_file_scaf));
+		bool has_main = bcf_sr_has_line(sr, idx_file_main);
+		bool has_ref = (panels[1] && bcf_sr_has_line(sr, idx_file_ref));
+		bool has_scaf = (panels[2] && bcf_sr_has_line(sr, idx_file_scaf));
 
-		const bool record_multiallelic = (XR.n_allele > 2);
+		//Extract variant metadata from first available record
+		bcf1_t *rec = nullptr;
+		int rec_file_idx = -1;
+		if (has_main) {
+			rec = bcf_sr_get_line(sr, idx_file_main);
+			rec_file_idx = idx_file_main;
+		} else if (has_ref) {
+			rec = bcf_sr_get_line(sr, idx_file_ref);
+			rec_file_idx = idx_file_ref;
+		} else if (has_scaf) {
+			rec = bcf_sr_get_line(sr, idx_file_scaf);
+			rec_file_idx = idx_file_scaf;
+		}
+
+		if (rec == nullptr || rec->n_allele < 2) continue;
+
+		//Extract metadata
+		bcf_hdr_t *hdr = sr->readers[rec_file_idx].header;
+		std::string chr = std::string(bcf_hdr_id2name(hdr, rec->rid));
+		uint32_t pos = rec->pos + 1;
+		std::string rsid = std::string(rec->d.id);
+		std::string ref_allele = std::string(rec->d.allele[0]);
+		int n_allele = rec->n_allele;
+
+		//Build alt string and alts vector
+		std::vector<std::string> alts;
+		for (int ai = 1; ai < n_allele; ++ai) {
+			alts.push_back(std::string(rec->d.allele[ai]));
+		}
+		std::string alt_str;
+		if (alts.size() == 1) {
+			alt_str = alts[0];
+		} else {
+			for (size_t ai = 0; ai < alts.size(); ++ai) {
+				if (ai) alt_str += ",";
+				alt_str += alts[ai];
+			}
+		}
+
+		const bool record_multiallelic = (n_allele > 2);
 
 		//Not in reference panel
 		if (panels[1] && has_main && !has_ref) { n_variants_noverlap++; continue; }
@@ -74,21 +146,12 @@ void genotype_reader::scanGenotypes() {
 		//In scaffold, but not in main panel
 		if (panels[2] && !has_main && has_scaf) { n_variants_nscaf++; continue; }
 
-		//If main panel not in proper format
-		int32_t main_type = XR.typeRecord(idx_file_main);
-		if ((main_type != RECORD_BCFVCF_GENOTYPE) && (main_type != RECORD_BINARY_GENOTYPE)) { n_variants_main_format ++; continue; }
+		//Main panel format check (must have valid record)
+		if (!has_main) { n_variants_main_format++; continue; }
 
-		//If reference panel not in proper format
-		if (panels[1]) {
-			int32_t ref_type = XR.typeRecord(idx_file_ref);
-			if ((ref_type != RECORD_BCFVCF_GENOTYPE) && (ref_type != RECORD_BINARY_HAPLOTYPE) && (ref_type != RECORD_SPARSE_HAPLOTYPE)) { n_variants_ref_format ++; continue; }
-		}
-
-		//If scaffold panel not in proper format
+		//Scaffold panel - count sites with scaffold data
 		if (panels[2] && has_scaf) {
-			int32_t scaf_type = XR.typeRecord(idx_file_scaf);
-			if ((scaf_type != RECORD_BCFVCF_GENOTYPE) && (scaf_type != RECORD_BINARY_HAPLOTYPE)) { n_variants_scaf_format ++; }
-			else n_variants_with_scaffold++;
+			n_variants_with_scaffold++;
 		}
 
 		//Keep SNPs only
@@ -96,10 +159,10 @@ void genotype_reader::scanGenotypes() {
 			auto is_snp_base = [](const std::string& base) {
 				return (base == "A") || (base == "T") || (base == "G") || (base == "C");
 			};
-			bool bref = is_snp_base(XR.ref);
-			bool balt = !XR.alts.empty();
-			for (const auto& alt : XR.alts) {
-				balt &= is_snp_base(alt);
+			bool bref = is_snp_base(ref_allele);
+			bool balt = !alts.empty();
+			for (const auto& a : alts) {
+				balt &= is_snp_base(a);
 			}
 			n_variants_notsnp += (!bref || !balt);
 			if (!bref || !balt) continue;
@@ -107,14 +170,26 @@ void genotype_reader::scanGenotypes() {
 
 		//Keep common only
 		if (filter_min_maf > 0) {
-			float maf = std::min(1.0f - XR.getAF(0), XR.getAF(0));
+			int rAC = bcf_get_info_int32(hdr, rec, "AC", &vAC, &nAC);
+			int rAN = bcf_get_info_int32(hdr, rec, "AN", &vAN, &nAN);
+
+			float af = 0.0f;
+			if (rAC >= 1 && rAN == 1 && vAN[0] > 0) {
+				uint32_t ac_sum = 0;
+				for (int ai = 0; ai < rAC; ++ai) {
+					if (vAC[ai] > 0) ac_sum += static_cast<uint32_t>(vAC[ai]);
+				}
+				af = static_cast<float>(ac_sum) / static_cast<float>(vAN[0]);
+			}
+
+			float maf = std::min(1.0f - af, af);
 			n_variants_rare += (maf < filter_min_maf);
 			if (maf < filter_min_maf) continue;
 		}
 
 		//Push variant information
-		const uint16_t n_alts = (XR.n_allele > 0) ? static_cast<uint16_t>(XR.n_allele - 1) : 0u;
-		V.push(new variant (XR.chr, XR.pos, XR.rsid, XR.ref, XR.alt, n_alts, V.size()));
+		const uint16_t n_alts_count = (n_allele > 0) ? static_cast<uint16_t>(n_allele - 1) : 0u;
+		V.push(new variant(chr, pos, rsid, ref_allele, alt_str, n_alts_count, V.size()));
 
 		//Flag it!
 		variant_mask.back() = true;
@@ -123,20 +198,12 @@ void genotype_reader::scanGenotypes() {
 			++n_variants_multiallelic;
 			has_multiallelic_records = true;
 		}
-		if (panels[1] && has_ref) {
-			const int32_t ref_type = XR.typeRecord(idx_file_ref);
-			if (ref_type == RECORD_BINARY_HAPLOTYPE || ref_type == RECORD_SPARSE_HAPLOTYPE) {
-				has_binary_haplotype = true;
-			}
-		}
-		if (panels[2] && has_scaf) {
-			const int32_t scaf_type = XR.typeRecord(idx_file_scaf);
-			if (scaf_type == RECORD_BINARY_HAPLOTYPE || scaf_type == RECORD_SPARSE_HAPLOTYPE) {
-				has_binary_haplotype = true;
-			}
-		}
 	}
-	XR.close();
+
+	//Cleanup
+	free(vAC);
+	free(vAN);
+	bcf_sr_destroy(sr);
 
 	n_supersites = n_variants_multiallelic;
 	if (has_multiallelic_records && has_binary_haplotype) {

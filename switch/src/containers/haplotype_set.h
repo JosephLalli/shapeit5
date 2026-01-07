@@ -24,6 +24,7 @@
 #define _HAPLOTYPE_SET_H
 
 #include <utils/otools.h>
+#include <cstdint>
 
 #define TYPE_SNP	0
 #define TYPE_INDEL	1
@@ -35,14 +36,15 @@ public:
 	unsigned int n_variants;
 
 	//Validation Data
-	std::vector < std::vector < bool > > Htrue;
+	std::vector < std::vector < uint16_t > > Htrue;
 	std::vector < std::vector < bool > > Missing;
 	std::vector < std::vector < bool > > Phased;
 
 	//Estimated Data
-	std::vector < std::vector < bool > > Hesti;
+	std::vector < std::vector < uint16_t > > Hesti;
 	std::vector < std::vector < bool > > Hprob;
 	std::vector < std::vector < bool > > Estimated;
+	std::vector < std::vector < bool > > MissingEst;
 	std::map < std::string, float > Vprob;
 	std::vector < int > IDXesti;
 
@@ -52,6 +54,7 @@ public:
 	std::vector < int > Positions;
 	std::vector < std::string > RSIDs;
 	std::vector < std::string > REFs, ALTs;
+	std::vector < uint16_t > NAlts;
 
 	//Family Data [Rows]
 	std::vector < std::string > vecSamples;

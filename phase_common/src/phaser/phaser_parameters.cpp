@@ -101,6 +101,16 @@ void phaser::parse_command_line(vector < string > & args) {
 		bpo::notify(options);
 	} catch ( const boost::program_options::error& e ) { cerr << "Error parsing command line arguments: " << string(e.what()) << endl; exit(0); }
 
+	if (options.count("log")) {
+		const string log_path = options["log"].as < string > ();
+		if (options.count("output") && log_path == options["output"].as < string > ()) {
+			vrb.error("Log file path matches output file path [" + log_path + "]");
+		}
+		if (options.count("bingraph") && log_path == options["bingraph"].as < string > ()) {
+			vrb.error("Log file path matches graph output file path [" + log_path + "]");
+		}
+	}
+
 	if (options.count("log") && !vrb.open_log(options["log"].as < string > ()))
 		vrb.error("Impossible to create log file [" + options["log"].as < string > () +"]");
 

@@ -139,6 +139,9 @@ public:
 	std::vector < float > ProbStored;
 	std::vector < float > ProbMissing;
 	std::vector < float > ProbSuperClass;   // Aggregated supersite class posteriors
+	std::vector < uint32_t > supersite_prob_ids;       // Missing supersite indices (sorted)
+	std::vector < uint32_t > supersite_prob_offsets;   // Offsets into ProbSuperClass for missing supersites
+	bool supersite_prob_layout_ready;                  // Missing-only layout cached for ProbSuperClass
 
 	unsigned int sc_storage_events;         // Number of supersite SC aggregation events
 
@@ -193,6 +196,7 @@ public:
 	void getSupersitePhasedGt(int ss_idx, uint8_t& h0, uint8_t& h1) const;
 	void getSupersiteObservedGt(int ss_idx, uint8_t& c0, uint8_t& c1) const;
 	bool supersiteIsAmbiguous(int ss_idx) const;
+	bool getSupersiteProbOffset(int ss_idx, uint32_t& offset) const;
 	void build();
 	void sample(std::vector < double > &, std::vector < float > &);
 	void sampleForward(std::vector < double > &, std::vector < float > &);

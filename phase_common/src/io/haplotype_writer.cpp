@@ -63,24 +63,67 @@ void haplotype_writer::writeHaplotypes(string fname, string fformat, string ifil
 	//Allocate buffers
 	int32_t * output_buffer = (int32_t *) malloc(G.n_ind * 2 * sizeof(int32_t));
 	bitvector output_bitvector (G.n_ind * 2);
+	if (H.n_supersites > 0) {
+		const size_t expected_codes = static_cast<size_t>(H.n_supersites) * static_cast<size_t>(H.n_hap);
+		if (H.H_supersite_codes.size() < expected_codes) {
+			vrb.error("Supersite code buffer too small for output");
+		}
+	}
 
 	//Write records
+	size_t ss_idx = 0;
 	for (int l = 0 ; l < V.size() ; l ++) {
+		const uint16_t n_alts = V.vec_pos[l]->n_alts;
+		const bool is_multiallelic = (n_alts > 1);
 
-		//Get AC/AN
-		int32_t vAC = 0, vAN = H.n_hap;
-		for (int32_t h = 0 ; h < 2*G.n_ind ; h++) vAC += H.H_opt_var.get(l, h);
+		if (is_multiallelic) {
+			const size_t base = ss_idx * static_cast<size_t>(H.n_hap);
+			const size_t needed = base + static_cast<size_t>(2u * G.n_ind);
+			if (needed > H.H_supersite_codes.size()) {
+				vrb.error("Supersite code offset out of range while writing output");
+			}
 
-		//Variant information
-		XW.writeInfo(V.vec_pos[l]->chr, V.vec_pos[l]->bp, V.vec_pos[l]->ref, V.vec_pos[l]->alt, V.vec_pos[l]->id, vAC, vAN);
+			std::vector<int32_t> vAC(n_alts, 0);
+			for (int32_t h = 0 ; h < 2*G.n_ind ; h++) {
+				uint8_t code = H.H_supersite_codes[base + static_cast<size_t>(h)];
+				if (code > 0 && code <= n_alts) vAC[code - 1]++;
+			}
+			int32_t vAN = static_cast<int32_t>(H.n_hap);
 
-		//Write haplotypes in BCF format
-		if (hts_genotypes) {
-			for (int32_t h = 0 ; h < 2*G.n_ind ; h++) output_buffer[h] = bcf_gt_phased(H.H_opt_var.get(l, h));
-			XW.writeRecord(RECORD_BCFVCF_GENOTYPE, reinterpret_cast<char*>(output_buffer), 2 * G.n_ind * sizeof(int32_t));
+			//Variant information
+			XW.writeInfo(V.vec_pos[l]->chr, V.vec_pos[l]->bp, V.vec_pos[l]->ref, V.vec_pos[l]->alt, V.vec_pos[l]->id, vAC, vAN);
+
+			//Write haplotypes in BCF format
+			if (hts_genotypes) {
+				for (int32_t h = 0 ; h < 2*G.n_ind ; h++) {
+					uint8_t code = H.H_supersite_codes[base + static_cast<size_t>(h)];
+					if (code > n_alts) code = 0;
+					output_buffer[h] = bcf_gt_phased(static_cast<int>(code));
+				}
+				XW.writeRecord(RECORD_BCFVCF_GENOTYPE, reinterpret_cast<char*>(output_buffer), 2 * G.n_ind * sizeof(int32_t));
+			} else {
+				for (int32_t h = 0 ; h < 2*G.n_ind ; h++) output_bitvector.set(h, H.H_opt_var.get(l, h));
+				XW.writeRecord(RECORD_BINARY_HAPLOTYPE, reinterpret_cast<char*>(output_bitvector.bytes), output_bitvector.n_bytes);
+			}
+
+			++ss_idx;
 		} else {
-			for (int32_t h = 0 ; h < 2*G.n_ind ; h++) output_bitvector.set(h, H.H_opt_var.get(l, h));
-			XW.writeRecord(RECORD_BINARY_HAPLOTYPE, reinterpret_cast<char*>(output_bitvector.bytes), output_bitvector.n_bytes);
+			//Get AC/AN
+			int32_t vAC = 0;
+			int32_t vAN = static_cast<int32_t>(H.n_hap);
+			for (int32_t h = 0 ; h < 2*G.n_ind ; h++) vAC += H.H_opt_var.get(l, h);
+
+			//Variant information
+			XW.writeInfo(V.vec_pos[l]->chr, V.vec_pos[l]->bp, V.vec_pos[l]->ref, V.vec_pos[l]->alt, V.vec_pos[l]->id, vAC, vAN);
+
+			//Write haplotypes in BCF format
+			if (hts_genotypes) {
+				for (int32_t h = 0 ; h < 2*G.n_ind ; h++) output_buffer[h] = bcf_gt_phased(H.H_opt_var.get(l, h));
+				XW.writeRecord(RECORD_BCFVCF_GENOTYPE, reinterpret_cast<char*>(output_buffer), 2 * G.n_ind * sizeof(int32_t));
+			} else {
+				for (int32_t h = 0 ; h < 2*G.n_ind ; h++) output_bitvector.set(h, H.H_opt_var.get(l, h));
+				XW.writeRecord(RECORD_BINARY_HAPLOTYPE, reinterpret_cast<char*>(output_bitvector.bytes), output_bitvector.n_bytes);
+			}
 		}
 
 		//Verbose progress

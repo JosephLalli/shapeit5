@@ -54,9 +54,20 @@ public:
 
 inline
 bool haplotype_checker::isSNP(std::string & ref, std::string &alt) {
-	bool bref = (ref == "A") || (ref == "T") || (ref == "G") || (ref == "C");
-	bool balt = (alt == "A") || (alt == "T") || (alt == "G") || (alt == "C");
-	return bref && balt;
+	auto is_base = [](const std::string& base) {
+		return (base == "A") || (base == "T") || (base == "G") || (base == "C");
+	};
+	if (!is_base(ref)) return false;
+	if (alt.empty()) return false;
+	size_t start = 0;
+	while (start < alt.size()) {
+		size_t end = alt.find(',', start);
+		if (end == std::string::npos) end = alt.size();
+		const std::string allele = alt.substr(start, end - start);
+		if (!is_base(allele)) return false;
+		start = end + 1;
+	}
+	return true;
 }
 
 #endif

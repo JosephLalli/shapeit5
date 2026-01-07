@@ -608,7 +608,7 @@ int main() {
     SuperSiteContext ctx10 = build_supersites(V10, H10);
     // Disable rare-code shortcut for parity: treat all supersite anchors as regular sites.
     for (auto& ss : ctx10.super_sites) {
-        ss.rare_code_mask = 0;
+        ss.rare_code_mask = {0u, 0u, 0u, 0u};
     }
 
     // Attach supersite context and snapshot immutable base classes (c0/c1) to
