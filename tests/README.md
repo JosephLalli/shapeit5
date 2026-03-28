@@ -160,6 +160,40 @@ LD_LIBRARY_PATH=$HOME/.linuxbrew/lib:/usr/local/lib:$LD_LIBRARY_PATH tests/bin/t
 
 ---
 
+## Diagnostic Scripts
+
+### Switch error bins by multiallelic status + per-ALT MAF
+
+`tests/scripts/run_switch_binned.sh` runs `switch` and then bins per-variant switch errors
+by biallelic vs multiallelic and per-ALT MAF (min ALT by default).
+
+```bash
+tests/scripts/run_switch_binned.sh \
+  <validation.vcf.gz> <estimation.vcf.gz> <frequency.vcf.gz> \
+  <region> <out_prefix>
+```
+
+Outputs:
+- `<out_prefix>.variant.switch.txt.gz` from `switch`
+- `<out_prefix>.variant.switch.binned.csv` from `switch_multialt_bins.py`
+
+You can customize MAF bins or summary mode:
+
+```bash
+python3 tests/scripts/switch_multialt_bins.py \
+  --switch-variant <out_prefix>.variant.switch.txt.gz \
+  --frequency-vcf <frequency.vcf.gz> \
+  --out <out_prefix>.variant.switch.binned.csv \
+  --alt-maf-mode min \
+  --bins 0,0.001,0.01,0.05,0.5
+```
+
+Notes:
+- The switch per-variant output does not include chromosome, so use a single-region run.
+- The frequency VCF must provide `AC`/`AN` (or `AF` + `AN`) for MAF computation.
+
+---
+
 ## Test Design Principles
 
 ### 1. Minimal Dependencies

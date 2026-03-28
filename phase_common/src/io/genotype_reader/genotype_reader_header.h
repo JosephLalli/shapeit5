@@ -27,6 +27,7 @@
 
 #include <containers/variant_map.h>
 #include <containers/haplotype_set.h>
+#include <array>
 
 class genotype_reader {
 public:
@@ -51,6 +52,7 @@ public:
 	float filter_min_maf;
 	bool filter_snp_only;
 	std::vector < bool > variant_mask;
+	std::vector<std::array<uint64_t, 4>> rare_alt_masks;
 	bool has_multiallelic_records;
 	bool has_binary_haplotype;
 

@@ -4,5 +4,5 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-## [ ] Track: Refactor `xcf_reader` to Native HTSlib
+## [~] Track: Refactor `xcf_reader` to Native HTSlib
 *Link: [./conductor/tracks/native_htslib_20260101/](./conductor/tracks/native_htslib_20260101/)*

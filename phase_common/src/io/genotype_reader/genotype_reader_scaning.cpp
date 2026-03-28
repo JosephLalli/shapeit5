@@ -22,6 +22,13 @@
 
 #include <io/genotype_reader/genotype_reader_header.h>
 
+namespace {
+inline void rare_mask_set(std::array<uint64_t, 4>& mask, uint16_t code) {
+	const uint16_t idx = code >> 6;
+	const uint16_t bit = code & 63u;
+	mask[idx] |= (1ULL << bit);
+}
+}
 
 void genotype_reader::scanGenotypes() {
 	tac.clock();
@@ -78,9 +85,11 @@ void genotype_reader::scanGenotypes() {
 
 	uint32_t n_variants_with_scaffold = 0;
 	uint32_t n_variants_noverlap = 0, n_variants_multiallelic = 0, n_variants_notsnp = 0, n_variants_rare = 0, n_variants_nscaf = 0, n_variants_nref = 0;
+	uint32_t n_rare_alt_masked = 0;
 	uint32_t n_variants_main_format = 0, n_variants_ref_format = 0, n_variants_scaf_format = 0;
 	has_multiallelic_records = false;
 	has_binary_haplotype = false;
+	rare_alt_masks.clear();
 
 	//Buffers for AC/AN extraction (reused across iterations)
 	int32_t *vAC = nullptr, *vAN = nullptr;
@@ -169,27 +178,49 @@ void genotype_reader::scanGenotypes() {
 		}
 
 		//Keep common only
+		std::array<uint64_t, 4> rare_mask = {0u, 0u, 0u, 0u};
 		if (filter_min_maf > 0) {
 			int rAC = bcf_get_info_int32(hdr, rec, "AC", &vAC, &nAC);
 			int rAN = bcf_get_info_int32(hdr, rec, "AN", &vAN, &nAN);
 
-			float af = 0.0f;
-			if (rAC >= 1 && rAN == 1 && vAN[0] > 0) {
-				uint32_t ac_sum = 0;
-				for (int ai = 0; ai < rAC; ++ai) {
-					if (vAC[ai] > 0) ac_sum += static_cast<uint32_t>(vAC[ai]);
+			if (record_multiallelic) {
+				const int n_alts = n_allele - 1;
+				if (rAC >= 1 && rAN == 1 && vAN[0] > 0) {
+					for (int ai = 0; ai < n_alts; ++ai) {
+						const int32_t ac = (ai < rAC) ? vAC[ai] : 0;
+						const float af = static_cast<float>(ac) / static_cast<float>(vAN[0]);
+						const float maf = std::min(1.0f - af, af);
+						if (maf < filter_min_maf) {
+							rare_mask_set(rare_mask, static_cast<uint16_t>(ai + 1));
+							n_rare_alt_masked++;
+						}
+					}
+				} else {
+					for (int ai = 0; ai < n_alts; ++ai) {
+						rare_mask_set(rare_mask, static_cast<uint16_t>(ai + 1));
+						n_rare_alt_masked++;
+					}
 				}
-				af = static_cast<float>(ac_sum) / static_cast<float>(vAN[0]);
-			}
+			} else {
+				float af = 0.0f;
+				if (rAC >= 1 && rAN == 1 && vAN[0] > 0) {
+					uint32_t ac_sum = 0;
+					for (int ai = 0; ai < rAC; ++ai) {
+						if (vAC[ai] > 0) ac_sum += static_cast<uint32_t>(vAC[ai]);
+					}
+					af = static_cast<float>(ac_sum) / static_cast<float>(vAN[0]);
+				}
 
-			float maf = std::min(1.0f - af, af);
-			n_variants_rare += (maf < filter_min_maf);
-			if (maf < filter_min_maf) continue;
+				float maf = std::min(1.0f - af, af);
+				n_variants_rare += (maf < filter_min_maf);
+				if (maf < filter_min_maf) continue;
+			}
 		}
 
 		//Push variant information
 		const uint16_t n_alts_count = (n_allele > 0) ? static_cast<uint16_t>(n_allele - 1) : 0u;
 		V.push(new variant(chr, pos, rsid, ref_allele, alt_str, n_alts_count, V.size()));
+		rare_alt_masks.push_back(rare_mask);
 
 		//Flag it!
 		variant_mask.back() = true;
@@ -217,6 +248,7 @@ void genotype_reader::scanGenotypes() {
 	if (n_variants_multiallelic) vrb.bullet3(stb.str(n_variants_multiallelic) + " multiallelic sites retained");
 	if (n_variants_notsnp) vrb.bullet3(stb.str(n_variants_notsnp) + " sites removed in main panel [not SNPs]");
 	if (n_variants_rare) vrb.bullet3(stb.str(n_variants_rare) + " sites removed in main panel [below MAF threshold]");
+	if (n_rare_alt_masked) vrb.bullet3(stb.str(n_rare_alt_masked) + " ALT alleles masked in multiallelic sites [below MAF threshold]");
 	if (n_variants_nref) vrb.bullet3(stb.str(n_variants_nref) + " sites removed in reference panel [not in main panel]");
 	if (n_variants_nscaf) vrb.bullet3(stb.str(n_variants_nscaf) + " sites removed in scaffold panel [not in main panel]");
 	if (n_variants_main_format) vrb.bullet3(stb.str(n_variants_main_format) + " sites removed [record in main panel not in a supported format]");

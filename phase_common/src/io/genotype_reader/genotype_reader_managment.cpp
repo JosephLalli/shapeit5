@@ -37,6 +37,7 @@ genotype_reader::genotype_reader(haplotype_set & _H, genotype_set & _G, variant_
 	filter_snp_only = false;
 	has_multiallelic_records = false;
 	has_binary_haplotype = false;
+	rare_alt_masks.clear();
 	filenames = vector < string > (3, "");
 	panels = vector < int8_t > (3, 0) ;
 }
@@ -54,6 +55,7 @@ genotype_reader::~genotype_reader() {
 	filter_snp_only = false;
 	has_multiallelic_records = false;
 	has_binary_haplotype = false;
+	rare_alt_masks.clear();
 	filenames = vector < string > (3, "");
 	panels = vector < int8_t > (3, 0) ;
 }

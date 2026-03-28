@@ -22,6 +22,15 @@
 
 #include <io/genotype_reader/genotype_reader_header.h>
 
+namespace {
+inline bool rare_mask_contains(const std::array<uint64_t, 4>& mask, uint8_t code) {
+	if (code == 0u) return false;
+	const uint16_t idx = static_cast<uint16_t>(code) >> 6;
+	const uint16_t bit = static_cast<uint16_t>(code) & 63u;
+	return (mask[idx] & (1ULL << bit)) != 0u;
+}
+}
+
 void genotype_reader::readGenotypes() {
 	tac.clock();
 	vrb.wait("  * VCF/BCF parsing");
@@ -131,6 +140,10 @@ void genotype_reader::readGenotypes() {
 			const int n_alts = rec_main->n_allele > 0 ? (rec_main->n_allele - 1) : 0;
 			const int ss_idx = record_multiallelic ? static_cast<int>(i_supersite_kept) : -1;
 			const size_t ss_offset = record_multiallelic ? static_cast<size_t>(ss_idx) * H.n_hap : 0u;
+			const std::array<uint64_t, 4> empty_rare_mask = {0u, 0u, 0u, 0u};
+			const std::array<uint64_t, 4>& rare_mask = (record_multiallelic && i_variant_kept < rare_alt_masks.size())
+				? rare_alt_masks[i_variant_kept]
+				: empty_rare_mask;
 
 			// ====== Retrieve MAIN data ============== //
 			int nGT_main = bcf_get_genotypes(hdr_main, rec_main, &main_buffer, &n_main_buffer);
@@ -166,6 +179,15 @@ void genotype_reader::readGenotypes() {
 					if (allele1 < 0 || allele1 > n_alts) allele1 = 0;
 					const uint8_t code0 = static_cast<uint8_t>(allele0);
 					const uint8_t code1 = static_cast<uint8_t>(allele1);
+					if (rare_mask_contains(rare_mask, code0) || rare_mask_contains(rare_mask, code1)) {
+						g->setSupersiteObservedGt(ss_idx, 0u, 0u, 0x3u);
+						VAR_SET_MIS(MOD2(i_variant_kept), vbyte);
+						VAR_CLR_HAP0(MOD2(i_variant_kept), vbyte);
+						VAR_CLR_HAP1(MOD2(i_variant_kept), vbyte);
+						V.vec_pos[i_variant_kept]->cmis++;
+						n_genotypes[3] ++;
+						continue;
+					}
 					g->setSupersiteObservedGt(ss_idx, code0, code1, 0u);
 					const unsigned sample_idx = static_cast<unsigned>(DIV2(i));
 					const size_t hap0 = ss_offset + sample_idx * 2u;

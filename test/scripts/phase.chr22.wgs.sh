@@ -12,20 +12,26 @@ run_suffix=".${run_suffix}"
 
 source "$SCRIPT_DIR/lib/test_utils.sh"
 
+ref_fasta="${TEST_DIR}/../../chm13v2.0.fa"
+
 tmp_dir=$TEST_DIR/tmp
 mkdir -p tmp
 
-#scaffold_region=chr22:18000000-25000000
-#comparison_region=chr22:18000000-25000000
-scaffold_region=chr22:19000000-20000000
-comparison_region=chr22:19000000-20000000
+scaffold_region=chr22:18000000-25000000
+comparison_region=chr22:18000000-25000000
+#scaffold_region=chr22:19000000-20000000
+#comparison_region=chr22:19000000-20000000
 
 #scaffold_region=chr22:19000000-19100000
 #comparison_region=chr22:19000000-19100000
 
 #in_bcf="${TEST_DIR}/wgs/1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.unphased.native_maps.biallelic.18000000-25000000.renormed.bcf"
-in_bcf="${TEST_DIR}/../1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.biallelic.filtered.original_gt.bcf"
+#in_bcf="${TEST_DIR}/../1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.biallelic.filtered.original_gt.bcf"
 #in_bcf="${TEST_DIR}/../1KGP.CHM13v2.0.chr22.snp_indel.phasing_qual_pass.biallelic.filtered.sorted.bcf"
+in_bcf="${TEST_DIR}/../1KGP.CHM13v2.0.chr22.18-25mb.snp_indel.phasing_qual_pass.unphased.simplysplit.bcf"
+multi_in_bcf="${TEST_DIR}/../1KGP.CHM13v2.0.chr22.18-25mb.snp_indel.phasing_qual_pass.unphased.multiallelic.bcf"
+
+multi_ref_bcf="${TEST_DIR}/../1KGP.CHM13v2.0.chr22.18-25mb.snp_indel.phasing_qual_pass.fully_annotated.bcf"
 ref_bcf="${TEST_DIR}/wgs/chr22_t2t_reference_pangenome.filtered_variants.18000000-25000000.biallelic.filtered.bcf"
 #in_bcf="${TEST_DIR}/wgs/snp_and_multi.unphased.vcf.gz"
 #ref_bcf="${TEST_DIR}/wgs/snp_and_multi.phased.vcf.gz"
@@ -33,14 +39,25 @@ ref_bcf="${TEST_DIR}/wgs/chr22_t2t_reference_pangenome.filtered_variants.1800000
 threads=32
 
 scaffold_bcf_prefix="$tmp_dir/chr22.1KGP.18-25mb.phase_common"
-# if [[ 'x' == 'y' ]]; then
-# if [[ ! -s $scaffold_bcf_prefix.og.bcf ]]; then
+if [[ 'x' == 'y' ]]; then
 /usr/bin/time ./SHAPEIT5_phase_common_static_v1.1.1 \
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \
-  --map info/chr22.gmap.gz \
+  --map ${TEST_DIR}/info/chr22.gmap.gz \
+  --log $scaffold_bcf_prefix.og.small.log \
   --output $scaffold_bcf_prefix.og.small.bcf \
+  --thread $threads &
+#fi
+#echo """
+/usr/bin/time ${TEST_DIR}/../phase_common/bin/phase_common \
+  --input $in_bcf \
+  --filter-maf 0.001 \
+  --region $scaffold_region \
+  --map ${TEST_DIR}/info/chr22.gmap.gz \
+  --log $scaffold_bcf_prefix.main_algo.small.${seed}${run_suffix}.log \
+  --output $scaffold_bcf_prefix.main_algo.small.${seed}${run_suffix}.bcf \
+  --seed $seed \
   --thread $threads &
 #fi
 
@@ -48,32 +65,34 @@ scaffold_bcf_prefix="$tmp_dir/chr22.1KGP.18-25mb.phase_common"
   --input $in_bcf \
   --filter-maf 0.001 \
   --region $scaffold_region \
-  --map info/chr22.gmap.gz \
-  --output $scaffold_bcf_prefix.main_algo.small.${seed}${run_suffix}.bcf \
-  --seed $seed \
-  --thread $threads &
-#fi
-
-${TEST_DIR}/../phase_common/bin/phase_common \
-  --input $in_bcf \
-  --filter-maf 0.001 \
-  --region $scaffold_region \
-  --map info/chr22.gmap.gz \
-  --output $scaffold_bcf_prefix.supersites.split_emissions.small.${seed}${run_suffix}.bcf \
+  --map ${TEST_DIR}/info/chr22.gmap.gz \
+  --log $scaffold_bcf_prefix.supersites.small.${seed}${run_suffix}.log \
+  --output $scaffold_bcf_prefix.supersites.small.${seed}${run_suffix}.bcf \
   --enable-supersites \
   --seed $seed \
   --thread $threads &
 
-#fi
-wait
+/usr/bin/time ${TEST_DIR}/../phase_common/bin/phase_common \
+  --input $multi_in_bcf \
+  --filter-maf 0.001 \
+  --region $scaffold_region \
+  --map ${TEST_DIR}/info/chr22.gmap.gz \
+  --log $scaffold_bcf_prefix.multiallelic.small.${seed}${run_suffix}.log \
+  --output $scaffold_bcf_prefix.multiallelic.small.${seed}${run_suffix}.bcf \
+  --enable-supersites \
+  --seed $seed \
+  --thread $threads &
 
+fi
+wait
+#exit 0
 #if [[ 'a' == 'b' ]]; then
 ${TEST_DIR}/../switch/bin/switch \
   --validation "$ref_bcf" \
   --estimation "$scaffold_bcf_prefix.og.small.bcf" \
   --region $comparison_region \
   --output "$scaffold_bcf_prefix.og" \
-  --log "$scaffold_bcf_prefix.og.log" >/dev/null
+  --log "$scaffold_bcf_prefix.og.log" >/dev/null &
 #fi
 
 ../switch/bin/switch \
@@ -81,15 +100,24 @@ ${TEST_DIR}/../switch/bin/switch \
   --estimation "$scaffold_bcf_prefix.main_algo.small.${seed}${run_suffix}.bcf" \
   --region $comparison_region \
   --output "$scaffold_bcf_prefix.main_algo.${seed}${run_suffix}" \
-  --log "$scaffold_bcf_prefix.main_algo.${seed}${run_suffix}.log" >/dev/null
+  --log "$scaffold_bcf_prefix.main_algo.${seed}${run_suffix}.log" >/dev/null &
 
 ../switch/bin/switch \
   --validation "$ref_bcf" \
-  --estimation "$scaffold_bcf_prefix.supersites.split_emissions.small.${seed}${run_suffix}.bcf" \
+  --estimation "$scaffold_bcf_prefix.supersites.small.${seed}${run_suffix}.bcf" \
   --region $comparison_region \
-  --output "$scaffold_bcf_prefix.supersites.split_emissions.${seed}${run_suffix}" \
-  --log "$scaffold_bcf_prefix.supersites.split_emissions.${seed}${run_suffix}.log" >/dev/null
+  --output "$scaffold_bcf_prefix.supersites.${seed}${run_suffix}" \
+  --log "$scaffold_bcf_prefix.supersites.${seed}${run_suffix}.log" > /dev/null &
 
+bcftools norm -m +any -Ob -W -o $scaffold_bcf_prefix.multiallelic.small.${seed}${run_suffix}.bcf $scaffold_bcf_prefix.supersites.small.${seed}${run_suffix}.bcf && \
+../switch/bin/switch \
+  --validation "$multi_ref_bcf" \
+  --estimation "$scaffold_bcf_prefix.multiallelic.small.${seed}${run_suffix}.bcf" \
+  --region $comparison_region \
+  --output "$scaffold_bcf_prefix.multiallelic.${seed}${run_suffix}" \
+  --log "$scaffold_bcf_prefix.multiallelic.${seed}${run_suffix}.log" &
+
+wait
 # Integration testing: Extract and compare switch error rates
 echo "=== Integration Test Results ==="
 
@@ -105,11 +133,13 @@ extract_switch_error() {
 
 og_error=$(extract_switch_error "$scaffold_bcf_prefix.og.log")
 main_algo_error=$(extract_switch_error "$scaffold_bcf_prefix.main_algo.${seed}${run_suffix}.log")
-supersites_error=$(extract_switch_error "$scaffold_bcf_prefix.supersites.split_emissions.${seed}${run_suffix}.log")
+supersites_error=$(extract_switch_error "$scaffold_bcf_prefix.supersites.${seed}${run_suffix}.log")
+multi_error=$(extract_switch_error "$scaffold_bcf_prefix.multiallelic.${seed}${run_suffix}.log")
 
 echo "Original algorithm switch error rate: $og_error"
 echo "Main algorithm switch error rate: $main_algo_error"
 echo "Supersites algorithm switch error rate: $supersites_error"
+echo "Supersites algorithm switch error rate (multiallelic): $multi_error"
 
 # Test logic: Fail if main_algo is worse than og
 if [[ "$og_error" != "N/A" && "$main_algo_error" != "N/A" ]]; then

@@ -1,11 +1,11 @@
 # Track Plan: Refactor `xcf_reader` to Native HTSlib
 
 ## Phase 1: Preparation and C++ Style Guide
-- [ ] Task: Create a specific C++ style guide based on the codebase conventions
-- [ ] Task: Analyze `xcf_reader` usage and internal implementation to list all features being removed (binary/sparse support).
+- [x] Task: Create a specific C++ style guide based on the codebase conventions
+- [x] Task: Analyze `xcf_reader` usage and internal implementation to list all features being removed (binary/sparse support).
 
 ## Phase 2: Refactor Scanning Loop
-- [ ] Task: Create a reproduction test case (smoke test) that runs the current `phase_common` on a small dataset.
+- [~] Task: Create a reproduction test case (smoke test) that runs the current `phase_common` on a small dataset.
 - [ ] Task: Refactor `genotype_reader_scaning.cpp` to use `bcf_srs_t` directly.
     - Remove `xcf_reader` initialization.
     - Implement `bcf_sr_init` and `bcf_sr_add_reader`.

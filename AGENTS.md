@@ -28,21 +28,22 @@
 - Li-Stephens forward/backward HMM with `HAP_NUMBER=8` SIMD lanes.
 - Emission mismatch multiplier is `M.ed/M.ee` (defaults `0.0001/0.9999`).
 - Transition probabilities come from map distance via `getForwardTransProb` / `getBackwardTransProb`.
+- Forward/backward loops consume `SiteView`/`EmitKind` from the emission adapters so biallelic and supersite anchors share the same DP path; supersite siblings are bookkeeping-only.
 - Underflow handling: float path retries in double; samples track `double_precision`.
 
 ## Supersites (current implementation)
 ### Data model
-- `SuperSite` holds anchor `global_site_id`, `n_alts` (1..15), `var_start/var_count`, `panel_offset/panel_span_bytes`, `n_classes=1+n_alts`, `rare_code_mask`.
+- `SuperSite` holds anchor `global_site_id`, `n_alts` (1..255), `var_start/var_count`, `panel_offset/panel_span_bytes`, `n_classes=1+n_alts`, `rare_code_mask`.
 - `locus_to_super_idx` maps variant -> supersite index; `super_site_var_index` is the flat member list.
-- Panel codes are 4-bit (0=REF, 1..n_alts=ALT1..ALTn), packed 2 per byte in `packed_allele_codes`.
+- Panel codes are 1 byte each (0=REF, 1..n_alts=ALT1..ALTn), packed 1 per byte in `packed_allele_codes`.
 
 ### Build and refresh
-- `buildSuperSites` groups split records by `(chr,bp)` and chunks >15 ALTs; anchor is first record in each chunk.
+- `buildSuperSites` creates one supersite per multiallelic record (n_alts > 1) and stores one-byte class codes per haplotype; anchor is the multiallelic locus.
 - `rebuildSupersiteMetadata` runs at init and after each haplotype update; applies PBWT anchor mask/redirect and `M.markSuperSiteSiblings`.
 - `updateSuperSiteAnchorEncoding` fixes anchor HET flags for multi-allelic hets.
 
 ### Classes and projection
-- `resolveSupersiteClasses` derives `c0/c1`, canonicalizes order, and sets anchor flags; mixed missing+called => all missing; >2 ALT classes throws.
+- `resolveSupersiteClasses` reads observed `c0/c1` via `getSupersiteObservedGt` (canonicalized there) for downstream use.
 - `snapshotSupersiteObservedGts` stores immutable `c0/c1` for emissions; `setSupersitePhasedGt` stores sampled `h0/h1`.
 - `genotype::projectSupersites` re-applies sampled `h0/h1` after each `sample()`.
 
@@ -54,10 +55,10 @@
 ### Missing and imputation
 - `compute_job` marks `anchor_has_missing` by anchor MIS and allocates SC with per-supersite offsets.
 - Backward pass calls `IMPUTE_SUPERSITE_MULTIVARIATE` at missing anchors; `missing_index_by_locus` maps forward missing slots.
-- `genotype::make` samples one class per hap from SC (ALT-only CDF, REF implicit) and projects to splits.
+- `genotype::make` samples one class per hap from SC (ALT-only CDF, REF implicit) and updates the anchor plus `ss_phased_gts`.
 
 ### PBWT
-- `conditioning_set` masks siblings from evaluation and uses 4-bit class codes at anchors.
+- `conditioning_set` masks non-anchor supersite members from evaluation and uses 8-bit class codes at anchors.
 - `--no-supersite-pbwt` disables supersite-aware PBWT even when supersites are enabled.
 
 ## Indexing semantics (supersites)
